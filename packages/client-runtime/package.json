@@ -163,6 +163,10 @@
       "types": "./src/state/usage.ts",
       "default": "./src/state/usage.ts"
     },
+    "./state/skills": {
+      "types": "./src/state/skillInventoryHttp.ts",
+      "default": "./src/state/skillInventoryHttp.ts"
+    },
     "./state/server": {
       "types": "./src/state/server.ts",
       "default": "./src/state/server.ts"

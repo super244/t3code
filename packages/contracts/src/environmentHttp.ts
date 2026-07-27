@@ -31,6 +31,7 @@ import {
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import { SkillInventory } from "./skillInventory.ts";
 import {
   ClientOrchestrationCommand,
   DispatchResult,
@@ -553,7 +554,15 @@ class EnvironmentPullRequestsHttpApi extends HttpApiGroup.make("pullRequests").a
   }).middleware(EnvironmentAuthenticatedAuth),
 ) {}
 
-class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
+export class EnvironmentSkillsHttpApi extends HttpApiGroup.make("skills").add(
+  HttpApiEndpoint.get("inventory", "/api/skills", {
+    headers: OptionalBearerHeaders,
+    success: SkillInventory,
+    error: EnvironmentOrchestrationSnapshotErrors,
+  }).middleware(EnvironmentAuthenticatedAuth),
+) {}
+
+export class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
   .add(
     HttpApiEndpoint.post("linkProof", "/api/connect/link-proof", {
       headers: OptionalBearerHeaders,
@@ -619,4 +628,5 @@ export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentAuthHttpApi)
   .add(EnvironmentOrchestrationHttpApi)
   .add(EnvironmentPullRequestsHttpApi)
+  .add(EnvironmentSkillsHttpApi)
   .add(EnvironmentConnectHttpApi) {}
