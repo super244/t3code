@@ -45,11 +45,61 @@ const TAB_OPTIONS = [
 // Labels are abbreviated to share a row with the metric toggle; screen
 // readers get the full phrase.
 const WINDOW_OPTIONS = [
-  { value: 1, label: "24h", accessibilityLabel: "Past 24 hours" },
-  { value: 7, label: "7d", accessibilityLabel: "Past 7 days" },
-  { value: 30, label: "30d", accessibilityLabel: "Past 30 days" },
-  { value: 90, label: "90d", accessibilityLabel: "Past 90 days" },
+  { value: "1h", amount: 1, resolution: "hour", label: "1h", accessibilityLabel: "Past hour" },
+  { value: "5h", amount: 5, resolution: "hour", label: "5h", accessibilityLabel: "Past 5 hours" },
+  {
+    value: "12h",
+    amount: 12,
+    resolution: "hour",
+    label: "12h",
+    accessibilityLabel: "Past 12 hours",
+  },
+  {
+    value: "24h",
+    amount: 24,
+    resolution: "hour",
+    label: "24h",
+    accessibilityLabel: "Past 24 hours",
+  },
+  { value: "3d", amount: 3, resolution: "day", label: "3d", accessibilityLabel: "Past 3 days" },
+  { value: "7d", amount: 7, resolution: "day", label: "7d", accessibilityLabel: "Past 7 days" },
+  { value: "30d", amount: 30, resolution: "day", label: "30d", accessibilityLabel: "Past 30 days" },
+  { value: "90d", amount: 90, resolution: "day", label: "90d", accessibilityLabel: "Past 90 days" },
+  {
+    value: "180d",
+    amount: 180,
+    resolution: "day",
+    label: "180d",
+    accessibilityLabel: "Past 180 days",
+  },
+  { value: "1y", amount: 365, resolution: "day", label: "1y", accessibilityLabel: "Past year" },
+  { value: "2y", amount: 730, resolution: "day", label: "2y", accessibilityLabel: "Past 2 years" },
+  {
+    value: "5y",
+    amount: 1_825,
+    resolution: "day",
+    label: "5y",
+    accessibilityLabel: "Past 5 years",
+  },
+  {
+    value: "all",
+    amount: 7_300,
+    resolution: "day",
+    label: "All",
+    accessibilityLabel: "All usage history",
+  },
 ] as const;
+
+type UsageWindowPreset = (typeof WINDOW_OPTIONS)[number]["value"];
+
+function usageWindowOption(value: UsageWindowPreset) {
+  return WINDOW_OPTIONS.find((option) => option.value === value) ?? WINDOW_OPTIONS[6];
+}
+
+function makeUsageWindow(value: UsageWindowPreset) {
+  const option = usageWindowOption(value);
+  return makeWindow(option.amount, undefined, option.resolution);
+}
 
 const METRIC_OPTIONS = [
   { value: "cost", label: "Cost" },
@@ -68,12 +118,12 @@ export function UsageRouteScreen() {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<UsageTab>("usage");
   const [windowSelection, setWindowSelection] = useState(() => ({
-    days: 30,
-    window: makeWindow(30),
+    preset: "30d" as UsageWindowPreset,
+    window: makeUsageWindow("30d"),
   }));
   const [metric, setMetric] = useState<UsageChartMetric>("cost");
-  const { days: windowDays, window } = windowSelection;
-  const isPast24Hours = windowDays === 1;
+  const { preset: windowPreset, window } = windowSelection;
+  const isHourlyWindow = usageWindowOption(windowPreset).resolution === "hour";
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] =
     useState<ReadonlySet<EnvironmentId> | null>(null);
   const { merged, environments, selectedEnvironments, isPending, refresh } = useUsage(
@@ -83,19 +133,22 @@ export function UsageRouteScreen() {
   const limits = useRefreshLimits(selectedEnvironmentIds);
 
   const days = useMemo(
-    () => enumerateDays(window.sinceDay, window.untilDay),
-    [window.sinceDay, window.untilDay],
+    () =>
+      windowPreset === "all"
+        ? merged.daily.map((period) => period.day)
+        : enumerateDays(window.sinceDay, window.untilDay),
+    [merged.daily, window.sinceDay, window.untilDay, windowPreset],
   );
   const chartDays = useMemo(
     () =>
-      isPast24Hours && window.sinceTime !== undefined && window.untilTime !== undefined
+      isHourlyWindow && window.sinceTime !== undefined && window.untilTime !== undefined
         ? enumerateHourStarts(window.sinceTime, window.untilTime)
         : days,
-    [days, isPast24Hours, window.sinceTime, window.untilTime],
+    [days, isHourlyWindow, window.sinceTime, window.untilTime],
   );
   const chartTotals = useMemo(
     (): readonly DailyTotals[] =>
-      isPast24Hours
+      isHourlyWindow
         ? merged.hourly.map((hour) => ({
             day: hour.hourStart,
             costUsd: hour.costUsd,
@@ -103,28 +156,28 @@ export function UsageRouteScreen() {
             byProvider: hour.byProvider,
           }))
         : merged.daily,
-    [isPast24Hours, merged.daily, merged.hourly],
+    [isHourlyWindow, merged.daily, merged.hourly],
   );
 
   const [refreshingUsage, setRefreshingUsage] = useState(false);
   const refreshingRef = useRef(false);
   const showingLimits = tab === "limits";
-  const selectWindow = (days: number) => {
+  const selectWindow = (preset: UsageWindowPreset) => {
     setWindowSelection({
-      days,
-      window: makeWindow(days, undefined, days === 1 ? "hour" : "day"),
+      preset,
+      window: makeUsageWindow(preset),
     });
   };
   const refreshWindow = () => {
     if (refreshingRef.current) return;
-    const nextWindow = makeWindow(windowDays, undefined, isPast24Hours ? "hour" : "day");
+    const nextWindow = makeUsageWindow(windowPreset);
     if (
       nextWindow.sinceDay !== window.sinceDay ||
       nextWindow.untilDay !== window.untilDay ||
       nextWindow.sinceTime !== window.sinceTime ||
       nextWindow.untilTime !== window.untilTime
     ) {
-      setWindowSelection({ days: windowDays, window: nextWindow });
+      setWindowSelection({ preset: windowPreset, window: nextWindow });
     }
     refreshingRef.current = true;
     setRefreshingUsage(true);
@@ -262,13 +315,27 @@ export function UsageRouteScreen() {
               {/* Period and metric together: neither applies to Limits, and
                 both change every number below, so they share one bar. */}
               <View className="flex-row items-center gap-3">
-                <SegmentedControl
-                  options={WINDOW_OPTIONS}
-                  selected={windowDays}
-                  onSelect={selectWindow}
-                  size="compact"
-                  className="flex-1"
-                />
+                <ControlPillMenu
+                  title="Usage period"
+                  actions={WINDOW_OPTIONS.map((option) => ({
+                    id: option.value,
+                    title: option.accessibilityLabel,
+                    state: option.value === windowPreset ? ("on" as const) : ("off" as const),
+                  }))}
+                  onPressAction={({ nativeEvent }) =>
+                    selectWindow(nativeEvent.event as UsageWindowPreset)
+                  }
+                >
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Usage period, ${usageWindowOption(windowPreset).accessibilityLabel}`}
+                    className="h-9 flex-1 items-center justify-center rounded-full bg-foreground/5 px-3"
+                  >
+                    <Text className="text-sm font-medium text-foreground">
+                      {usageWindowOption(windowPreset).accessibilityLabel}
+                    </Text>
+                  </Pressable>
+                </ControlPillMenu>
                 <SegmentedControl
                   options={METRIC_OPTIONS}
                   selected={metric}
@@ -302,11 +369,11 @@ export function UsageRouteScreen() {
                     metric={metric}
                     sinceDay={window.sinceDay}
                     untilDay={window.untilDay}
-                    isPast24Hours={isPast24Hours}
+                    isPast24Hours={isHourlyWindow}
                     timeZone={window.timeZone}
                   />
                   <ProviderSection merged={merged} metric={metric} />
-                  <TotalsSection merged={merged} isPast24Hours={isPast24Hours} />
+                  <TotalsSection merged={merged} isPast24Hours={isHourlyWindow} />
                   <ModelsSection merged={merged} />
                 </>
               )}

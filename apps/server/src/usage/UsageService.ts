@@ -77,7 +77,8 @@ const MTIME_SLACK_MS = 36 * 60 * 60 * 1000;
 const MAX_HOURLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /** Longest window the UI offers, plus slack. Older entries are pruned. */
-const CACHE_RETENTION_DAYS = 90;
+/** Covers the complete lifetime of every currently supported provider CLI. */
+const CACHE_RETENTION_DAYS = 20 * 365;
 
 /** On-disk shape of the rate snapshot. */
 const RatesCacheFile = Schema.Struct({

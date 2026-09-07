@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
+import { ProjectId } from "./baseSchemas.ts";
 import {
   ClientSettingsSchema,
   ClientSettingsPatch,
@@ -69,6 +70,35 @@ describe("ServerSettings usage price overrides", () => {
     ]) {
       expect(() => decodeServerSettingsPatch({ usagePriceOverrides })).toThrow();
     }
+  });
+});
+
+describe("ServerSettings routines", () => {
+  const routine = {
+    name: "Morning review",
+    enabled: true,
+    cron: "0 7 * * *",
+    timeZone: "America/Vancouver",
+    projectId: ProjectId.make("project-1"),
+    prompt: "Review the project.",
+    modelSelection: { instanceId: ProviderInstanceId.make("codex_personal"), model: "gpt-5" },
+    runtimeMode: "full-access" as const,
+    interactionMode: "default" as const,
+    nextRunAt: null,
+    lastRunAt: null,
+    lastRunStatus: "never" as const,
+    lastThreadId: null,
+    lastError: null,
+  };
+
+  it("defaults to no routines and accepts per-entry deletion patches", () => {
+    expect(decodeServerSettings({}).routines).toEqual({});
+    expect(
+      decodeServerSettingsPatch({ routines: { morning: routine, old: null } }).routines,
+    ).toEqual({
+      morning: routine,
+      old: null,
+    });
   });
 });
 

@@ -6,6 +6,10 @@
 environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
 cost. These estimates are not your subscription bill.
 
+Move the period slider from 1 hour through 5 years, or choose **All**, to compare exact rolling
+hourly activity with longer calendar-day trends. **Cost** always means what the same tokens would
+cost at configured API rates. It does not mean T3 Code charged your subscription that amount.
+
 Totals depend on the history available on each server. Grok turns without a saved completed-turn
 record are missing from the totals.
 

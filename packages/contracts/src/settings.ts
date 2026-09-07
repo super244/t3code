@@ -4,7 +4,9 @@ import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import {
   ForwardCompatibleNullable,
+  IsoDateTime,
   ProjectId,
+  ThreadId,
   TrimmedNonEmptyString,
   TrimmedString,
 } from "./baseSchemas.ts";
@@ -16,7 +18,12 @@ import {
   DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
   ProviderOptionSelections,
 } from "./model.ts";
-import { ModelSelection, ProjectScript } from "./orchestration.ts";
+import {
+  ModelSelection,
+  ProjectScript,
+  ProviderInteractionMode,
+  RuntimeMode,
+} from "./orchestration.ts";
 import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
 import {
   DEFAULT_PREVIEW_APPEARANCE,
@@ -843,6 +850,32 @@ export const BackgroundActivitySettings = Schema.Struct({
 }).pipe(Schema.withDecodingDefault(Effect.succeed({})));
 export type BackgroundActivitySettings = typeof BackgroundActivitySettings.Type;
 
+export const RoutineRunStatus = Schema.Literals(["never", "running", "launched", "failed"]);
+export type RoutineRunStatus = typeof RoutineRunStatus.Type;
+
+/** A persisted, server-owned recurring agent turn. The provider instance is the subscription. */
+export const RoutineDefinition = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  enabled: Schema.Boolean,
+  cron: TrimmedNonEmptyString,
+  timeZone: TrimmedNonEmptyString,
+  projectId: ProjectId,
+  prompt: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed("default" as const)),
+  ),
+  nextRunAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  lastRunAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  lastRunStatus: RoutineRunStatus.pipe(Schema.withDecodingDefault(Effect.succeed("never"))),
+  lastThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  lastError: Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_000))).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+});
+export type RoutineDefinition = typeof RoutineDefinition.Type;
+
 export const ServerSettings = Schema.Struct({
   // Legacy token-by-token assistant output. Deliberately a fresh key (was
   // `enableAssistantStreaming`): decoding drops the old key, so everyone,
@@ -982,6 +1015,9 @@ export const ServerSettings = Schema.Struct({
   ),
   /** Exact model IDs, applied to past and future usage on this environment. */
   usagePriceOverrides: Schema.Record(TrimmedNonEmptyString, UsageModelPriceOverride).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  routines: Schema.Record(TrimmedNonEmptyString, RoutineDefinition).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
 });
@@ -1211,6 +1247,10 @@ export const ServerSettingsPatch = Schema.Struct({
   /** Each entry replaces one model's rates; `null` restores automatic pricing. */
   usagePriceOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(UsageModelPriceOverride)),
+  ),
+  /** Per-entry upsert; null removes the routine without racing unrelated edits. */
+  routines: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, Schema.NullOr(RoutineDefinition)),
   ),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;

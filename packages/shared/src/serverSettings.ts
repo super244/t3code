@@ -173,6 +173,7 @@ export function applyServerSettingsPatch(
     // Merged per entry below; its `null` removals must not reach deepMerge.
     usageLimitSources: usageLimitSourcesPatch,
     usagePriceOverrides: usagePriceOverridesPatch,
+    routines: routinesPatch,
     projectAgentBrowserAccessOverrides: projectAgentBrowserAccessOverridesPatch,
     projectAutoPullOverrides: projectAutoPullOverridesPatch,
     ...patchForMerge
@@ -276,6 +277,9 @@ export function applyServerSettingsPatch(
             usagePriceOverridesPatch,
           ),
         }
+      : {}),
+    ...(routinesPatch !== undefined
+      ? { routines: mergeSettingsEntries(current.routines, routinesPatch) }
       : {}),
     ...(patch.sourceControlWriterModelSelection !== undefined
       ? { sourceControlWriterModelSelection: patch.sourceControlWriterModelSelection }

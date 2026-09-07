@@ -80,25 +80,37 @@ function isUsageMetric(value: string | null | undefined): value is UsageMetric {
 }
 
 const WINDOW_OPTIONS = [
-  { days: 1, label: "Past 24h" },
-  { days: 7, label: "7 days" },
-  { days: 30, label: "30 days" },
-  { days: 90, label: "90 days" },
+  { value: "1h", amount: 1, resolution: "hour", label: "1 hr" },
+  { value: "5h", amount: 5, resolution: "hour", label: "5 hr" },
+  { value: "12h", amount: 12, resolution: "hour", label: "12 hr" },
+  { value: "24h", amount: 24, resolution: "hour", label: "24 hr" },
+  { value: "3d", amount: 3, resolution: "day", label: "3 days" },
+  { value: "7d", amount: 7, resolution: "day", label: "7 days" },
+  { value: "30d", amount: 30, resolution: "day", label: "30 days" },
+  { value: "90d", amount: 90, resolution: "day", label: "90 days" },
+  { value: "180d", amount: 180, resolution: "day", label: "180 days" },
+  { value: "1y", amount: 365, resolution: "day", label: "1 year" },
+  { value: "2y", amount: 730, resolution: "day", label: "2 years" },
+  { value: "5y", amount: 1_825, resolution: "day", label: "5 years" },
+  { value: "all", amount: 7_300, resolution: "day", label: "All" },
 ] as const;
 
-function isUsageWindowDays(value: number): value is UsagePagePreferences["windowDays"] {
-  return WINDOW_OPTIONS.some((option) => option.days === value);
+type UsageWindowPreset = UsagePagePreferences["windowPreset"];
+
+function usageWindowOption(value: UsageWindowPreset) {
+  return WINDOW_OPTIONS.find((option) => option.value === value) ?? WINDOW_OPTIONS[6];
+}
+
+function makeUsageWindow(value: UsageWindowPreset) {
+  const option = usageWindowOption(value);
+  return makeWindow(option.amount, undefined, option.resolution);
 }
 
 export function UsagePage() {
   const [preferences, setPreferences] = useState(readUsagePagePreferences);
   const [windowSelection, setWindowSelection] = useState(() => ({
-    days: preferences.windowDays,
-    window: makeWindow(
-      preferences.windowDays,
-      undefined,
-      preferences.windowDays === 1 ? "hour" : "day",
-    ),
+    preset: preferences.windowPreset,
+    window: makeUsageWindow(preferences.windowPreset),
   }));
   const metric = preferences.metric;
   const showingLimits = metric === "limits";
@@ -107,8 +119,9 @@ export function UsagePage() {
   const [breakdown, setBreakdown] = useState<"model" | "time">("model");
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] =
     useState<ReadonlySet<EnvironmentId> | null>(null);
-  const { days: windowDays, window } = windowSelection;
-  const isPast24Hours = windowDays === 1;
+  const { preset: windowPreset, window } = windowSelection;
+  const selectedWindowOption = usageWindowOption(windowPreset);
+  const isHourlyWindow = selectedWindowOption.resolution === "hour";
   const { merged, environments, selectedEnvironments, isPending, isPartial, refresh } = useUsage(
     window,
     selectedEnvironmentIds,
@@ -119,8 +132,11 @@ export function UsagePage() {
   });
 
   const days = useMemo(
-    () => enumerateDays(window.sinceDay, window.untilDay),
-    [window.sinceDay, window.untilDay],
+    () =>
+      windowPreset === "all"
+        ? merged.daily.map((period) => period.day)
+        : enumerateDays(window.sinceDay, window.untilDay),
+    [merged.daily, window.sinceDay, window.untilDay, windowPreset],
   );
   const hours = useMemo(
     () =>
@@ -129,11 +145,11 @@ export function UsagePage() {
         : enumerateHourStarts(window.sinceTime, window.untilTime),
     [window.sinceTime, window.untilTime],
   );
-  // Newest first: the window can run 90 periods, so the interesting end
+  // Newest first: long windows can run thousands of periods, so the interesting end
   // belongs at the top of the table.
   const breakdownPeriods = useMemo<readonly (DailyTotals | HourlyTotals)[]>(
-    () => (isPast24Hours ? merged.hourly : merged.daily).toReversed(),
-    [isPast24Hours, merged.daily, merged.hourly],
+    () => (isHourlyWindow ? merged.hourly : merged.daily).toReversed(),
+    [isHourlyWindow, merged.daily, merged.hourly],
   );
   const breakdownModels = useMemo(
     () =>
@@ -147,18 +163,17 @@ export function UsagePage() {
   const activeProviders = useMemo(() => providersWithUsage(merged.providers), [merged.providers]);
   const timeValueColumnWidth = `${60 / (activeProviders.length + 2)}%`;
 
-  const selectWindow = (days: number) => {
-    if (!isUsageWindowDays(days)) return;
-    const nextPreferences = { metric, windowDays: days };
+  const selectWindow = (preset: UsageWindowPreset) => {
+    const nextPreferences = { metric, windowPreset: preset };
     setPreferences(nextPreferences);
     saveUsagePagePreferences(nextPreferences);
     setWindowSelection({
-      days,
-      window: makeWindow(days, undefined, days === 1 ? "hour" : "day"),
+      preset,
+      window: makeUsageWindow(preset),
     });
   };
   const selectMetric = (nextMetric: UsageMetric) => {
-    const nextPreferences = { metric: nextMetric, windowDays };
+    const nextPreferences = { metric: nextMetric, windowPreset };
     setPreferences(nextPreferences);
     saveUsagePagePreferences(nextPreferences);
   };
@@ -181,14 +196,14 @@ export function UsagePage() {
       });
       return;
     }
-    const nextWindow = makeWindow(windowDays, undefined, isPast24Hours ? "hour" : "day");
+    const nextWindow = makeUsageWindow(windowPreset);
     if (
       nextWindow.sinceDay !== window.sinceDay ||
       nextWindow.untilDay !== window.untilDay ||
       nextWindow.sinceTime !== window.sinceTime ||
       nextWindow.untilTime !== window.untilTime
     ) {
-      setWindowSelection({ days: windowDays, window: nextWindow });
+      setWindowSelection({ preset: windowPreset, window: nextWindow });
     }
     refreshingRef.current = true;
     setIsRefreshing(true);
@@ -198,7 +213,7 @@ export function UsagePage() {
     });
   };
   const windowLabel =
-    isPast24Hours && window.sinceTime !== undefined && window.untilTime !== undefined
+    isHourlyWindow && window.sinceTime !== undefined && window.untilTime !== undefined
       ? `${formatDateTimeShort(window.sinceTime, window.timeZone)} to ${formatDateTimeShort(window.untilTime, window.timeZone)}`
       : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`;
   const topbarContent = (
@@ -244,22 +259,7 @@ export function UsagePage() {
         </ToggleGroup>
         {/* The period does not apply to Limits, so it stays in place but
             disabled; unmounting it shifted the metric toggle ~300px. */}
-        <ToggleGroup
-          aria-label="Usage period"
-          variant="segmented"
-          value={[String(windowDays)]}
-          disabled={showingLimits}
-          onValueChange={(next) => {
-            const value = next[0];
-            if (value) selectWindow(Number(value));
-          }}
-        >
-          {WINDOW_OPTIONS.map((option) => (
-            <Toggle key={option.days} value={String(option.days)}>
-              {option.label}
-            </Toggle>
-          ))}
-        </ToggleGroup>
+        <UsagePeriodSlider value={windowPreset} disabled={showingLimits} onChange={selectWindow} />
         <Button
           onClick={refreshWindow}
           aria-label={showingLimits ? "Refresh limits" : "Refresh usage"}
@@ -297,9 +297,9 @@ export function UsagePage() {
           </SelectPopup>
         </Select>
         <Select
-          value={String(windowDays)}
+          value={windowPreset}
           disabled={showingLimits}
-          onValueChange={(value) => selectWindow(Number(value))}
+          onValueChange={(value) => selectWindow(value as UsageWindowPreset)}
         >
           <SelectTrigger
             aria-label="Usage period"
@@ -307,13 +307,11 @@ export function UsagePage() {
             variant="ghost"
             className="w-auto min-w-0"
           >
-            <SelectValue>
-              {WINDOW_OPTIONS.find((option) => option.days === windowDays)?.label}
-            </SelectValue>
+            <SelectValue>{selectedWindowOption.label}</SelectValue>
           </SelectTrigger>
           <SelectPopup align="end" alignItemWithTrigger={false}>
             {WINDOW_OPTIONS.map((option) => (
-              <SelectItem key={option.days} value={String(option.days)}>
+              <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
             ))}
@@ -364,7 +362,7 @@ export function UsagePage() {
                       </span>
                       <span className="text-xs text-muted-foreground">
                         {metric === "cost"
-                          ? `${formatCount(merged.sessions)} sessions · API estimate`
+                          ? `${formatCount(merged.sessions)} sessions · API-equivalent estimate · not billed`
                           : `${formatCount(merged.sessions)} sessions`}
                       </span>
                     </div>
@@ -416,8 +414,8 @@ export function UsagePage() {
 
                   <div className="flex min-w-0 flex-col gap-3">
                     <h2 className="text-sm font-medium text-foreground">
-                      {isPast24Hours ? "Hourly" : "Daily"}{" "}
-                      {metric === "tokens" ? "processed tokens" : "cost"}
+                      {isHourlyWindow ? "Hourly" : "Daily"}{" "}
+                      {metric === "tokens" ? "processed tokens" : "API-equivalent cost"}
                     </h2>
                     <UsageProviderChart
                       providers={activeProviders}
@@ -427,7 +425,7 @@ export function UsagePage() {
                       hourly={merged.hourly}
                       metric={metric}
                       referenceTime={window.untilTime}
-                      resolution={isPast24Hours ? "hour" : "day"}
+                      resolution={isHourlyWindow ? "hour" : "day"}
                       timeZone={window.timeZone}
                     />
                   </div>
@@ -465,7 +463,7 @@ export function UsagePage() {
                       {(
                         [
                           { value: "model", label: "Model" },
-                          { value: "time", label: isPast24Hours ? "Hour" : "Day" },
+                          { value: "time", label: isHourlyWindow ? "Hour" : "Day" },
                         ] as const
                       ).map((option) => (
                         <Toggle key={option.value} value={option.value}>
@@ -536,7 +534,7 @@ export function UsagePage() {
                       </colgroup>
                       <thead>
                         <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                          <th className="py-2 font-normal">{isPast24Hours ? "Hour" : "Day"}</th>
+                          <th className="py-2 font-normal">{isHourlyWindow ? "Hour" : "Day"}</th>
                           {activeProviders.map((provider) => (
                             <th key={provider} className="py-2 text-right font-normal">
                               {PROVIDER_PRESENTATION[provider].label}
@@ -594,6 +592,45 @@ export function UsagePage() {
         </ScrollArea>
       </div>
     </SidebarInset>
+  );
+}
+
+function UsagePeriodSlider({
+  value,
+  disabled,
+  onChange,
+}: {
+  readonly value: UsageWindowPreset;
+  readonly disabled: boolean;
+  readonly onChange: (value: UsageWindowPreset) => void;
+}) {
+  const selectedIndex = Math.max(
+    0,
+    WINDOW_OPTIONS.findIndex((option) => option.value === value),
+  );
+  const selected = WINDOW_OPTIONS[selectedIndex] ?? WINDOW_OPTIONS[6];
+
+  return (
+    <label className="flex w-96 min-w-72 items-center gap-2 text-xs text-muted-foreground">
+      <span className="sr-only">Usage period</span>
+      <span className="w-12 shrink-0 text-right text-foreground">{selected.label}</span>
+      <input
+        aria-label="Usage period"
+        aria-valuetext={selected.label}
+        className="h-1.5 min-w-0 flex-1 cursor-pointer accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        type="range"
+        min={0}
+        max={WINDOW_OPTIONS.length - 1}
+        step={1}
+        value={selectedIndex}
+        disabled={disabled}
+        onChange={(event) => {
+          const option = WINDOW_OPTIONS[Number(event.currentTarget.value)];
+          if (option) onChange(option.value);
+        }}
+      />
+      <span className="w-5 shrink-0">All</span>
+    </label>
   );
 }
 

@@ -175,7 +175,7 @@ export function formatRelativeHourShort(
  * line up with what they actually experienced.
  */
 export function makeWindow(
-  days: number,
+  amount: number,
   now = new Date(),
   resolution: UsageResolution = "day",
 ): UsageSummaryInput {
@@ -201,10 +201,10 @@ export function makeWindow(
   const untilDay = format.format(now);
   if (resolution === "hour") {
     // Minute-aligned bounds keep labels readable while still representing an
-    // exact rolling 24-hour duration. Fixed-duration buckets remain correct
+    // exact rolling duration. Fixed-duration buckets remain correct
     // across offset changes and daylight-saving transitions.
     const untilTimeMs = Math.floor(now.getTime() / 60_000) * 60_000;
-    const sinceTimeMs = untilTimeMs - 24 * HOUR_MS;
+    const sinceTimeMs = untilTimeMs - amount * HOUR_MS;
     const sinceTime = new Date(sinceTimeMs);
     const untilTime = new Date(untilTimeMs);
     return {
@@ -222,7 +222,7 @@ export function makeWindow(
   const [year = 0, month = 1, dayOfMonth = 1] = untilDay
     .split("-")
     .map((part) => Number.parseInt(part, 10));
-  const start = new Date(Date.UTC(year, month - 1, dayOfMonth - (days - 1)));
+  const start = new Date(Date.UTC(year, month - 1, dayOfMonth - (amount - 1)));
   return {
     sinceDay: UsageDay.make(start.toISOString().slice(0, 10)),
     untilDay: UsageDay.make(untilDay),

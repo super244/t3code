@@ -48,7 +48,7 @@ describe("hourly usage formatting", () => {
   });
 
   it("builds an exact minute-aligned 24-hour request", () => {
-    const window = makeWindow(1, new Date("2026-08-11T12:37:42.123Z"), "hour");
+    const window = makeWindow(24, new Date("2026-08-11T12:37:42.123Z"), "hour");
 
     expect(window.resolution).toBe("hour");
     expect(window.sinceTime).toBe("2026-08-10T12:37:00.000Z");
@@ -64,7 +64,7 @@ describe("hourly usage formatting", () => {
     try {
       const now = new Date("2026-08-11T12:37:42.123Z");
 
-      expect(makeWindow(1, now, "hour").timeZone).toBe("UTC");
+      expect(makeWindow(24, now, "hour").timeZone).toBe("UTC");
       expect(makeWindow(30, now).timeZone).toBe("UTC");
     } finally {
       resolvedOptions.mockRestore();

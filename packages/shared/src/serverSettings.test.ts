@@ -503,6 +503,30 @@ describe("serverSettings helpers", () => {
     expect(current.usagePriceOverrides["example-model"]?.cacheReadCostPerMillionTokens).toBe(0.5);
   });
 
+  it("upserts and removes routines per entry", () => {
+    const routine = {
+      name: "Daily review",
+      enabled: true,
+      cron: "0 7 * * *",
+      timeZone: "UTC",
+      projectId: ProjectId.make("project-routine"),
+      prompt: "Review the project.",
+      modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5"),
+      runtimeMode: "full-access" as const,
+      interactionMode: "default" as const,
+      nextRunAt: null,
+      lastRunAt: null,
+      lastRunStatus: "never" as const,
+      lastThreadId: null,
+      lastError: null,
+    };
+    const added = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      routines: { daily: routine },
+    });
+    expect(added.routines.daily).toEqual(routine);
+    expect(applyServerSettingsPatch(added, { routines: { daily: null } }).routines).toEqual({});
+  });
+
   it("stores background activity profiles as a versioned object and syncs legacy aliases", () => {
     const next = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
       backgroundActivity: {

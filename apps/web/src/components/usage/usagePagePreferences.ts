@@ -5,7 +5,21 @@ import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalSt
 const STORAGE_KEY = "t3code:usage-page-preferences:v1";
 const UsagePagePreferencesSchema = Schema.Struct({
   metric: Schema.Literals(["cost", "tokens", "limits"]),
-  windowDays: Schema.Literals([1, 7, 30, 90]),
+  windowPreset: Schema.Literals([
+    "1h",
+    "5h",
+    "12h",
+    "24h",
+    "3d",
+    "7d",
+    "30d",
+    "90d",
+    "180d",
+    "1y",
+    "2y",
+    "5y",
+    "all",
+  ]),
 });
 export type UsagePagePreferences = typeof UsagePagePreferencesSchema.Type;
 
@@ -14,12 +28,12 @@ export function readUsagePagePreferences(): UsagePagePreferences {
     return (
       getLocalStorageItem(STORAGE_KEY, UsagePagePreferencesSchema) ?? {
         metric: "cost",
-        windowDays: 30,
+        windowPreset: "30d",
       }
     );
   } catch (error) {
     console.error("Could not read Usage page preferences.", error);
-    return { metric: "cost", windowDays: 30 };
+    return { metric: "cost", windowPreset: "30d" };
   }
 }
 
