@@ -66,6 +66,17 @@ If dragging is unavailable for one environment, update the T3 Code server runnin
 environment. Pinned and active reordering require server support. Threads from older servers keep
 their default order until the server is updated.
 
+## Organize chats with folders
+
+On web and desktop, choose **New chat folder** at the top of the sidebar, then right-click a chat
+and choose **Move to folder**. Command/Control-click or Shift-click first to move several selected
+chats together. Folder organization is local to the current client; thread history and server-side
+pin, snooze, and settlement state do not change.
+
+Rename or remove a folder from its sidebar header. Removing a folder returns its chats to the main
+list and never deletes their conversation history. Sidebar search continues to find chats inside
+collapsed folders.
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list

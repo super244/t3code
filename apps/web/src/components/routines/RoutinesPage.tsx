@@ -10,6 +10,7 @@ import { CalendarClockIcon, CopyIcon, PlayIcon, PlusIcon, Trash2Icon } from "luc
 import { useMemo, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
+import { randomUUID } from "../../lib/utils";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { environmentSnapshotAtom } from "../../state/shell";
 import { serverEnvironment } from "../../state/server";
@@ -100,7 +101,7 @@ export function RoutinesPage() {
 
   async function saveRoutine() {
     if (!selectedEnvironmentId || !draft) return;
-    const id = editingId ?? crypto.randomUUID();
+    const id = editingId ?? randomUUID();
     setSaving(true);
     try {
       const result = await updateSettings({

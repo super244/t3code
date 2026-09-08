@@ -92,7 +92,7 @@ import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
-import { isMacPlatform } from "~/lib/utils";
+import { isMacPlatform, randomUUID } from "~/lib/utils";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
 import { readLocalApi } from "../localApi";
@@ -326,6 +326,55 @@ function chatFolderStatus(thread: SidebarThreadSummary): {
   }
 }
 
+const ChatFolderThreadRow = memo(function ChatFolderThreadRow(props: {
+  readonly thread: EnvironmentThreadShell;
+  readonly activeThreadKey: string | null;
+  readonly onThreadClick: (event: ReactMouseEvent, threadRef: ScopedThreadRef) => void;
+  readonly onThreadContextMenu: (
+    threadRef: ScopedThreadRef,
+    position: { x: number; y: number },
+  ) => void;
+}) {
+  const threadRef = useMemo(
+    () => scopeThreadRef(props.thread.environmentId, props.thread.id),
+    [props.thread.environmentId, props.thread.id],
+  );
+  const threadKey = scopedThreadKey(threadRef);
+  const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
+  const status = chatFolderStatus(props.thread);
+
+  return (
+    <li className="list-none">
+      <button
+        type="button"
+        data-thread-item
+        aria-current={props.activeThreadKey === threadKey ? "page" : undefined}
+        onClick={(event) => props.onThreadClick(event, threadRef)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          props.onThreadContextMenu(threadRef, {
+            x: event.clientX,
+            y: event.clientY,
+          });
+        }}
+        className={cn(
+          "flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 ps-7 text-left text-sm outline-none select-none",
+          props.activeThreadKey === threadKey
+            ? "bg-sidebar-row-active text-sidebar-foreground"
+            : isSelected
+              ? "bg-sidebar-row-selected text-sidebar-foreground"
+              : "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+        )}
+      >
+        <span className="min-w-0 flex-1 truncate">{props.thread.title}</span>
+        {status ? (
+          <span className={cn("shrink-0 text-[11px]", status.className)}>{status.label}</span>
+        ) : null}
+      </button>
+    </li>
+  );
+});
+
 function ChatFolderShelf(props: {
   readonly folder: { readonly id: string; readonly name: string };
   readonly threads: readonly EnvironmentThreadShell[];
@@ -335,7 +384,7 @@ function ChatFolderShelf(props: {
   readonly onToggle: () => void;
   readonly onRename: () => void;
   readonly onDelete: () => void;
-  readonly onThreadActivate: (threadRef: ScopedThreadRef) => void;
+  readonly onThreadClick: (event: ReactMouseEvent, threadRef: ScopedThreadRef) => void;
   readonly onThreadContextMenu: (
     threadRef: ScopedThreadRef,
     position: { x: number; y: number },
@@ -387,40 +436,15 @@ function ChatFolderShelf(props: {
       ) : null}
       {props.threads.length > 0 ? (
         <ul role="list" className="flex flex-col gap-px">
-          {props.threads.map((thread) => {
-            const threadRef = scopeThreadRef(thread.environmentId, thread.id);
-            const threadKey = scopedThreadKey(threadRef);
-            const status = chatFolderStatus(thread);
-            return (
-              <li key={threadKey} className="list-none">
-                <button
-                  type="button"
-                  aria-current={props.activeThreadKey === threadKey ? "page" : undefined}
-                  onClick={() => props.onThreadActivate(threadRef)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    props.onThreadContextMenu(threadRef, {
-                      x: event.clientX,
-                      y: event.clientY,
-                    });
-                  }}
-                  className={cn(
-                    "flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 ps-7 text-left text-sm",
-                    props.activeThreadKey === threadKey
-                      ? "bg-sidebar-row-active text-sidebar-foreground"
-                      : "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-                  )}
-                >
-                  <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-                  {status ? (
-                    <span className={cn("shrink-0 text-[11px]", status.className)}>
-                      {status.label}
-                    </span>
-                  ) : null}
-                </button>
-              </li>
-            );
-          })}
+          {props.threads.map((thread) => (
+            <ChatFolderThreadRow
+              key={scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))}
+              thread={thread}
+              activeThreadKey={props.activeThreadKey}
+              onThreadClick={props.onThreadClick}
+              onThreadContextMenu={props.onThreadContextMenu}
+            />
+          ))}
         </ul>
       ) : null}
     </section>
@@ -2317,7 +2341,7 @@ export default function Sidebar() {
   const submitChatFolderDialog = useCallback(() => {
     if (chatFolderDialog === null || !chatFolderDialog.name.trim()) return;
     if (chatFolderDialog.mode === "create") {
-      createChatFolder({ id: crypto.randomUUID(), name: chatFolderDialog.name });
+      createChatFolder({ id: randomUUID(), name: chatFolderDialog.name });
     } else {
       renameChatFolder(chatFolderDialog.folderId, chatFolderDialog.name);
     }
@@ -4971,7 +4995,7 @@ export default function Sidebar() {
                       })
                     }
                     onDelete={() => confirmDeleteChatFolder(group.folder)}
-                    onThreadActivate={navigateToThread}
+                    onThreadClick={handleThreadClick}
                     onThreadContextMenu={handleThreadContextMenu}
                   />
                 ))}
