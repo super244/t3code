@@ -3,6 +3,7 @@ import { Cron } from "croner";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
+import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -15,6 +16,11 @@ import { forkParked } from "../serverActivation.ts";
 import * as OrchestrationEngine from "./Services/OrchestrationEngine.ts";
 
 const STALE_RUN_AFTER_MS = 10 * 60 * 1_000;
+
+class RoutineScheduleError extends Data.TaggedError("RoutineScheduleError")<{
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
 
 export class RoutineScheduler extends Context.Service<
   RoutineScheduler,
@@ -147,7 +153,7 @@ export const make = Effect.gen(function* () {
 
   const sweep = Effect.fn("RoutineScheduler.sweep")(function* () {
     const settings = yield* settingsService.getSettings;
-    const now = new Date(DateTime.toEpochMillis(yield* DateTime.now));
+    const now = DateTime.toDate(yield* DateTime.now);
     for (const [id, routine] of Object.entries(settings.routines)) {
       if (!routine.enabled) continue;
       if (routine.lastRunStatus === "running") {
@@ -165,7 +171,11 @@ export const make = Effect.gen(function* () {
       if (routine.nextRunAt === null) {
         yield* Effect.try({
           try: () => nextRoutineRunAt(routine.cron, routine.timeZone, now),
-          catch: (error) => error,
+          catch: (error) =>
+            new RoutineScheduleError({
+              message: error instanceof Error ? error.message : "Invalid routine schedule.",
+              cause: error,
+            }),
         }).pipe(
           Effect.flatMap((nextRunAt) =>
             updateRoutine(id, (current) => ({
@@ -182,7 +192,11 @@ export const make = Effect.gen(function* () {
       if (Date.parse(routine.nextRunAt) <= now.getTime()) {
         yield* Effect.try({
           try: () => nextRoutineRunAt(routine.cron, routine.timeZone, now),
-          catch: (error) => error,
+          catch: (error) =>
+            new RoutineScheduleError({
+              message: error instanceof Error ? error.message : "Invalid routine schedule.",
+              cause: error,
+            }),
         }).pipe(
           Effect.flatMap(() => runRoutine(id, routine, now)),
           Effect.catch((error) => recordScheduleFailure(id, error)),
