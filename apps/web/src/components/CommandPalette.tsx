@@ -44,6 +44,7 @@ import {
   FolderIcon,
   FolderPlusIcon,
   LinkIcon,
+  LayoutDashboardIcon,
   MessageSquareIcon,
   PaletteIcon,
   SettingsIcon,
@@ -1604,6 +1605,26 @@ function OpenCommandPaletteDialog(props: {
       run: copyActiveThreadReference,
     });
   }
+
+  actionItems.push({
+    kind: "action",
+    value: "action:command-center",
+    searchTerms: [
+      "command center",
+      "dashboard",
+      "missions",
+      "agents",
+      "harnesses",
+      "providers",
+      "routines",
+      "usage",
+    ],
+    title: "Open Command Center",
+    icon: <LayoutDashboardIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/command-center" });
+    },
+  });
 
   actionItems.push({
     kind: "action",

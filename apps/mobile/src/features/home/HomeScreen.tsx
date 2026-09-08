@@ -78,6 +78,7 @@ import {
   type HomeProjectSortOrder,
 } from "./homeThreadList";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-swipe-actions";
+import { buildMobileCommandCenterSummary } from "./mobileCommandCenter";
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -202,8 +203,32 @@ function deriveEmptyState(props: {
   };
 }
 
-function HomeTopContentSpacer() {
-  return <View className="h-4" />;
+function MobileCommandCenterStrip({
+  summary,
+}: {
+  readonly summary: ReturnType<typeof buildMobileCommandCenterSummary>;
+}) {
+  const metrics = [
+    { label: "Active", value: summary.active },
+    { label: "Attention", value: summary.attention },
+    { label: "Harnesses", value: `${summary.readyProviders}/${summary.totalProviders}` },
+    { label: "Routines", value: summary.routines },
+  ];
+  return (
+    <View className="mb-2 mt-2 border-y border-border px-4 py-3">
+      <Text className="mb-2 text-xs font-t3-medium text-foreground-muted">Command center</Text>
+      <View className="flex-row">
+        {metrics.map((metric) => (
+          <View key={metric.label} className="min-w-0 flex-1">
+            <Text className="text-base font-t3-bold tabular-nums text-foreground">
+              {metric.value}
+            </Text>
+            <Text className="text-[11px] text-foreground-muted">{metric.label}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
 }
 
 /* ─── Main screen ────────────────────────────────────────────────────── */
@@ -574,6 +599,10 @@ export function HomeScreen(props: HomeScreenProps) {
   // Threads on servers without the settlement capability never classify as
   // settled (the user could neither un-settle nor pin them).
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
+  const commandCenterSummary = useMemo(
+    () => buildMobileCommandCenterSummary(props.threads, serverConfigs),
+    [props.threads, serverConfigs],
+  );
   const settlementEnvironmentIds = useMemo(() => {
     const supported = new Set<EnvironmentId>();
     for (const [environmentId, config] of serverConfigs) {
@@ -1113,7 +1142,7 @@ export function HomeScreen(props: HomeScreenProps) {
     );
   }
 
-  const listHeader = Platform.OS === "ios" ? null : <HomeTopContentSpacer />;
+  const listHeader = <MobileCommandCenterStrip summary={commandCenterSummary} />;
 
   // Project scoping lives in the header filter menu (no inline chip row on
   // mobile — the menu is the one filter surface).

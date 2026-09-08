@@ -30,9 +30,9 @@ import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
 type InventoryState =
-  | { readonly status: "loading" }
-  | { readonly status: "loaded"; readonly inventory: SkillInventory }
-  | { readonly status: "error"; readonly message: string };
+  | { readonly requestKey: string; readonly status: "loading" }
+  | { readonly requestKey: string; readonly status: "loaded"; readonly inventory: SkillInventory }
+  | { readonly requestKey: string; readonly status: "error"; readonly message: string };
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error && cause.message.trim() ? cause.message : "Could not load skills.";
@@ -131,26 +131,35 @@ function EnvironmentSkillInventory({
   refreshKey: number;
 }) {
   const prepared = usePreparedConnection(environment.environmentId);
-  const [state, setState] = useState<InventoryState>({ status: "loading" });
+  const preparedValue = Option.getOrNull(prepared);
+  const requestKey = `${preparedValue?.httpBaseUrl ?? "disconnected"}:${refreshKey}`;
+  const [loadedState, setLoadedState] = useState<InventoryState>({
+    requestKey: "initial",
+    status: "loading",
+  });
   const [collapsed, setCollapsed] = useState(false);
   const panelId = useId();
 
   useEffect(() => {
-    if (Option.isNone(prepared)) return;
+    if (preparedValue === null) return;
     let cancelled = false;
-    setState({ status: "loading" });
     void runtime
-      .runPromise(fetchEnvironmentSkillInventory({ prepared: prepared.value }))
+      .runPromise(fetchEnvironmentSkillInventory({ prepared: preparedValue }))
       .then((inventory) => {
-        if (!cancelled) setState({ status: "loaded", inventory });
+        if (!cancelled) setLoadedState({ requestKey, status: "loaded", inventory });
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setState({ status: "error", message: errorMessage(cause) });
+        if (!cancelled) {
+          setLoadedState({ requestKey, status: "error", message: errorMessage(cause) });
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [prepared, refreshKey]);
+  }, [preparedValue, requestKey]);
+
+  const state: InventoryState =
+    loadedState.requestKey === requestKey ? loadedState : { requestKey, status: "loading" };
 
   const visibleInventory = useMemo(
     () => (state.status === "loaded" ? filterSkillInventory(state.inventory, query) : null),

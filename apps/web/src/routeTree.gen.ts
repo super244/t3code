@@ -15,6 +15,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as RoutinesRouteImport } from './routes/routines'
 import { Route as PairRouteImport } from './routes/pair'
 import { Route as ConnectRouteImport } from './routes/connect'
+import { Route as CommandCenterRouteImport } from './routes/command-center'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsSourceControlRouteImport } from './routes/settings.source-control'
@@ -62,6 +63,11 @@ const PairRoute = PairRouteImport.update({
 const ConnectRoute = ConnectRouteImport.update({
   id: '/connect',
   path: '/connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CommandCenterRoute = CommandCenterRouteImport.update({
+  id: '/command-center',
+  path: '/command-center',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatRoute = ChatRouteImport.update({
@@ -157,6 +163,7 @@ const ChatEnvironmentIdThreadIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
+  '/command-center': typeof CommandCenterRoute
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
   '/routines': typeof RoutinesRoute
@@ -181,6 +188,7 @@ export interface FileRoutesByFullPath {
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
 }
 export interface FileRoutesByTo {
+  '/command-center': typeof CommandCenterRoute
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
   '/routines': typeof RoutinesRoute
@@ -208,6 +216,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
+  '/command-center': typeof CommandCenterRoute
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
   '/routines': typeof RoutinesRoute
@@ -236,6 +245,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/command-center'
     | '/connect'
     | '/pair'
     | '/routines'
@@ -260,6 +270,7 @@ export interface FileRouteTypes {
     | '/draft/$draftId'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/command-center'
     | '/connect'
     | '/pair'
     | '/routines'
@@ -286,6 +297,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_chat'
+    | '/command-center'
     | '/connect'
     | '/pair'
     | '/routines'
@@ -313,6 +325,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
+  CommandCenterRoute: typeof CommandCenterRoute
   ConnectRoute: typeof ConnectRoute
   PairRoute: typeof PairRoute
   RoutinesRoute: typeof RoutinesRoute
@@ -365,6 +378,13 @@ declare module '@tanstack/react-router' {
       path: '/connect'
       fullPath: '/connect'
       preLoaderRoute: typeof ConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/command-center': {
+      id: '/command-center'
+      path: '/command-center'
+      fullPath: '/command-center'
+      preLoaderRoute: typeof CommandCenterRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_chat': {
@@ -546,6 +566,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
+  CommandCenterRoute: CommandCenterRoute,
   ConnectRoute: ConnectRoute,
   PairRoute: PairRoute,
   RoutinesRoute: RoutinesRoute,

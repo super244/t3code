@@ -2,6 +2,7 @@ import {
   ArrowLeftIcon,
   CalendarClockIcon,
   ChartNoAxesColumnIcon,
+  LayoutDashboardIcon,
   GitPullRequestIcon,
   SettingsIcon,
 } from "lucide-react";
@@ -144,11 +145,13 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
           ? "project-settings"
           : location.pathname === "/usage"
             ? "usage"
-            : location.pathname === "/routines"
-              ? "routines"
-              : location.pathname === "/pull-requests"
-                ? "pull-requests"
-                : null,
+            : location.pathname === "/command-center"
+              ? "command-center"
+              : location.pathname === "/routines"
+                ? "routines"
+                : location.pathname === "/pull-requests"
+                  ? "pull-requests"
+                  : null,
   });
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
@@ -179,6 +182,10 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     }
     void navigate({ to: "/usage" });
   }, [isMobile, navigate, setOpenMobile]);
+  const handleCommandCenterClick = useCallback(() => {
+    closeMobileSidebar();
+    void navigate({ to: "/command-center" });
+  }, [closeMobileSidebar, navigate]);
   const handleRoutinesClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({ to: "/routines" });
@@ -216,6 +223,11 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               onClick={handlePullRequestsClick}
             />
           ) : null}
+          <SidebarUtilityItem
+            icon={<LayoutDashboardIcon />}
+            label="Command Center"
+            onClick={handleCommandCenterClick}
+          />
           <SidebarUtilityItem
             icon={<ChartNoAxesColumnIcon />}
             label="Usage"

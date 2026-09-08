@@ -6,7 +6,7 @@ import {
   type RoutineDefinition,
   type RuntimeMode,
 } from "@t3tools/contracts";
-import { CalendarClockIcon, PlayIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { CalendarClockIcon, CopyIcon, PlayIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
@@ -22,6 +22,11 @@ import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import {
+  ROUTINE_SCHEDULE_PRESETS,
+  routineScheduleLabel,
+  routineSchedulePreset,
+} from "./routinePresets";
 
 type RoutineDraft = Omit<RoutineDefinition, "modelSelection"> & {
   readonly modelSelection: { readonly instanceId: ProviderInstanceId; readonly model: string };
@@ -187,7 +192,8 @@ export function RoutinesPage() {
                     >
                       <span className="block truncate text-sm font-medium">{routine.name}</span>
                       <span className="mt-1 block text-xs text-muted-foreground">
-                        {routine.enabled ? routine.cron : "Paused"} · {routine.lastRunStatus}
+                        {routine.enabled ? routineScheduleLabel(routine.cron) : "Paused"} ·{" "}
+                        {routine.lastRunStatus}
                       </span>
                     </button>
                   ))}
@@ -203,14 +209,42 @@ export function RoutinesPage() {
                           }
                         />
                       </Field>
-                      <Field label="Cron schedule">
-                        <Input
-                          value={draft.cron}
-                          onChange={(event) =>
-                            setDraft({ ...draft, cron: event.currentTarget.value, nextRunAt: null })
-                          }
-                          placeholder="0 7 * * *"
-                        />
+                      <Field label="Schedule">
+                        <select
+                          className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                          value={routineSchedulePreset(draft.cron)}
+                          onChange={(event) => {
+                            setDraft({
+                              ...draft,
+                              cron:
+                                event.currentTarget.value === "custom"
+                                  ? ""
+                                  : event.currentTarget.value,
+                              nextRunAt: null,
+                            });
+                          }}
+                        >
+                          {ROUTINE_SCHEDULE_PRESETS.map((preset) => (
+                            <option key={preset.value} value={preset.value}>
+                              {preset.label}
+                            </option>
+                          ))}
+                          <option value="custom">Custom cron…</option>
+                        </select>
+                        {routineSchedulePreset(draft.cron) === "custom" ? (
+                          <Input
+                            className="mt-2"
+                            value={draft.cron}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                cron: event.currentTarget.value,
+                                nextRunAt: null,
+                              })
+                            }
+                            placeholder="0 7 * * *"
+                          />
+                        ) : null}
                       </Field>
                       <Field label="Time zone">
                         <Input
@@ -358,6 +392,23 @@ export function RoutinesPage() {
                             }
                           >
                             <PlayIcon /> Run now
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setEditingId(null);
+                              setDraft({
+                                ...draft,
+                                name: `${draft.name} copy`,
+                                nextRunAt: null,
+                                lastRunAt: null,
+                                lastRunStatus: "never",
+                                lastThreadId: null,
+                                lastError: null,
+                              });
+                            }}
+                          >
+                            <CopyIcon /> Duplicate
                           </Button>
                           <Button
                             variant="destructive"
