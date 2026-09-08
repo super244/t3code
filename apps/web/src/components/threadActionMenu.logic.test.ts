@@ -77,6 +77,23 @@ describe("buildThreadActionMenuItems", () => {
     expect(item).toMatchObject({ label: "Regenerating…", disabled: true });
   });
 
+  it("offers chat folders and a way back to the unfiled sidebar", () => {
+    const move = buildThreadActionMenuItems({
+      ...baseState,
+      chatFolders: [
+        { id: "work", name: "Work" },
+        { id: "later", name: "Later" },
+      ],
+      currentChatFolderId: "work",
+    }).find((item) => item.id === "move-to-folder");
+
+    expect(move?.children).toEqual([
+      { id: "folder:work", label: "✓ Work" },
+      { id: "folder:later", label: "Later" },
+      { id: "folder:none", label: "No folder", separatorBefore: true },
+    ]);
+  });
+
   it("marks delete as destructive and keeps it last", () => {
     const items = buildThreadActionMenuItems({ ...baseState, branch: "main" });
     expect(items.at(-1)).toMatchObject({ id: "delete", destructive: true });

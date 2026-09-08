@@ -259,6 +259,82 @@ function EnvironmentUnavailablePlaceholder({
   );
 }
 
+export function ProviderConfigRecoveryPlaceholder({
+  environment,
+  deviceTabs,
+}: {
+  readonly environment: EnvironmentPresentation;
+  readonly deviceTabs?: ReactNode;
+}) {
+  const refreshServerProviders = useAtomCommand(serverEnvironment.refreshProviders, {
+    reportFailure: false,
+  });
+  const recoveryIdRef = useRef(0);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [status, setStatus] = useState<"loading" | "failed">("loading");
+
+  const recover = useCallback(() => {
+    const recoveryId = ++recoveryIdRef.current;
+    if (timeoutRef.current !== null) globalThis.clearTimeout(timeoutRef.current);
+    queueMicrotask(() => {
+      if (recoveryIdRef.current !== recoveryId) return;
+      setStatus("loading");
+      timeoutRef.current = globalThis.setTimeout(() => {
+        if (recoveryIdRef.current === recoveryId) setStatus("failed");
+      }, 10_000);
+      void (async () => {
+        const result = await refreshServerProviders({
+          environmentId: environment.environmentId,
+          input: { refreshModels: true },
+        });
+        if (
+          recoveryIdRef.current === recoveryId &&
+          result._tag === "Failure" &&
+          !isAtomCommandInterrupted(result)
+        ) {
+          if (timeoutRef.current !== null) globalThis.clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+          setStatus("failed");
+          console.warn("Failed to recover provider configuration", {
+            operation: "recover-provider-config",
+            environmentId: environment.environmentId,
+            ...safeErrorLogAttributes(squashAtomCommandFailure(result)),
+          });
+        }
+      })();
+    });
+  }, [environment.environmentId, refreshServerProviders]);
+
+  useEffect(() => {
+    recover();
+    return () => {
+      recoveryIdRef.current += 1;
+      if (timeoutRef.current !== null) globalThis.clearTimeout(timeoutRef.current);
+    };
+  }, [recover]);
+
+  return (
+    <ProviderSettingsPlaceholder
+      deviceTabs={deviceTabs}
+      icon={
+        <EnvironmentMachineIcon kind={resolveEnvironmentMachineKind(environment.serverConfig)} />
+      }
+      title={status === "failed" ? "Provider settings did not load" : "Loading provider settings"}
+      description={
+        status === "failed"
+          ? `T3 Code could not refresh ${environment.label}'s provider configuration.`
+          : `Refreshing ${environment.label}'s provider configuration.`
+      }
+    >
+      {status === "failed" ? (
+        <Button size="sm" variant="outline" onClick={recover}>
+          Try again
+        </Button>
+      ) : null}
+    </ProviderSettingsPlaceholder>
+  );
+}
+
 interface ProviderSettingsTarget {
   readonly environmentId?: EnvironmentId;
   readonly instanceId?: ProviderInstanceId;
@@ -519,6 +595,9 @@ function AccessGatedProviderSettings({
     hasServerConfig: environment.serverConfig !== null,
     operateAccess,
   });
+  if (access.kind === "loading" && access.reason === "config") {
+    return <ProviderConfigRecoveryPlaceholder environment={environment} deviceTabs={deviceTabs} />;
+  }
   if (access.kind !== "editable" && access.kind !== "read-only") {
     return (
       <EnvironmentUnavailablePlaceholder

@@ -19,6 +19,9 @@ export type ThreadActionMenuId =
   | "rename"
   | "regenerate-title"
   | "mark-unread"
+  | "move-to-folder"
+  | `folder:${string}`
+  | "folder:none"
   | "copy"
   | "copy-path"
   | "copy-branch"
@@ -42,6 +45,8 @@ export interface ThreadActionMenuState {
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
+  readonly chatFolders?: ReadonlyArray<{ readonly id: string; readonly name: string }>;
+  readonly currentChatFolderId?: string | null;
 }
 
 /**
@@ -107,6 +112,24 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
+    ...(state.chatFolders && state.chatFolders.length > 0
+      ? [
+          {
+            id: "move-to-folder" as const,
+            label: "Move to folder",
+            icon: "folder",
+            children: [
+              ...state.chatFolders.map((folder) => ({
+                id: `folder:${folder.id}` as const,
+                label: state.currentChatFolderId === folder.id ? `✓ ${folder.name}` : folder.name,
+              })),
+              ...(state.currentChatFolderId
+                ? [{ id: "folder:none" as const, label: "No folder", separatorBefore: true }]
+                : []),
+            ],
+          },
+        ]
+      : []),
     {
       id: "copy",
       label: "Copy",

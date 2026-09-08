@@ -2,6 +2,9 @@ import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  assignThreadToChatFolder,
+  createChatFolder,
+  deleteChatFolder,
   legacyProjectCwdPreferenceKey,
   markThreadUnread,
   markThreadVisited,
@@ -12,14 +15,19 @@ import {
   reorderProjects,
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
+  setChatFolderExpanded,
   setProjectExpanded,
   setSidebarProjectScopeKey,
   setThreadChangedFilesExpanded,
+  renameChatFolder,
   type UiState,
 } from "./uiStateStore";
 
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
+    chatFolders: [],
+    threadFolderByKey: {},
+    chatFolderExpandedById: {},
     projectExpandedById: {},
     projectOrder: [],
     sidebarProjectScopeKey: null,
@@ -156,6 +164,32 @@ describe("uiStateStore pure functions", () => {
     expect(setSidebarProjectScopeKey(scoped, null).sidebarProjectScopeKey).toBeNull();
     expect(setSidebarProjectScopeKey(scoped, "").sidebarProjectScopeKey).toBeNull();
   });
+
+  it("creates, renames, expands, and deletes chat folders without losing threads", () => {
+    const created = createChatFolder(makeUiState(), { id: "work", name: " Work " });
+    expect(created.chatFolders).toEqual([{ id: "work", name: "Work" }]);
+    expect(created.chatFolderExpandedById).toEqual({ work: true });
+
+    const assigned = assignThreadToChatFolder(created, "environment:thread-1", "work");
+    expect(assigned.threadFolderByKey).toEqual({ "environment:thread-1": "work" });
+
+    const renamed = renameChatFolder(assigned, "work", "Active work");
+    expect(renamed.chatFolders[0]?.name).toBe("Active work");
+    expect(setChatFolderExpanded(renamed, "work", false).chatFolderExpandedById.work).toBe(false);
+
+    const deleted = deleteChatFolder(renamed, "work");
+    expect(deleted.chatFolders).toEqual([]);
+    expect(deleted.threadFolderByKey).toEqual({});
+    expect(deleted.chatFolderExpandedById).toEqual({});
+  });
+
+  it("ignores blank, duplicate, and unknown chat-folder mutations", () => {
+    const state = createChatFolder(makeUiState(), { id: "work", name: "Work" });
+    expect(createChatFolder(state, { id: "work", name: "Duplicate" })).toBe(state);
+    expect(renameChatFolder(state, "work", "   ")).toBe(state);
+    expect(assignThreadToChatFolder(state, "environment:thread-1", "missing")).toBe(state);
+    expect(deleteChatFolder(state, "missing")).toBe(state);
+  });
 });
 
 describe("parsePersistedState", () => {
@@ -193,6 +227,9 @@ describe("parsePersistedState", () => {
     });
 
     expect(parsed).toEqual({
+      chatFolders: [],
+      threadFolderByKey: {},
+      chatFolderExpandedById: {},
       projectExpandedById: {
         logical: false,
       },
@@ -210,6 +247,25 @@ describe("parsePersistedState", () => {
         },
       },
     });
+  });
+
+  it("sanitizes chat folders and drops assignments to missing folders", () => {
+    const parsed = parsePersistedState({
+      chatFolders: [
+        { id: "work", name: " Work " },
+        { id: "", name: "Invalid" },
+        { id: "work", name: "Duplicate" },
+      ],
+      threadFolderByKey: {
+        "environment:thread-1": "work",
+        "environment:thread-2": "missing",
+      },
+      chatFolderExpandedById: { work: false, invalid: "no" as unknown as boolean },
+    });
+
+    expect(parsed.chatFolders).toEqual([{ id: "work", name: "Work" }]);
+    expect(parsed.threadFolderByKey).toEqual({ "environment:thread-1": "work" });
+    expect(parsed.chatFolderExpandedById).toEqual({ work: false });
   });
 
   it.each([undefined, 1])("ignores changed-file expansion version %s", (version) => {
@@ -315,6 +371,9 @@ describe("uiStateStore persistence", () => {
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
     expect(persisted).toEqual({
+      chatFolders: [],
+      threadFolderByKey: {},
+      chatFolderExpandedById: {},
       projectExpandedById: {
         logical: false,
       },

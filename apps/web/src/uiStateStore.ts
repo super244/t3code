@@ -20,6 +20,9 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 ] as const;
 
 export interface PersistedUiState {
+  chatFolders?: ChatFolder[];
+  threadFolderByKey?: Record<string, string>;
+  chatFolderExpandedById?: Record<string, boolean>;
   projectExpandedById?: Record<string, boolean>;
   projectOrder?: string[];
   threadLastVisitedAtById?: Record<string, string>;
@@ -31,6 +34,17 @@ export interface PersistedUiState {
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
+}
+
+export interface ChatFolder {
+  readonly id: string;
+  readonly name: string;
+}
+
+export interface UiChatFolderState {
+  chatFolders: ChatFolder[];
+  threadFolderByKey: Record<string, string>;
+  chatFolderExpandedById: Record<string, boolean>;
 }
 
 export interface UiProjectState {
@@ -56,9 +70,12 @@ export interface UiPullRequestState {
 }
 
 export interface UiState
-  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState {}
+  extends UiChatFolderState, UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState {}
 
 const initialState: UiState = {
+  chatFolders: [],
+  threadFolderByKey: {},
+  chatFolderExpandedById: {},
   projectExpandedById: {},
   projectOrder: [],
   sidebarProjectScopeKey: null,
@@ -67,6 +84,34 @@ const initialState: UiState = {
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
 };
+
+function sanitizeChatFolders(value: unknown): ChatFolder[] {
+  if (!Array.isArray(value)) return [];
+  const ids = new Set<string>();
+  const folders: ChatFolder[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const id = "id" in entry && typeof entry.id === "string" ? entry.id.trim() : "";
+    const name = "name" in entry && typeof entry.name === "string" ? entry.name.trim() : "";
+    if (!id || !name || ids.has(id)) continue;
+    ids.add(id);
+    folders.push({ id, name });
+  }
+  return folders;
+}
+
+function sanitizeThreadFolderAssignments(
+  value: unknown,
+  folderIds: ReadonlySet<string>,
+): Record<string, string> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] =>
+        entry[0].length > 0 && typeof entry[1] === "string" && folderIds.has(entry[1]),
+    ),
+  );
+}
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
 const LEGACY_PROJECT_EXPANSION_DEFAULT_KEY = "legacy-project-expansion-default";
@@ -122,6 +167,8 @@ function isPullRequestMergeMethod(value: unknown): value is PullRequestMergeMeth
 }
 
 export function parsePersistedState(parsed: PersistedUiState): UiState {
+  const chatFolders = sanitizeChatFolders(parsed.chatFolders);
+  const chatFolderIds = new Set(chatFolders.map((folder) => folder.id));
   const projectExpandedById =
     parsed.projectExpandedById === undefined
       ? (() => {
@@ -146,6 +193,9 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
       : sanitizeStringArray(parsed.projectOrder);
 
   return {
+    chatFolders,
+    threadFolderByKey: sanitizeThreadFolderAssignments(parsed.threadFolderByKey, chatFolderIds),
+    chatFolderExpandedById: sanitizeBooleanRecord(parsed.chatFolderExpandedById),
     projectExpandedById,
     projectOrder,
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
@@ -224,6 +274,9 @@ export function persistState(state: UiState): void {
     window.localStorage.setItem(
       PERSISTED_STATE_KEY,
       JSON.stringify({
+        chatFolders: state.chatFolders,
+        threadFolderByKey: state.threadFolderByKey,
+        chatFolderExpandedById: state.chatFolderExpandedById,
         projectExpandedById,
         projectOrder: state.projectOrder,
         threadLastVisitedAtById: state.threadLastVisitedAtById,
@@ -243,6 +296,74 @@ export function persistState(state: UiState): void {
   } catch {
     // Ignore quota/storage errors to avoid breaking chat UX.
   }
+}
+
+export function createChatFolder(state: UiState, folder: ChatFolder): UiState {
+  const id = folder.id.trim();
+  const name = folder.name.trim();
+  if (!id || !name || state.chatFolders.some((candidate) => candidate.id === id)) return state;
+  return {
+    ...state,
+    chatFolders: [...state.chatFolders, { id, name }],
+    chatFolderExpandedById: { ...state.chatFolderExpandedById, [id]: true },
+  };
+}
+
+export function renameChatFolder(state: UiState, folderId: string, name: string): UiState {
+  const nextName = name.trim();
+  if (!nextName) return state;
+  const index = state.chatFolders.findIndex((folder) => folder.id === folderId);
+  if (index < 0 || state.chatFolders[index]?.name === nextName) return state;
+  return {
+    ...state,
+    chatFolders: state.chatFolders.map((folder) =>
+      folder.id === folderId ? { ...folder, name: nextName } : folder,
+    ),
+  };
+}
+
+export function deleteChatFolder(state: UiState, folderId: string): UiState {
+  if (!state.chatFolders.some((folder) => folder.id === folderId)) return state;
+  return {
+    ...state,
+    chatFolders: state.chatFolders.filter((folder) => folder.id !== folderId),
+    threadFolderByKey: Object.fromEntries(
+      Object.entries(state.threadFolderByKey).filter(([, assignedId]) => assignedId !== folderId),
+    ),
+    chatFolderExpandedById: Object.fromEntries(
+      Object.entries(state.chatFolderExpandedById).filter(([id]) => id !== folderId),
+    ),
+  };
+}
+
+export function assignThreadToChatFolder(
+  state: UiState,
+  threadKey: string,
+  folderId: string | null,
+): UiState {
+  const currentFolderId = state.threadFolderByKey[threadKey] ?? null;
+  const nextFolderId =
+    folderId !== null && state.chatFolders.some((folder) => folder.id === folderId)
+      ? folderId
+      : null;
+  if (currentFolderId === nextFolderId) return state;
+  const threadFolderByKey = { ...state.threadFolderByKey };
+  if (nextFolderId === null) delete threadFolderByKey[threadKey];
+  else threadFolderByKey[threadKey] = nextFolderId;
+  return { ...state, threadFolderByKey };
+}
+
+export function setChatFolderExpanded(
+  state: UiState,
+  folderId: string,
+  expanded: boolean,
+): UiState {
+  if (!state.chatFolders.some((folder) => folder.id === folderId)) return state;
+  if (state.chatFolderExpandedById[folderId] === expanded) return state;
+  return {
+    ...state,
+    chatFolderExpandedById: { ...state.chatFolderExpandedById, [folderId]: expanded },
+  };
 }
 
 const debouncedPersistState = new Debouncer(persistState, { wait: 500 });
@@ -424,6 +545,11 @@ export function reorderProjects(
 }
 
 interface UiStateStore extends UiState {
+  createChatFolder: (folder: ChatFolder) => void;
+  renameChatFolder: (folderId: string, name: string) => void;
+  deleteChatFolder: (folderId: string) => void;
+  assignThreadToChatFolder: (threadKey: string, folderId: string | null) => void;
+  setChatFolderExpanded: (folderId: string, expanded: boolean) => void;
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
@@ -440,6 +566,13 @@ interface UiStateStore extends UiState {
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
   ...readPersistedState(),
+  createChatFolder: (folder) => set((state) => createChatFolder(state, folder)),
+  renameChatFolder: (folderId, name) => set((state) => renameChatFolder(state, folderId, name)),
+  deleteChatFolder: (folderId) => set((state) => deleteChatFolder(state, folderId)),
+  assignThreadToChatFolder: (threadKey, folderId) =>
+    set((state) => assignThreadToChatFolder(state, threadKey, folderId)),
+  setChatFolderExpanded: (folderId, expanded) =>
+    set((state) => setChatFolderExpanded(state, folderId, expanded)),
   markThreadVisited: (threadId, visitedAt) =>
     set((state) => markThreadVisited(state, threadId, visitedAt)),
   markThreadUnread: (threadId, latestTurnCompletedAt) =>

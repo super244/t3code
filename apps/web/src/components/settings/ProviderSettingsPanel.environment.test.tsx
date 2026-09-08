@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { visitElements } from "../../test/reactElementTree";
 import { reactHookHarness as hooks } from "../../test/reactHookHarness";
+import type { EnvironmentPresentation } from "../../state/environments";
 
 const atoms = vi.hoisted(() => ({
   providers: null as ReadonlyArray<ServerProvider> | null,
@@ -99,7 +100,10 @@ vi.mock("../../state/session", () => ({
   useEnvironmentSessionState: () => ({ data: null, hasError: false, isPending: true }),
 }));
 
-import { EnvironmentProviderSettings } from "./ProviderSettingsPanel";
+import {
+  EnvironmentProviderSettings,
+  ProviderConfigRecoveryPlaceholder,
+} from "./ProviderSettingsPanel";
 
 const environmentId = EnvironmentId.make("remote-device");
 const codexId = ProviderInstanceId.make("codex");
@@ -187,6 +191,26 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(() => renderPanel()).not.toThrow();
     expect(settingsState.readEnvironmentIds).toEqual([environmentId]);
     expect(settingsState.updateEnvironmentIds).toEqual([environmentId]);
+  });
+
+  it("actively refreshes providers when the server config has not loaded", async () => {
+    hooks.beginRender();
+    ProviderConfigRecoveryPlaceholder({
+      environment: {
+        environmentId,
+        label: "Remote device",
+        serverConfig: null,
+      } as EnvironmentPresentation,
+    });
+
+    expect(settingsSearchState.effects).toHaveLength(1);
+    settingsSearchState.effects[0]?.();
+    await flushPromises();
+
+    expect(commands.refresh).toHaveBeenCalledWith({
+      environmentId,
+      input: { refreshModels: true },
+    });
   });
 
   it("routes refresh and provider update commands to the selected environment", async () => {

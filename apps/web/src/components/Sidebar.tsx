@@ -47,11 +47,13 @@ import {
   GitBranchIcon,
   PinIcon,
   PinOffIcon,
+  PencilIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
   SquarePenIcon,
   TerminalIcon,
+  Trash2Icon,
   Undo2Icon,
   XIcon,
 } from "lucide-react";
@@ -212,6 +214,15 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
+import {
   Combobox,
   ComboboxEmpty,
   ComboboxSearchInput,
@@ -294,6 +305,127 @@ const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, ProviderInstanceEntry> = new M
 // Collapsed shelves share one empty list so a route change alone does not
 // give the sidebar list a new identity.
 const EMPTY_THREADS: readonly EnvironmentThreadShell[] = [];
+
+function chatFolderStatus(thread: SidebarThreadSummary): {
+  readonly label: string;
+  readonly className: string;
+} | null {
+  switch (resolveSidebarThreadStatus(thread)) {
+    case "working":
+      return { label: "Working", className: "text-sky-600 dark:text-sky-400" };
+    case "monitoring":
+      return { label: "Monitoring", className: "text-sky-600 dark:text-sky-400" };
+    case "approval":
+      return { label: "Approval", className: "text-amber-700 dark:text-amber-300" };
+    case "input":
+      return { label: "Input", className: "text-indigo-600 dark:text-indigo-300" };
+    case "failed":
+      return { label: "Failed", className: "text-red-700 dark:text-red-300" };
+    default:
+      return null;
+  }
+}
+
+function ChatFolderShelf(props: {
+  readonly folder: { readonly id: string; readonly name: string };
+  readonly threads: readonly EnvironmentThreadShell[];
+  readonly totalCount: number;
+  readonly expanded: boolean;
+  readonly activeThreadKey: string | null;
+  readonly onToggle: () => void;
+  readonly onRename: () => void;
+  readonly onDelete: () => void;
+  readonly onThreadActivate: (threadRef: ScopedThreadRef) => void;
+  readonly onThreadContextMenu: (
+    threadRef: ScopedThreadRef,
+    position: { x: number; y: number },
+  ) => void;
+}) {
+  return (
+    <section className="mb-1" aria-label={`${props.folder.name} chat folder`}>
+      <div className="group/chat-folder flex h-7 items-center gap-1 px-1.5 text-sidebar-muted-foreground">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-1 py-0.5 text-left hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+          aria-expanded={props.expanded}
+          onClick={props.onToggle}
+        >
+          <ChevronDownIcon
+            aria-hidden
+            className={cn(
+              "size-3.5 shrink-0 transition-transform",
+              !props.expanded && "-rotate-90",
+            )}
+          />
+          <FolderIcon aria-hidden className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-xs font-medium">{props.folder.name}</span>
+          <span className="font-mono text-[10px] tabular-nums opacity-60">{props.totalCount}</span>
+        </button>
+        <Button
+          type="button"
+          size="icon-micro"
+          variant="ghost"
+          className="opacity-0 group-hover/chat-folder:opacity-100 focus-visible:opacity-100"
+          aria-label={`Rename ${props.folder.name} folder`}
+          onClick={props.onRename}
+        >
+          <PencilIcon className="size-3" />
+        </Button>
+        <Button
+          type="button"
+          size="icon-micro"
+          variant="ghost"
+          className="opacity-0 group-hover/chat-folder:opacity-100 focus-visible:opacity-100"
+          aria-label={`Delete ${props.folder.name} folder`}
+          onClick={props.onDelete}
+        >
+          <Trash2Icon className="size-3" />
+        </Button>
+      </div>
+      {props.expanded && props.totalCount === 0 ? (
+        <p className="px-8 py-1 text-[11px] text-sidebar-muted-foreground/55">No chats</p>
+      ) : null}
+      {props.threads.length > 0 ? (
+        <ul role="list" className="flex flex-col gap-px">
+          {props.threads.map((thread) => {
+            const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+            const threadKey = scopedThreadKey(threadRef);
+            const status = chatFolderStatus(thread);
+            return (
+              <li key={threadKey} className="list-none">
+                <button
+                  type="button"
+                  aria-current={props.activeThreadKey === threadKey ? "page" : undefined}
+                  onClick={() => props.onThreadActivate(threadRef)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    props.onThreadContextMenu(threadRef, {
+                      x: event.clientX,
+                      y: event.clientY,
+                    });
+                  }}
+                  className={cn(
+                    "flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 ps-7 text-left text-sm",
+                    props.activeThreadKey === threadKey
+                      ? "bg-sidebar-row-active text-sidebar-foreground"
+                      : "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+                  )}
+                >
+                  <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+                  {status ? (
+                    <span className={cn("shrink-0 text-[11px]", status.className)}>
+                      {status.label}
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
 
 function terminalProcessLabel(count: number): string {
   return `${count} terminal ${count === 1 ? "process" : "processes"} running`;
@@ -2084,6 +2216,14 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
 export default function Sidebar() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
+  const chatFolders = useUiStateStore((store) => store.chatFolders);
+  const threadFolderByKey = useUiStateStore((store) => store.threadFolderByKey);
+  const chatFolderExpandedById = useUiStateStore((store) => store.chatFolderExpandedById);
+  const createChatFolder = useUiStateStore((store) => store.createChatFolder);
+  const renameChatFolder = useUiStateStore((store) => store.renameChatFolder);
+  const deleteChatFolder = useUiStateStore((store) => store.deleteChatFolder);
+  const assignThreadToChatFolder = useUiStateStore((store) => store.assignThreadToChatFolder);
+  const setChatFolderExpanded = useUiStateStore((store) => store.setChatFolderExpanded);
   const threads = useThreadShells();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -2168,6 +2308,37 @@ export default function Sidebar() {
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
     [],
+  );
+  const [chatFolderDialog, setChatFolderDialog] = useState<
+    | { readonly mode: "create"; readonly name: string }
+    | { readonly mode: "rename"; readonly folderId: string; readonly name: string }
+    | null
+  >(null);
+  const submitChatFolderDialog = useCallback(() => {
+    if (chatFolderDialog === null || !chatFolderDialog.name.trim()) return;
+    if (chatFolderDialog.mode === "create") {
+      createChatFolder({ id: crypto.randomUUID(), name: chatFolderDialog.name });
+    } else {
+      renameChatFolder(chatFolderDialog.folderId, chatFolderDialog.name);
+    }
+    setChatFolderDialog(null);
+  }, [chatFolderDialog, createChatFolder, renameChatFolder]);
+  const confirmDeleteChatFolder = useCallback(
+    (folder: { readonly id: string; readonly name: string }) => {
+      void (async () => {
+        const api = readLocalApi();
+        if (api) {
+          const confirmed = await settlePromise(() =>
+            api.dialogs.confirm(
+              `Delete the folder "${folder.name}"? Chats inside it will return to the main list.`,
+            ),
+          );
+          if (confirmed._tag === "Failure" || !confirmed.value) return;
+        }
+        deleteChatFolder(folder.id);
+      })();
+    },
+    [deleteChatFolder],
   );
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -2409,6 +2580,45 @@ export default function Sidebar() {
     clearSelection();
   }, [clearSelection, projectScopeKey]);
 
+  const visibleThreads = useMemo(
+    () =>
+      threads.filter(
+        (thread) =>
+          thread.archivedAt === null &&
+          (scopedProjectKeys === null ||
+            scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+      ),
+    [scopedProjectKeys, threads],
+  );
+  const chatFolderIds = useMemo(
+    () => new Set(chatFolders.map((folder) => folder.id)),
+    [chatFolders],
+  );
+  const assignedThreadKeys = useMemo(
+    () =>
+      new Set(
+        visibleThreads.flatMap((thread) => {
+          const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+          const folderId = threadFolderByKey[threadKey];
+          return folderId !== undefined && chatFolderIds.has(folderId) ? [threadKey] : [];
+        }),
+      ),
+    [chatFolderIds, threadFolderByKey, visibleThreads],
+  );
+  const chatFolderThreadGroups = useMemo(
+    () =>
+      chatFolders.map((folder) => ({
+        folder,
+        threads: sortThreadsForSidebar(
+          visibleThreads.filter((thread) => {
+            const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+            return threadFolderByKey[threadKey] === folder.id;
+          }),
+        ),
+      })),
+    [chatFolders, threadFolderByKey, visibleThreads],
+  );
+
   const openProjectSettings = useCallback(
     (projectGroup: SidebarProjectSnapshot) => {
       if (isMobile) {
@@ -2471,19 +2681,13 @@ export default function Sidebar() {
     // memo exactly at the next wake boundary.
     void snoozeWakeTick;
     const preciseNow = new Date().toISOString();
-    const visible = threads.filter(
-      (thread) =>
-        thread.archivedAt === null &&
-        (scopedProjectKeys === null ||
-          scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
-    );
     const pinned: EnvironmentThreadShell[] = [];
     const active: EnvironmentThreadShell[] = [];
     const snoozed: EnvironmentThreadShell[] = [];
     const settled: EnvironmentThreadShell[] = [];
     const draggable = new Set<string>();
     const activeReorderable = new Set<string>();
-    for (const thread of visible) {
+    for (const thread of visibleThreads) {
       const capabilities = serverConfigs.get(thread.environmentId)?.environment.capabilities;
       // Threads on servers without the settlement capability (old server,
       // or descriptor not loaded yet) never classify as settled: the user
@@ -2492,6 +2696,7 @@ export default function Sidebar() {
       const supportsSettlement = capabilities?.threadSettlement === true;
       const supportsSnooze = capabilities?.threadSnooze === true;
       const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+      if (assignedThreadKeys.has(threadKey)) continue;
       if (capabilities?.threadActiveReorder === true) activeReorderable.add(threadKey);
       // Older servers retain their existing drag actions. Active placement
       // additionally requires its own ordering capability at the drop target.
@@ -2561,16 +2766,20 @@ export default function Sidebar() {
       settledThreads: sortSettledThreadsForSidebar(settled),
       snoozeNow: preciseNow,
     };
-  }, [nowMinute, optimisticDrop, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
+  }, [
+    assignedThreadKeys,
+    nowMinute,
+    optimisticDrop,
+    serverConfigs,
+    snoozeWakeTick,
+    visibleThreads,
+  ]);
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
-  const searchableThreads = useMemo(
-    () => [...pinnedThreads, ...activeThreads, ...snoozedThreads, ...settledThreads],
-    [activeThreads, pinnedThreads, settledThreads, snoozedThreads],
-  );
+  const searchableThreads = visibleThreads;
   const threadSearchResults = useMemo(
     () => searchSidebarThreadsByTitle(searchableThreads, threadSearchQuery),
     [searchableThreads, threadSearchQuery],
@@ -2686,9 +2895,48 @@ export default function Sidebar() {
     return routeThread === undefined ? EMPTY_THREADS : [routeThread];
   }, [routeThreadKey, snoozedShelfExpanded, snoozedThreads]);
 
+  const renderedChatFolderGroups = useMemo(
+    () =>
+      chatFolderThreadGroups.map((group) => {
+        const expanded = chatFolderExpandedById[group.folder.id] !== false;
+        const totalCount = group.threads.length;
+        if (expanded) return { ...group, expanded, totalCount };
+        if (routeThreadKey === null) {
+          return { ...group, expanded, totalCount, threads: EMPTY_THREADS };
+        }
+        const activeThread = group.threads.find(
+          (thread) =>
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === routeThreadKey,
+        );
+        return {
+          ...group,
+          expanded,
+          totalCount,
+          threads: activeThread === undefined ? EMPTY_THREADS : [activeThread],
+        };
+      }),
+    [chatFolderExpandedById, chatFolderThreadGroups, routeThreadKey],
+  );
+  const renderedChatFolderThreads = useMemo(
+    () => renderedChatFolderGroups.flatMap((group) => group.threads),
+    [renderedChatFolderGroups],
+  );
+
   const orderedThreads = useMemo(
-    () => [...pinnedThreads, ...activeThreads, ...visibleSnoozedThreads, ...renderedSettledThreads],
-    [pinnedThreads, activeThreads, visibleSnoozedThreads, renderedSettledThreads],
+    () => [
+      ...renderedChatFolderThreads,
+      ...pinnedThreads,
+      ...activeThreads,
+      ...visibleSnoozedThreads,
+      ...renderedSettledThreads,
+    ],
+    [
+      activeThreads,
+      pinnedThreads,
+      renderedChatFolderThreads,
+      renderedSettledThreads,
+      visibleSnoozedThreads,
+    ],
   );
   const orderedThreadKeys = useMemo(
     () =>
@@ -3323,7 +3571,8 @@ export default function Sidebar() {
         .join("\0"),
     [sidebarListItems],
   );
-  const sidebarListHasRows = sidebarListItems.length + visibleDraftSessionCount > 0;
+  const sidebarListHasRows =
+    sidebarListItems.length + visibleDraftSessionCount + renderedChatFolderThreads.length > 0;
   useLayoutEffect(() => {
     // Drag release clears the baseline, so its commit cannot replay the
     // sortable preview; rows glide from their released positions instead.
@@ -3746,12 +3995,35 @@ export default function Sidebar() {
               : []),
             ...(titleRegenerationMenuItem ? [titleRegenerationMenuItem] : []),
             { id: "mark-unread", label: `Mark unread (${count})` },
+            ...(chatFolders.length > 0
+              ? [
+                  {
+                    id: "move-to-folder",
+                    label: `Move to folder (${count})`,
+                    icon: "folder",
+                    children: [
+                      ...chatFolders.map((folder) => ({
+                        id: `folder:${folder.id}`,
+                        label: folder.name,
+                      })),
+                      { id: "folder:none", label: "No folder", separatorBefore: true },
+                    ],
+                  },
+                ]
+              : []),
             { id: "delete", label: `Delete (${count})`, destructive: true },
           ],
           position,
         ),
       );
       if (clicked._tag === "Failure") return;
+      if (clicked.value === "folder:none" || clicked.value?.startsWith("folder:")) {
+        const folderId =
+          clicked.value === "folder:none" ? null : clicked.value.slice("folder:".length);
+        for (const threadKey of threadKeys) assignThreadToChatFolder(threadKey, folderId);
+        clearSelection();
+        return;
+      }
       if (clicked.value?.startsWith("snooze:")) {
         const preset = snoozePresets.find(
           (candidate) => `snooze:${candidate.id}` === clicked.value,
@@ -3917,6 +4189,8 @@ export default function Sidebar() {
       removeFromSelection,
       serverConfigs,
       attemptUnsnooze,
+      assignThreadToChatFolder,
+      chatFolders,
       updateThreadMetadata,
       timestampFormat,
     ],
@@ -3976,11 +4250,20 @@ export default function Sidebar() {
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
+              chatFolders,
+              currentChatFolderId: threadFolderByKey[threadKey] ?? null,
             }),
             position,
           ),
         );
         if (clicked._tag === "Failure") return;
+        if (clicked.value === "folder:none" || clicked.value?.startsWith("folder:")) {
+          assignThreadToChatFolder(
+            threadKey,
+            clicked.value === "folder:none" ? null : clicked.value.slice("folder:".length),
+          );
+          return;
+        }
         if (clicked.value?.startsWith("snooze:")) {
           const preset = snoozePresets.find(
             (candidate) => `snooze:${candidate.id}` === clicked.value,
@@ -4145,6 +4428,7 @@ export default function Sidebar() {
     },
     [
       archiveThread,
+      assignThreadToChatFolder,
       attemptPin,
       attemptSettle,
       attemptSnooze,
@@ -4153,6 +4437,7 @@ export default function Sidebar() {
       attemptUnsnooze,
       confirmThreadArchive,
       confirmThreadDelete,
+      chatFolders,
       copyBranchToClipboard,
       copyPathToClipboard,
       copyThreadIdToClipboard,
@@ -4165,6 +4450,7 @@ export default function Sidebar() {
       startThreadRename,
       updateThreadMetadata,
       timestampFormat,
+      threadFolderByKey,
     ],
   );
 
@@ -4283,6 +4569,51 @@ export default function Sidebar() {
   const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
   return (
     <>
+      <Dialog
+        open={chatFolderDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setChatFolderDialog(null);
+        }}
+      >
+        <DialogPopup className="max-w-sm">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitChatFolderDialog();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>
+                {chatFolderDialog?.mode === "rename" ? "Rename chat folder" : "New chat folder"}
+              </DialogTitle>
+              <DialogDescription>
+                Organize chats locally without changing or deleting their conversation history.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogPanel>
+              <Input
+                autoFocus
+                value={chatFolderDialog?.name ?? ""}
+                onChange={(event) =>
+                  setChatFolderDialog((current) =>
+                    current === null ? null : { ...current, name: event.currentTarget.value },
+                  )
+                }
+                placeholder="Folder name"
+                aria-label="Chat folder name"
+              />
+            </DialogPanel>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setChatFolderDialog(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!chatFolderDialog?.name.trim()}>
+                {chatFolderDialog?.mode === "rename" ? "Save" : "Create folder"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogPopup>
+      </Dialog>
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarContent
         className="gap-0"
@@ -4378,6 +4709,24 @@ export default function Sidebar() {
                       "New thread"
                     )}
                   </TooltipPopup>
+                </Tooltip>
+              </div>
+              <div className="shrink-0">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <SidebarMenuButton
+                        size="icon"
+                        type="button"
+                        className="relative focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                        onClick={() => setChatFolderDialog({ mode: "create", name: "" })}
+                        aria-label="New chat folder"
+                      />
+                    }
+                  >
+                    <FolderPlusIcon />
+                  </TooltipTrigger>
+                  <TooltipPopup side="right">New chat folder</TooltipPopup>
                 </Tooltip>
               </div>
             </div>
@@ -4605,6 +4954,27 @@ export default function Sidebar() {
                 onDragOver={handleThreadDragOver}
                 onDragEnd={handleThreadDragEnd}
               >
+                {renderedChatFolderGroups.map((group) => (
+                  <ChatFolderShelf
+                    key={group.folder.id}
+                    folder={group.folder}
+                    threads={group.threads}
+                    totalCount={group.totalCount}
+                    expanded={group.expanded}
+                    activeThreadKey={routeThreadKey}
+                    onToggle={() => setChatFolderExpanded(group.folder.id, !group.expanded)}
+                    onRename={() =>
+                      setChatFolderDialog({
+                        mode: "rename",
+                        folderId: group.folder.id,
+                        name: group.folder.name,
+                      })
+                    }
+                    onDelete={() => confirmDeleteChatFolder(group.folder)}
+                    onThreadActivate={navigateToThread}
+                    onThreadContextMenu={handleThreadContextMenu}
+                  />
+                ))}
                 <SidebarDragLifecycle onUnmount={cancelThreadDrag} />
                 <SortableContext items={sortableIds} strategy={sidebarSortingStrategy}>
                   <ul
@@ -4872,13 +5242,7 @@ export default function Sidebar() {
               </DndContext>
             </TooltipProvider>
           ) : null}
-          {!isSearchingThreads &&
-          visibleDraftSessionCount === 0 &&
-          pinnedThreads.length +
-            activeThreads.length +
-            snoozedThreads.length +
-            settledThreads.length ===
-            0 ? (
+          {!isSearchingThreads && visibleDraftSessionCount === 0 && visibleThreads.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
               {projects.length === 0 ? (
                 <>
