@@ -1331,6 +1331,22 @@ ${associatedDomains}
 `;
 }
 
+export function renderMacLocalEntitlements(): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>
+`;
+}
+
 export function resolveFffNativeDependencies(
   platform: typeof BuildPlatform.Type,
   arch: typeof BuildArch.Type,
@@ -2653,10 +2669,10 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   signed: boolean,
   mockUpdates: boolean,
   mockUpdateServerPort: number | undefined,
-  macPasskeySigning:
+  macSigning:
     | {
         readonly entitlementsPath: string;
-        readonly provisioningProfilePath: string;
+        readonly provisioningProfilePath?: string;
       }
     | undefined,
   // Windows only, and false when no Linux node-pty prebuild was bundled: the
@@ -2723,11 +2739,20 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
           schemes: ["t3code", "t3code-dev"],
         },
       ],
-      ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
-      ...(macPasskeySigning
+      ...(signed
+        ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") }
+        : {
+            // Electron contains linker-signed Mach-O files. Disabling macOS
+            // signing entirely leaves those nested seals inconsistent with the
+            // outer app, so local builds fail strict bundle verification.
+            identity: "-",
+          }),
+      ...(macSigning
         ? {
-            entitlements: macPasskeySigning.entitlementsPath,
-            provisioningProfile: macPasskeySigning.provisioningProfilePath,
+            entitlements: macSigning.entitlementsPath,
+            ...(macSigning.provisioningProfilePath
+              ? { provisioningProfile: macSigning.provisioningProfilePath }
+              : {}),
           }
         : {}),
     };
@@ -3722,16 +3747,22 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
         ),
       }
     : undefined;
-  const macEntitlementsPath = macPasskeySigning
-    ? path.join(stageAppDir, "entitlements.mac.plist")
-    : undefined;
-  if (macPasskeySigning && macEntitlementsPath) {
-    if (!(yield* fs.exists(macPasskeySigning.provisioningProfilePath))) {
-      return yield* new MacProvisioningProfileNotFoundError({
-        provisioningProfilePath: macPasskeySigning.provisioningProfilePath,
-      });
+  const macEntitlementsPath =
+    options.platform === "mac" ? path.join(stageAppDir, "entitlements.mac.plist") : undefined;
+  if (macEntitlementsPath) {
+    if (macPasskeySigning) {
+      if (!(yield* fs.exists(macPasskeySigning.provisioningProfilePath))) {
+        return yield* new MacProvisioningProfileNotFoundError({
+          provisioningProfilePath: macPasskeySigning.provisioningProfilePath,
+        });
+      }
+      yield* fs.writeFileString(
+        macEntitlementsPath,
+        renderMacPasskeyEntitlements(macPasskeySigning),
+      );
+    } else {
+      yield* fs.writeFileString(macEntitlementsPath, renderMacLocalEntitlements());
     }
-    yield* fs.writeFileString(macEntitlementsPath, renderMacPasskeyEntitlements(macPasskeySigning));
   }
 
   // Windows splits dependencies per process: app.asar carries only the
@@ -3783,10 +3814,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       options.signed,
       options.mockUpdates,
       options.mockUpdateServerPort,
-      macPasskeySigning && macEntitlementsPath
+      macEntitlementsPath
         ? {
             entitlementsPath: macEntitlementsPath,
-            provisioningProfilePath: macPasskeySigning.provisioningProfilePath,
+            ...(macPasskeySigning
+              ? { provisioningProfilePath: macPasskeySigning.provisioningProfilePath }
+              : {}),
           }
         : undefined,
       bundlesWslRuntime({ arch: options.arch, prebuildPath: options.wslPrebuild }),

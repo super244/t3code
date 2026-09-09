@@ -43,6 +43,7 @@ import {
   preflightLinuxDesktopBuild,
   preflightMacDesktopBuild,
   preflightWindowsDesktopBuild,
+  renderMacLocalEntitlements,
   renderMacPasskeyEntitlements,
   resolveClerkPasskeyNativeArtifacts,
   resolveMacPasskeySigningConfiguration,
@@ -682,7 +683,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(linux.files, DESKTOP_FILE_EXCLUSIONS);
       assert.deepStrictEqual(win.files, DESKTOP_FILE_EXCLUSIONS);
       assert.deepStrictEqual(winWithoutWslPrebuild.files, win.files);
-      assert.notProperty(mac.mac as Record<string, unknown>, "sign");
+      const macConfig = mac.mac as Record<string, unknown>;
+      assert.notProperty(macConfig, "sign");
+      assert.equal(macConfig.identity, "-");
       for (const config of [linux, win]) {
         assert.deepStrictEqual(config.electronLanguages, DESKTOP_ELECTRON_LANGUAGES);
       }
@@ -1717,6 +1720,18 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.include(entitlements, "<key>com.apple.security.cs.allow-jit</key>");
   });
 
+  it("renders hardened-runtime entitlements for ad-hoc local builds", () => {
+    const entitlements = renderMacLocalEntitlements();
+
+    assert.include(entitlements, "<key>com.apple.security.cs.allow-jit</key>");
+    assert.include(
+      entitlements,
+      "<key>com.apple.security.cs.allow-unsigned-executable-memory</key>",
+    );
+    assert.include(entitlements, "<key>com.apple.security.cs.disable-library-validation</key>");
+    assert.notInclude(entitlements, "com.apple.developer.team-identifier");
+  });
+
   it("rejects incomplete macOS passkey signing configuration", () => {
     const captureError = (env: Readonly<Record<string, string | undefined>>) => {
       try {
@@ -1810,6 +1825,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.equal(mac.entitlements, "/tmp/entitlements.mac.plist");
       assert.equal(mac.provisioningProfile, "/tmp/t3code.provisionprofile");
       assert.match(String(mac.sign), /[\\/]scripts[\\/]sign-macos\.ts$/);
+      assert.notProperty(mac, "identity");
       assert.deepStrictEqual(mac.protocols, [
         { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
       ]);
