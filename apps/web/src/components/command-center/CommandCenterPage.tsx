@@ -25,6 +25,8 @@ import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import {
   buildCommandCenterSummary,
   commandCenterThreadStatus,
+  formatConnectionSummary,
+  formatHarnessReadiness,
   sortUpcomingRoutines,
   type CommandCenterThreadStatus,
 } from "./commandCenter.logic";
@@ -50,6 +52,14 @@ interface RoutineRow {
   readonly environmentLabel: string;
   readonly routine: RoutineDefinition;
 }
+
+type CommandCenterDestination =
+  | "/"
+  | "/settings/connections"
+  | "/settings/providers"
+  | "/settings/skills"
+  | "/routines"
+  | "/usage";
 
 function relativeTime(value: string): string {
   const delta = Date.parse(value) - Date.now();
@@ -87,6 +97,15 @@ export function CommandCenterPage() {
   );
   const providers = useMemo(
     () => environments.flatMap((environment) => environment.serverConfig?.providers ?? []),
+    [environments],
+  );
+  const enabledProviderRows = useMemo(
+    () =>
+      environments.flatMap((environment) =>
+        (environment.serverConfig?.providers ?? [])
+          .filter((provider) => provider.enabled)
+          .map((provider) => ({ environment, provider })),
+      ),
     [environments],
   );
   const providersByEnvironmentAndInstance = useMemo(
@@ -132,13 +151,15 @@ export function CommandCenterPage() {
     [threads],
   );
   const upcomingRoutines = useMemo(() => sortUpcomingRoutines(routines).slice(0, 6), [routines]);
-  const enabledSkills = providers.reduce(
-    (total, provider) => total + provider.skills.filter((skill) => skill.enabled).length,
+  const enabledSkills = enabledProviderRows.reduce(
+    (total, { provider }) => total + provider.skills.filter((skill) => skill.enabled).length,
     0,
   );
   const connectedEnvironments = environments.filter(
     (environment) => environment.connection.phase === "connected",
   ).length;
+  const needsConnectionSetup =
+    environments.length === 0 || connectedEnvironments < environments.length;
   const attentionTotal = summary.attentionItems + summary.failedRoutines;
 
   return (
@@ -152,9 +173,21 @@ export function CommandCenterPage() {
                 <h1>Command Center</h1>
               </WorkspaceBreadcrumbItem>
             </WorkspaceBreadcrumb>
-            <span className="ml-auto hidden text-xs text-muted-foreground sm:inline">
-              {connectedEnvironments} of {environments.length} connected
-            </span>
+            <Link
+              to="/settings/connections"
+              className={cn(
+                "ml-auto hidden items-center gap-1.5 text-xs hover:text-foreground sm:flex",
+                needsConnectionSetup ? "text-warning" : "text-muted-foreground",
+              )}
+            >
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  needsConnectionSetup ? "bg-warning" : "bg-success",
+                )}
+              />
+              {formatConnectionSummary(connectedEnvironments, environments.length)}
+            </Link>
             <Button size="sm" variant="outline" render={<Link to="/" />}>
               <PlayIcon /> New task
             </Button>
@@ -172,15 +205,27 @@ export function CommandCenterPage() {
                   <span className="text-xs text-muted-foreground">active missions</span>
                 </div>
                 <div className="grid grid-cols-2 gap-x-5 gap-y-4">
-                  <Metric label="Needs attention" value={String(attentionTotal)} />
+                  <Metric label="Needs attention" value={String(attentionTotal)} to="/" />
                   <Metric
                     label="Harnesses ready"
-                    value={`${summary.readyProviders}/${summary.totalProviders}`}
+                    value={formatHarnessReadiness(summary.readyProviders, summary.totalProviders)}
+                    to="/settings/providers"
                   />
-                  <Metric label="Scheduled routines" value={String(summary.enabledRoutines)} />
-                  <Metric label="Available skills" value={String(enabledSkills)} />
+                  <Metric
+                    label="Scheduled routines"
+                    value={String(summary.enabledRoutines)}
+                    to="/routines"
+                  />
+                  <Metric
+                    label="Available skills"
+                    value={String(enabledSkills)}
+                    to="/settings/skills"
+                  />
                 </div>
-                <div className="flex flex-col gap-1 border-t border-border pt-4">
+                <Link
+                  to="/usage"
+                  className="flex flex-col gap-1 border-t border-border pt-4 hover:text-foreground"
+                >
                   <span className="text-lg font-medium tabular-nums">
                     {usage.isPending ? "…" : formatUsd(usage.merged.costUsd)}
                   </span>
@@ -188,7 +233,7 @@ export function CommandCenterPage() {
                     {formatTokens(usage.merged.totalTokens)} · API-equivalent · past 7 days · not
                     billed
                   </span>
-                </div>
+                </Link>
               </div>
 
               <section className="flex min-w-0 flex-col gap-3">
@@ -200,9 +245,12 @@ export function CommandCenterPage() {
                 </div>
                 <div className="min-w-0 border-y border-border">
                   {activeThreads.length === 0 ? (
-                    <p className="py-6 text-center text-sm text-muted-foreground">
-                      No missions need attention.
-                    </p>
+                    <div className="flex items-center justify-center gap-1.5 py-6 text-sm text-muted-foreground">
+                      <span>No active missions.</span>
+                      <Link to="/" className="text-foreground hover:underline">
+                        Start a task
+                      </Link>
+                    </div>
                   ) : (
                     activeThreads.map((thread) => {
                       const status = commandCenterThreadStatus(thread);
@@ -264,45 +312,66 @@ export function CommandCenterPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {environments.flatMap((environment) =>
-                      (environment.serverConfig?.providers ?? [])
-                        .filter((provider) => provider.enabled)
-                        .map((provider) => (
-                          <tr
-                            key={`${environment.environmentId}:${provider.instanceId}`}
-                            className="border-b border-border last:border-b-0"
-                          >
-                            <td className="truncate py-2.5 pr-3 font-medium">
+                    {enabledProviderRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="border-b border-border py-6">
+                          <div className="flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
+                            <span>No enabled harnesses.</span>
+                            <Link
+                              to="/settings/providers"
+                              className="text-foreground hover:underline"
+                            >
+                              Set up providers
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      enabledProviderRows.map(({ environment, provider }) => (
+                        <tr
+                          key={`${environment.environmentId}:${provider.instanceId}`}
+                          className="border-b border-border last:border-b-0 hover:bg-muted/25"
+                        >
+                          <td className="truncate py-2.5 pr-3 font-medium">
+                            <Link
+                              to="/settings/providers"
+                              search={{
+                                environmentId: environment.environmentId,
+                                instanceId: provider.instanceId,
+                              }}
+                              className="hover:underline"
+                            >
                               {providerLabel(provider)}
-                            </td>
-                            <td className="truncate py-2.5 pr-3 text-muted-foreground">
-                              {environment.label}
-                            </td>
-                            <td className="truncate py-2.5 pr-3 text-muted-foreground">
-                              {provider.auth.label ?? provider.auth.email ?? provider.auth.status}
-                            </td>
-                            <td className="truncate py-2.5 pr-3 font-mono text-xs text-muted-foreground">
-                              {provider.models.find((model) => model.isDefault)?.shortName ??
-                                provider.models.find((model) => model.isDefault)?.name ??
-                                provider.models[0]?.shortName ??
-                                provider.models[0]?.name ??
-                                "—"}
-                            </td>
-                            <td className="py-2.5 text-right">
-                              <Badge
-                                variant={
-                                  provider.status === "ready"
-                                    ? "success"
-                                    : provider.status === "warning"
-                                      ? "warning"
-                                      : "error"
-                                }
-                              >
-                                {provider.status}
-                              </Badge>
-                            </td>
-                          </tr>
-                        )),
+                            </Link>
+                          </td>
+                          <td className="truncate py-2.5 pr-3 text-muted-foreground">
+                            {environment.label}
+                          </td>
+                          <td className="truncate py-2.5 pr-3 text-muted-foreground">
+                            {provider.auth.label ?? provider.auth.email ?? provider.auth.status}
+                          </td>
+                          <td className="truncate py-2.5 pr-3 font-mono text-xs text-muted-foreground">
+                            {provider.models.find((model) => model.isDefault)?.shortName ??
+                              provider.models.find((model) => model.isDefault)?.name ??
+                              provider.models[0]?.shortName ??
+                              provider.models[0]?.name ??
+                              "—"}
+                          </td>
+                          <td className="py-2.5 text-right">
+                            <Badge
+                              variant={
+                                provider.status === "ready"
+                                  ? "success"
+                                  : provider.status === "warning"
+                                    ? "warning"
+                                    : "error"
+                              }
+                            >
+                              {provider.status}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
@@ -376,12 +445,22 @@ export function CommandCenterPage() {
   );
 }
 
-function Metric({ label, value }: { readonly label: string; readonly value: string }) {
+function Metric({
+  label,
+  value,
+  to,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly to: CommandCenterDestination;
+}) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5">
+    <Link to={to} className="group flex min-w-0 flex-col gap-0.5">
       <span className="text-lg font-medium tabular-nums">{value}</span>
-      <span className="truncate text-xs text-muted-foreground">{label}</span>
-    </div>
+      <span className="truncate text-xs text-muted-foreground group-hover:text-foreground">
+        {label}
+      </span>
+    </Link>
   );
 }
 

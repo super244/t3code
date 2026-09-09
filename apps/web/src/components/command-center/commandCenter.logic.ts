@@ -39,6 +39,16 @@ export interface CommandCenterSummary {
   readonly failedRoutines: number;
 }
 
+export function formatConnectionSummary(connected: number, total: number): string {
+  if (total === 0) return "No computers added";
+  if (connected === total) return total === 1 ? "Computer connected" : "All computers connected";
+  return `${connected} of ${total} connected`;
+}
+
+export function formatHarnessReadiness(ready: number, total: number): string {
+  return total === 0 ? "Not set up" : `${ready}/${total}`;
+}
+
 export function buildCommandCenterSummary(input: {
   readonly threads: ReadonlyArray<CommandCenterThreadLike>;
   readonly providers: ReadonlyArray<Pick<ServerProvider, "enabled" | "installed" | "status">>;

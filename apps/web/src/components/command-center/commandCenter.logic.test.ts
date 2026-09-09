@@ -3,6 +3,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildCommandCenterSummary,
   commandCenterThreadStatus,
+  formatConnectionSummary,
+  formatHarnessReadiness,
   sortUpcomingRoutines,
 } from "./commandCenter.logic";
 
@@ -59,6 +61,20 @@ describe("buildCommandCenterSummary", () => {
       enabledRoutines: 1,
       failedRoutines: 1,
     });
+  });
+});
+
+describe("command center status labels", () => {
+  it("turns empty setup counts into useful operational language", () => {
+    expect(formatConnectionSummary(0, 0)).toBe("No computers added");
+    expect(formatHarnessReadiness(0, 0)).toBe("Not set up");
+  });
+
+  it("distinguishes complete and partial computer connectivity", () => {
+    expect(formatConnectionSummary(1, 1)).toBe("Computer connected");
+    expect(formatConnectionSummary(2, 2)).toBe("All computers connected");
+    expect(formatConnectionSummary(1, 2)).toBe("1 of 2 connected");
+    expect(formatHarnessReadiness(1, 2)).toBe("1/2");
   });
 });
 
