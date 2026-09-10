@@ -4,22 +4,40 @@ import type {
   SkillInventory,
   SkillInventoryInstallation,
 } from "@t3tools/contracts";
-import { ClaudeSettings, CodexSettings, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  AntigravitySettings,
+  ClaudeSettings,
+  CodexSettings,
+  CursorSettings,
+  GrokSettings,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Arr from "effect/Array";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import { discoverClaudeSkills } from "../provider/Drivers/ClaudeSkills.ts";
 import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
+import { discoverCursorSkills } from "../provider/Drivers/CursorSkills.ts";
+import { discoverGrokSkills } from "../provider/Drivers/GrokSkills.ts";
+import {
+  discoverAntigravitySkills,
+  resolveAntigravityUserHome,
+} from "../provider/Drivers/AntigravitySkills.ts";
 import { deriveProviderInstanceConfigMap } from "../provider/Layers/ProviderInstanceRegistryHydration.ts";
 import { mergeProviderInstanceEnvironment } from "../provider/ProviderInstanceEnvironment.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 
 const decodeCodexSettings = Schema.decodeUnknownOption(CodexSettings);
 const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
+const decodeCursorSettings = Schema.decodeUnknownOption(CursorSettings);
+const decodeGrokSettings = Schema.decodeUnknownOption(GrokSettings);
+const decodeAntigravitySettings = Schema.decodeUnknownOption(AntigravitySettings);
 
 function harnessDisplayName(instance: ProviderInstanceConfig, fallback: string): string {
   return instance.displayName?.trim() || fallback;
@@ -63,7 +81,7 @@ const discoverInstanceSkills = Effect.fn("SkillInventory.discoverInstanceSkills"
 ): Effect.fn.Return<
   ReadonlyArray<SkillInventoryInstallation>,
   never,
-  FileSystem.FileSystem | Path.Path
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
 > {
   const config = instance.config ?? {};
   const processEnv = mergeProviderInstanceEnvironment(instance.environment);
@@ -103,7 +121,50 @@ const discoverInstanceSkills = Effect.fn("SkillInventory.discoverInstanceSkills"
     });
   }
 
-  // Cursor, Grok, and OpenCode do not expose compatible global skill directories.
+  if (instance.driver === "cursor") {
+    const decoded = decodeCursorSettings(config);
+    if (decoded._tag === "None" || !(instance.enabled ?? decoded.value.enabled)) return [];
+    const skills = yield* discoverCursorSkills(undefined, processEnv);
+    return yield* readSkillInstallations({
+      instanceId,
+      instance,
+      fallbackDisplayName: "Cursor",
+      skills,
+    });
+  }
+
+  if (instance.driver === "grok") {
+    const decoded = decodeGrokSettings(config);
+    if (decoded._tag === "None" || !(instance.enabled ?? decoded.value.enabled)) return [];
+    const skills = yield* discoverGrokSkills(decoded.value, processEnv).pipe(
+      Effect.orElseSucceed(() => []),
+    );
+    return yield* readSkillInstallations({
+      instanceId,
+      instance,
+      fallbackDisplayName: "Grok",
+      // A process without an explicit cwd still inherits the server cwd.
+      // Keep this machine-level inventory free of incidental project skills.
+      skills: skills.filter((skill) => skill.scope !== "project"),
+    });
+  }
+
+  if (instance.driver === "antigravity") {
+    const decoded = decodeAntigravitySettings(config);
+    if (decoded._tag === "None" || !(instance.enabled ?? decoded.value.enabled)) return [];
+    const platform = yield* HostProcessPlatform;
+    const skills = yield* discoverAntigravitySkills({
+      userHome: resolveAntigravityUserHome(platform, processEnv),
+    }).pipe(Effect.orElseSucceed(() => []));
+    return yield* readSkillInstallations({
+      instanceId,
+      instance,
+      fallbackDisplayName: "Antigravity",
+      skills,
+    });
+  }
+
+  // OpenCode does not expose a compatible global skill source yet.
   return [];
 });
 
@@ -112,7 +173,10 @@ export const discoverGlobalSkillInventory = Effect.fn(
 )(function* (): Effect.fn.Return<
   SkillInventory,
   never,
-  FileSystem.FileSystem | Path.Path | ServerSettingsService
+  | ChildProcessSpawner.ChildProcessSpawner
+  | FileSystem.FileSystem
+  | Path.Path
+  | ServerSettingsService
 > {
   const settingsService = yield* ServerSettingsService;
   const settings = yield* settingsService.getSettings.pipe(Effect.orDie);

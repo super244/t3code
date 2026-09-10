@@ -158,7 +158,7 @@ const readSkill = Effect.fn("readAntigravitySkill")(function* (
  * Read failures remain typed so workspace snapshots do not cache partial results.
  */
 export const discoverAntigravitySkills = Effect.fn("discoverAntigravitySkills")(function* (input: {
-  readonly cwd: string;
+  readonly cwd?: string;
   readonly userHome: string;
 }): Effect.fn.Return<
   ReadonlyArray<ServerProviderSkill>,
@@ -173,10 +173,16 @@ export const discoverAntigravitySkills = Effect.fn("discoverAntigravitySkills")(
   );
   const roots = [
     { directory: configSkills, scope: "user" },
-    { directory: path.resolve(input.cwd, ".gemini", "skills"), scope: "project" },
+    ...(input.cwd
+      ? [{ directory: path.resolve(input.cwd, ".gemini", "skills"), scope: "project" }]
+      : []),
     { directory: cliSkills, scope: "user" },
-    { directory: path.resolve(input.cwd, ".agents", "skills"), scope: "project" },
-    { directory: path.resolve(input.cwd, ".agent", "skills"), scope: "project" },
+    ...(input.cwd
+      ? [
+          { directory: path.resolve(input.cwd, ".agents", "skills"), scope: "project" },
+          { directory: path.resolve(input.cwd, ".agent", "skills"), scope: "project" },
+        ]
+      : []),
   ];
   const budget: ScanBudget = {
     remainingBytes: MAX_SCAN_BYTES,

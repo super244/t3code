@@ -92,8 +92,8 @@ export function SkillsSettings() {
       >
         <div className="space-y-2.5 px-3 pb-3 sm:px-4">
           <p className="max-w-xl text-[13px] leading-[1.45] text-muted-foreground/80">
-            Global skills discovered by Codex and Claude on each connected computer. Paths refer to
-            the computer where the skill is installed.
+            Global skills discovered across supported agent harnesses on each connected computer.
+            Paths refer to the computer where the skill is installed.
           </p>
           <Input
             type="search"
@@ -225,7 +225,7 @@ function EnvironmentSkillInventory({
               <StatusLine tone="error">{state.message}</StatusLine>
             ) : visibleInventory?.installations.length === 0 ? (
               <StatusLine>
-                {query ? "No skills match this search." : "No global Codex or Claude skills found."}
+                {query ? "No skills match this search." : "No global agent skills found."}
               </StatusLine>
             ) : visibleInventory ? (
               <SkillHarnessGroups inventory={visibleInventory} isSearching={isSearching} />

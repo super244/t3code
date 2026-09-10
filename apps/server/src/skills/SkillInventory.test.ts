@@ -1,8 +1,11 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
+  AntigravitySettings,
   ClaudeSettings,
   CodexSettings,
+  CursorSettings,
+  GrokSettings,
   ProviderDriverKind,
   ProviderInstanceId,
 } from "@t3tools/contracts";
@@ -10,12 +13,55 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Sink from "effect/Sink";
+import * as Stream from "effect/Stream";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as ServerSettings from "../serverSettings.ts";
 import { discoverGlobalSkillInventory, readSkillInstallations } from "./SkillInventory.ts";
 
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
+const decodeCursorSettings = Schema.decodeSync(CursorSettings);
+const decodeAntigravitySettings = Schema.decodeSync(AntigravitySettings);
+const decodeGrokSettings = Schema.decodeSync(GrokSettings);
+
+const makeGrokInspectSpawner = (skillPath: string) =>
+  ChildProcessSpawner.make(() =>
+    Effect.succeed(
+      ChildProcessSpawner.makeHandle({
+        pid: ChildProcessSpawner.ProcessId(1),
+        exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+        isRunning: Effect.succeed(false),
+        kill: () => Effect.void,
+        unref: Effect.succeed(Effect.void),
+        stdin: Sink.drain,
+        stdout: Stream.encodeText(
+          Stream.make(
+            JSON.stringify({
+              skills: [
+                {
+                  name: "ship",
+                  description: "Ship with Grok.",
+                  source: { type: "user", path: skillPath },
+                  userInvocable: true,
+                },
+                {
+                  name: "project-only",
+                  source: { type: "project", path: skillPath },
+                  userInvocable: true,
+                },
+              ],
+            }),
+          ),
+        ),
+        stderr: Stream.empty,
+        all: Stream.empty,
+        getInputFd: () => Sink.drain,
+        getOutputFd: () => Stream.empty,
+      }),
+    ),
+  );
 
 const writeSkill = Effect.fn("SkillInventoryTest.writeSkill")(function* (
   root: string,
@@ -179,6 +225,74 @@ it.layer(NodeServices.layer)("discoverGlobalSkillInventory", (it) => {
         "claude-env-skill",
         "codex-env-skill",
       ]);
+    }),
+  );
+
+  it.effect("discovers global Cursor, Grok, and Antigravity skills without a project", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const tempDirectory = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-multi-harness-skill-inventory-",
+      });
+      const userHome = path.join(tempDirectory, "home");
+      yield* writeSkill(path.join(userHome, ".cursor"), "refactor", "Refactor with Cursor.");
+      yield* writeSkill(
+        path.join(userHome, ".gemini", "config"),
+        "research",
+        "Research with Antigravity.",
+      );
+      const grokSkillRoot = path.join(userHome, ".grok");
+      yield* writeSkill(grokSkillRoot, "ship", "Ship with Grok.");
+      const grokSkillPath = path.join(grokSkillRoot, "skills", "ship", "SKILL.md");
+
+      const inventory = yield* discoverGlobalSkillInventory().pipe(
+        Effect.provide(
+          ServerSettings.layerTest({
+            providers: {
+              codex: decodeCodexSettings({ enabled: false }),
+              claudeAgent: decodeClaudeSettings({ enabled: false }),
+            },
+            providerInstances: {
+              [ProviderInstanceId.make("cursor_work")]: {
+                driver: ProviderDriverKind.make("cursor"),
+                displayName: "Cursor Work",
+                environment: [{ name: "HOME", value: userHome, sensitive: false }],
+                config: decodeCursorSettings({ enabled: true }),
+              },
+              [ProviderInstanceId.make("antigravity_work")]: {
+                driver: ProviderDriverKind.make("antigravity"),
+                displayName: "Antigravity Work",
+                environment: [{ name: "HOME", value: userHome, sensitive: false }],
+                config: decodeAntigravitySettings({ enabled: true }),
+              },
+              [ProviderInstanceId.make("grok_work")]: {
+                driver: ProviderDriverKind.make("grok"),
+                displayName: "Grok Work",
+                environment: [{ name: "HOME", value: userHome, sensitive: false }],
+                config: decodeGrokSettings({ enabled: true }),
+              },
+            },
+          }),
+        ),
+        Effect.provideService(
+          ChildProcessSpawner.ChildProcessSpawner,
+          makeGrokInspectSpawner(grokSkillPath),
+        ),
+      );
+
+      assert.deepEqual(
+        inventory.installations.map((skill) => [
+          skill.harness,
+          skill.harnessDisplayName,
+          skill.name,
+        ]),
+        [
+          ["antigravity", "Antigravity Work", "research"],
+          ["cursor", "Cursor Work", "refactor"],
+          ["grok", "Grok Work", "ship"],
+        ],
+      );
     }),
   );
 
