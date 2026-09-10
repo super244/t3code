@@ -8,7 +8,7 @@ It brings together:
 - active, monitoring, waiting, approval, and failed threads across every connected computer;
 - enabled provider instances, authentication identity, default model, and readiness;
 - upcoming and failed scheduled routines;
-- global Codex and Claude skill inventory;
+- global skill inventory across supported agent harnesses;
 - token volume and API-equivalent usage cost for the past seven days.
 
 Provider instances are shown separately, even when several use the same harness. This keeps personal,
@@ -17,4 +17,5 @@ same observed tokens would cost at API prices; it is not an invoice or an additi
 charge.
 
 The mobile home screen includes a compact fleet summary so active work, attention items, harness
-readiness, and routine count remain visible away from the desktop.
+readiness, and routine count remain visible away from the desktop. Open **Settings → Skills** on
+mobile to search and inspect the same cross-environment skill inventory.

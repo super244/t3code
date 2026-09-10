@@ -580,6 +580,11 @@ function GeneralSettingsSection() {
     <SettingsSection title="General">
       <SettingsRow icon="folder" label="Project Grouping" target="SettingsProjectGrouping" />
       <AutoSettleSettingsRows />
+      <SettingsRow
+        icon={{ ios: "sparkles", android: "auto_awesome" }}
+        label="Skills"
+        target="SettingsSkills"
+      />
       <SettingsRow icon="chart.bar.xaxis" label="Usage" target="SettingsUsage" />
     </SettingsSection>
   );
