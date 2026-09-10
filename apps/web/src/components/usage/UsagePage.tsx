@@ -35,7 +35,6 @@ import {
   formatPercent,
   formatTokens,
   formatUsd,
-  makeWindow,
 } from "@t3tools/shared/usageFormat";
 import { Button } from "../ui/button";
 import {
@@ -62,11 +61,13 @@ import { UsageLimitsSection } from "./UsageLimits";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";
+import { readUsagePagePreferences, saveUsagePagePreferences } from "./usagePagePreferences";
 import {
-  readUsagePagePreferences,
-  saveUsagePagePreferences,
-  type UsagePagePreferences,
-} from "./usagePagePreferences";
+  makeUsageWindow,
+  USAGE_WINDOW_OPTIONS,
+  usageWindowOption,
+  type UsageWindowPreset,
+} from "./usageWindows";
 
 type UsageMetric = UsageChartMetric | "limits";
 const METRIC_OPTIONS = [
@@ -77,33 +78,6 @@ const METRIC_OPTIONS = [
 
 function isUsageMetric(value: string | null | undefined): value is UsageMetric {
   return METRIC_OPTIONS.some((option) => option.value === value);
-}
-
-const WINDOW_OPTIONS = [
-  { value: "1h", amount: 1, resolution: "hour", label: "1 hr" },
-  { value: "5h", amount: 5, resolution: "hour", label: "5 hr" },
-  { value: "12h", amount: 12, resolution: "hour", label: "12 hr" },
-  { value: "24h", amount: 24, resolution: "hour", label: "24 hr" },
-  { value: "3d", amount: 3, resolution: "day", label: "3 days" },
-  { value: "7d", amount: 7, resolution: "day", label: "7 days" },
-  { value: "30d", amount: 30, resolution: "day", label: "30 days" },
-  { value: "90d", amount: 90, resolution: "day", label: "90 days" },
-  { value: "180d", amount: 180, resolution: "day", label: "180 days" },
-  { value: "1y", amount: 365, resolution: "day", label: "1 year" },
-  { value: "2y", amount: 730, resolution: "day", label: "2 years" },
-  { value: "5y", amount: 1_825, resolution: "day", label: "5 years" },
-  { value: "all", amount: 7_300, resolution: "day", label: "All" },
-] as const;
-
-type UsageWindowPreset = UsagePagePreferences["windowPreset"];
-
-function usageWindowOption(value: UsageWindowPreset) {
-  return WINDOW_OPTIONS.find((option) => option.value === value) ?? WINDOW_OPTIONS[6];
-}
-
-function makeUsageWindow(value: UsageWindowPreset) {
-  const option = usageWindowOption(value);
-  return makeWindow(option.amount, undefined, option.resolution);
 }
 
 export function UsagePage() {
@@ -162,6 +136,12 @@ export function UsagePage() {
   );
   const activeProviders = useMemo(() => providersWithUsage(merged.providers), [merged.providers]);
   const timeValueColumnWidth = `${60 / (activeProviders.length + 2)}%`;
+  const activePeriods = (isHourlyWindow ? merged.hourly : merged.daily).filter(
+    (period) => period.totalTokens > 0,
+  ).length;
+  const periodAverage = activePeriods === 0 ? 0 : merged.totalTokens / activePeriods;
+  const observedInput = merged.uncachedInputTokens + merged.cachedInputTokens;
+  const cachedShare = observedInput === 0 ? 0 : merged.cachedInputTokens / observedInput;
 
   const selectWindow = (preset: UsageWindowPreset) => {
     const nextPreferences = { metric, windowPreset: preset };
@@ -213,9 +193,11 @@ export function UsagePage() {
     });
   };
   const windowLabel =
-    isHourlyWindow && window.sinceTime !== undefined && window.untilTime !== undefined
-      ? `${formatDateTimeShort(window.sinceTime, window.timeZone)} to ${formatDateTimeShort(window.untilTime, window.timeZone)}`
-      : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`;
+    windowPreset === "all"
+      ? "All recorded activity"
+      : isHourlyWindow && window.sinceTime !== undefined && window.untilTime !== undefined
+        ? `${formatDateTimeShort(window.sinceTime, window.timeZone)} to ${formatDateTimeShort(window.untilTime, window.timeZone)}`
+        : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`;
   const topbarContent = (
     <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 py-2 xl:flex">
       <WorkspaceBreadcrumb ariaLabel="Usage breadcrumb" className="col-span-2 min-w-0">
@@ -310,7 +292,7 @@ export function UsagePage() {
             <SelectValue>{selectedWindowOption.label}</SelectValue>
           </SelectTrigger>
           <SelectPopup align="end" alignItemWithTrigger={false}>
-            {WINDOW_OPTIONS.map((option) => (
+            {USAGE_WINDOW_OPTIONS.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
@@ -365,6 +347,12 @@ export function UsagePage() {
                           ? `${formatCount(merged.sessions)} sessions · API-equivalent estimate · not billed`
                           : `${formatCount(merged.sessions)} sessions`}
                       </span>
+                      {metric === "cost" && merged.costQuality.unpricedShare > 0 ? (
+                        <span className="text-xs text-warning-foreground">
+                          {formatPercent(merged.costQuality.unpricedShare)} of records are unpriced
+                          and excluded
+                        </span>
+                      ) : null}
                     </div>
 
                     {activeProviders.map((provider) => {
@@ -433,17 +421,41 @@ export function UsagePage() {
 
                 <section className="flex flex-col gap-2">
                   <h2 className="text-sm font-medium text-foreground">Totals</h2>
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
-                    <Metric label="Processed tokens" value={formatTokens(merged.totalTokens)} />
-                    <Metric label="Cached input" value={formatTokens(merged.cachedInputTokens)} />
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-3 xl:grid-cols-6">
+                    <Metric
+                      label="Processed tokens"
+                      value={formatTokens(merged.totalTokens)}
+                      detail={`${formatTokens(periodAverage)} per active ${isHourlyWindow ? "hour" : "day"}`}
+                    />
+                    <Metric
+                      label="Cached input"
+                      value={formatTokens(merged.cachedInputTokens)}
+                      detail={`${formatPercent(cachedShare)} of observed input`}
+                    />
                     <Metric
                       label="Uncached input"
                       value={formatTokens(merged.uncachedInputTokens)}
+                      detail={`${formatTokens(merged.cacheCreationTokens)} cache writes`}
                     />
-                    <Metric label="Output" value={formatTokens(merged.outputTokens)} />
+                    <Metric
+                      label="Output"
+                      value={formatTokens(merged.outputTokens)}
+                      detail={`incl. ${formatTokens(merged.reasoningTokens)} reasoning`}
+                    />
                     <Metric
                       label="Cache savings"
                       value={formatUsd(merged.costQuality.cacheSavingsUsd)}
+                      detail={
+                        merged.costUsd > 0
+                          ? `${(merged.costQuality.cacheSavingsUsd / merged.costUsd).toFixed(1)}x raw API cost`
+                          : "vs full input rates"
+                      }
+                    />
+                    <Metric
+                      label="Unpriced"
+                      value={formatPercent(merged.costQuality.unpricedShare)}
+                      detail="records excluded from cost"
+                      warning={merged.costQuality.unpricedShare > 0}
                     />
                   </div>
                 </section>
@@ -606,26 +618,34 @@ function UsagePeriodSlider({
 }) {
   const selectedIndex = Math.max(
     0,
-    WINDOW_OPTIONS.findIndex((option) => option.value === value),
+    USAGE_WINDOW_OPTIONS.findIndex((option) => option.value === value),
   );
-  const selected = WINDOW_OPTIONS[selectedIndex] ?? WINDOW_OPTIONS[6];
+  const selected = USAGE_WINDOW_OPTIONS[selectedIndex] ?? USAGE_WINDOW_OPTIONS[6];
+  const atLastOption = selectedIndex === USAGE_WINDOW_OPTIONS.length - 1;
+  const optionLabels = USAGE_WINDOW_OPTIONS.map((option) => option.label).join(", ");
 
   return (
     <label className="flex w-96 min-w-72 items-center gap-2 text-xs text-muted-foreground">
       <span className="sr-only">Usage period</span>
-      <span className="w-12 shrink-0 text-right text-foreground">{selected.label}</span>
+      <span id="usage-period-options" className="sr-only">
+        Available periods: {optionLabels}
+      </span>
+      <span className="w-12 shrink-0 text-right text-foreground">
+        {atLastOption ? USAGE_WINDOW_OPTIONS[0].label : selected.label}
+      </span>
       <input
         aria-label="Usage period"
+        aria-describedby="usage-period-options"
         aria-valuetext={selected.label}
         className="h-1.5 min-w-0 flex-1 cursor-pointer accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
         type="range"
         min={0}
-        max={WINDOW_OPTIONS.length - 1}
+        max={USAGE_WINDOW_OPTIONS.length - 1}
         step={1}
         value={selectedIndex}
         disabled={disabled}
         onChange={(event) => {
-          const option = WINDOW_OPTIONS[Number(event.currentTarget.value)];
+          const option = USAGE_WINDOW_OPTIONS[Number(event.currentTarget.value)];
           if (option) onChange(option.value);
         }}
       />
@@ -646,11 +666,29 @@ function ProviderMark({
   return <Mark className={cn("shrink-0", className)} aria-hidden />;
 }
 
-function Metric({ label, value }: { readonly label: string; readonly value: string }) {
+function Metric({
+  label,
+  value,
+  detail,
+  warning = false,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly detail: string;
+  readonly warning?: boolean;
+}) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-base font-medium text-foreground tabular-nums">{value}</span>
+      <span
+        className={cn(
+          "text-base font-medium text-foreground tabular-nums",
+          warning && "text-warning-foreground",
+        )}
+      >
+        {value}
+      </span>
+      <span className="text-[11px] text-muted-foreground">{detail}</span>
     </div>
   );
 }

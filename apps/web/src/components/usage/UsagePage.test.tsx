@@ -205,3 +205,21 @@ describe("UsagePage model breakdown", () => {
     ]);
   });
 });
+
+describe("UsagePage cost quality", () => {
+  it("makes unpriced records visible instead of presenting an incomplete estimate as exact", () => {
+    const current = testState.useUsage();
+    testState.useUsage.mockReturnValue({
+      ...current,
+      merged: {
+        ...current.merged,
+        costQuality: { ...current.merged.costQuality, unpricedShare: 0.25 },
+      },
+    });
+
+    const markup = renderToStaticMarkup(<UsagePage />);
+
+    expect(markup).toContain("25.0% of records are unpriced and excluded");
+    expect(markup).toContain("records excluded from cost");
+  });
+});
