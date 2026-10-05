@@ -7,6 +7,8 @@ import { CornerDownRightIcon, CornerLeftUpIcon } from "lucide-react";
 import { memo, useMemo } from "react";
 
 import { useThreadShells } from "../../state/entities";
+import { useEnvironments } from "../../state/environments";
+import { agentLabel } from "./handoff.logic";
 import { buildThreadRouteParams } from "../../threadRoutes";
 
 interface HandoffLinksThread {
@@ -40,6 +42,14 @@ export const HandoffLinks = memo(function HandoffLinks({ thread }: { thread: Han
     [shells, sourceId, thread.environmentId],
   );
   const continuations = useMemo(() => findHandoffsFrom(thread, shells), [shells, thread]);
+  const { environments } = useEnvironments();
+  const providers =
+    environments.find((item) => item.environmentId === thread.environmentId)?.serverConfig
+      ?.providers ?? [];
+  const labelFor = (selection: { instanceId: string; model: string }) => {
+    const provider = providers.find((item) => item.instanceId === selection.instanceId);
+    return provider ? agentLabel(provider, selection.model) : selection.model;
+  };
 
   if (!source && continuations.length === 0) return null;
   return (
@@ -63,7 +73,7 @@ export const HandoffLinks = memo(function HandoffLinks({ thread }: { thread: Han
         >
           <CornerDownRightIcon className="size-3.5 shrink-0" />
           <span className="truncate">
-            Continued with {next.modelSelection.model} ·{" "}
+            Continued with {labelFor(next.modelSelection)} ·{" "}
             {new Date(next.createdAt).toLocaleString(undefined, {
               dateStyle: "medium",
               timeStyle: "short",

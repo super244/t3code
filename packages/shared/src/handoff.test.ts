@@ -111,8 +111,22 @@ describe("handoff brief", () => {
     );
   });
 
+  it("does not call an unread checkout clean", () => {
+    const brief = buildHandoffBrief({
+      ...base,
+      messages: [{ role: "user", text: "Go." }],
+      changedFiles: null,
+    });
+    expect(brief).not.toContain("No uncommitted changes");
+    expect(brief).toContain("Check `git status` and `git diff`");
+  });
+
   it("states an empty checkout instead of listing nothing", () => {
-    const brief = buildHandoffBrief({ ...base, messages: [{ role: "user", text: "Plan it." }] });
+    const brief = buildHandoffBrief({
+      ...base,
+      messages: [{ role: "user", text: "Plan it." }],
+      changedFiles: [],
+    });
     expect(brief).toContain("No uncommitted changes.");
     expect(brief).toContain("It had not replied yet.");
   });

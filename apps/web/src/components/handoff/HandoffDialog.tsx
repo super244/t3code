@@ -27,6 +27,7 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { buildThreadTurnInterruptInput } from "../ChatView.logic";
 import { getTriggerDisplayModelLabel, PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
 import { Button } from "../ui/button";
+import { Kbd } from "../ui/kbd";
 import {
   Dialog,
   DialogDescription,
@@ -324,6 +325,12 @@ function HandoffForm({
         <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
           <span>What should it do next? (optional)</span>
           <Textarea
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                void startHandoff();
+              }
+            }}
             value={note}
             disabled={starting}
             placeholder="Finish the original request and tell me what changed."
@@ -382,6 +389,7 @@ function HandoffForm({
           <Button type="submit" disabled={starting || !validation.ok}>
             <ArrowRightLeftIcon />
             {starting ? "Starting…" : "Continue"}
+            <Kbd className="ms-1 max-sm:hidden">⌘↵</Kbd>
           </Button>
         </div>
       </DialogFooter>

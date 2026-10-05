@@ -128,6 +128,7 @@ export function buildHandoffBrief(input: HandoffBriefInput): string {
     ? ["", "## Latest plan", clip(input.latestPlan, PLAN_CLIP_CHARS)]
     : [];
 
+  // null means the checkout status was not available, which is not the same as clean.
   const files = input.changedFiles ?? [];
   const checkout: string[] = ["", "## Work already in the checkout"];
   const where = [
@@ -148,6 +149,10 @@ export function buildHandoffBrief(input: HandoffBriefInput): string {
       checkout.push(`- …and ${files.length - MAX_CHANGED_FILES} more`);
     }
     checkout.push("Inspect them with `git status` and `git diff` before changing anything.");
+  } else if (input.changedFiles === null || input.changedFiles === undefined) {
+    checkout.push(
+      "Check `git status` and `git diff` for the current state before changing anything.",
+    );
   } else {
     checkout.push("No uncommitted changes. Check `git log` for anything it committed.");
   }
