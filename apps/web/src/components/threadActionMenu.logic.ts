@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
@@ -8,6 +9,7 @@ import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"
  */
 export type ThreadActionMenuId =
   | "new-thread-on-branch"
+  | "handoff"
   | "project-settings"
   | "pin"
   | "unpin"
@@ -100,6 +102,13 @@ export function buildThreadActionMenuItems(
               },
         ]
       : []),
+    // A thread's provider is fixed once it starts; handoff continues the
+    // work in a new thread on another agent, in the same checkout.
+    {
+      id: "handoff",
+      label: "Continue with another agent…",
+      icon: "arrow-right-left",
+    },
     { id: "rename", label: "Rename thread", icon: "pencil", separatorBefore: true },
     ...(state.supports.titleRegeneration
       ? [

@@ -84,6 +84,7 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 - [Keeping app and server in sync](./docs/user/updating.md)
 - [Scheduled routines](./docs/user/routines.md)
 - [Command Center](./docs/user/command-center.md) for missions, harnesses, routines, skills, and usage
+- [Continue with another agent](./docs/user/handoff.md) for picking a thread up on a different provider when one stops
 - [Source control integrations](./docs/user/source-control.md)
 - Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
 - [Run T3 Code as a background service](./docs/user/background-service.md)

@@ -95,6 +95,10 @@
       "types": "./src/backgroundActivitySettings.ts",
       "import": "./src/backgroundActivitySettings.ts"
     },
+    "./handoff": {
+      "types": "./src/handoff.ts",
+      "import": "./src/handoff.ts"
+    },
     "./String": {
       "types": "./src/String.ts",
       "import": "./src/String.ts"

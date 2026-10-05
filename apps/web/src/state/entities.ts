@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 import { useAtomValue } from "@effect/atom-react";
 import type {
   EnvironmentProject,
@@ -181,6 +182,35 @@ export function waitForProject(
 
 export function readThreadShell(ref: ScopedThreadRef): EnvironmentThreadShell | null {
   return appAtomRegistry.get(environmentThreadShells.threadShellAtom(ref));
+}
+
+/**
+ * Resolves when a thread created elsewhere (handoff, race) reaches the shell
+ * index. The thread route treats an unknown id as missing and redirects, so
+ * navigate only after this resolves.
+ */
+export function waitForThreadShell(
+  ref: ScopedThreadRef,
+  timeoutMs = 10_000,
+): Promise<EnvironmentThreadShell> {
+  const current = readThreadShell(ref);
+  if (current !== null) return Promise.resolve(current);
+
+  return new Promise((resolve, reject) => {
+    let unsubscribe: (() => void) | null = null;
+    const timeout = setTimeout(() => {
+      unsubscribe?.();
+      reject(new Error("The new thread did not appear."));
+    }, timeoutMs);
+    const finish = (shell: EnvironmentThreadShell | null) => {
+      if (shell === null) return;
+      clearTimeout(timeout);
+      unsubscribe?.();
+      resolve(shell);
+    };
+    unsubscribe = appAtomRegistry.subscribe(environmentThreadShells.threadShellAtom(ref), finish);
+    finish(readThreadShell(ref));
+  });
 }
 
 /** Whether the environment's server understands thread.settle/unsettle.

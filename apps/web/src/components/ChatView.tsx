@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import {
@@ -330,6 +331,8 @@ import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import { resolveTimelineIsAtEnd } from "./chat/MessagesTimeline.logic";
 import { resolveComposerTimelineInset, resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
+import { HandoffLinks } from "./handoff/HandoffLinks";
+import { openHandoffDialog } from "../handoffDialog";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { expandedImageKey, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -8248,7 +8251,19 @@ export default function ChatView(props: ChatViewProps) {
                   dismissThreadErrorBannerForSession(threadErrorBannerKey);
                   setThreadErrorBannerDismissTick((tick) => tick + 1);
                 }}
+                {...(isServerThread
+                  ? {
+                      onHandoff: () =>
+                        openHandoffDialog(
+                          scopeThreadRef(activeThread.environmentId, activeThread.id),
+                          { reason: visibleThreadError },
+                        ),
+                    }
+                  : {})}
               />
+              {isServerThread && activeServerThread ? (
+                <HandoffLinks thread={activeServerThread} />
+              ) : null}
             </div>
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col">

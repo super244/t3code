@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 "use client";
 
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
@@ -38,6 +39,7 @@ import {
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
+import { openHandoffDialog } from "../handoffDialog";
 import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
@@ -53,6 +55,7 @@ import {
   SettingsIcon,
   SquarePenIcon,
   TextSearchIcon,
+  ArrowRightLeftIcon,
 } from "lucide-react";
 import {
   useCallback,
@@ -1620,6 +1623,31 @@ function OpenCommandPaletteDialog(props: {
       icon: <LinkIcon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "thread.copyReference",
       run: copyActiveThreadReference,
+    });
+  }
+
+  if (activeThread !== null) {
+    const handoffRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:handoff",
+      searchTerms: [
+        "continue with",
+        "handoff",
+        "hand off",
+        "switch provider",
+        "switch agent",
+        "another agent",
+        "usage limit",
+        "codex",
+        "claude",
+      ],
+      title: "Continue with another agent…",
+      description: activeThread.title,
+      icon: <ArrowRightLeftIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        openHandoffDialog(handoffRef);
+      },
     });
   }
 

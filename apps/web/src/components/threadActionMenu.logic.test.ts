@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 import { describe, expect, it } from "vite-plus/test";
 
 import { buildThreadActionMenuItems, type ThreadActionMenuState } from "./threadActionMenu.logic";
@@ -33,7 +34,23 @@ describe("buildThreadActionMenuItems", () => {
         ...baseState,
         supports: { settlement: false, snooze: false, pinning: false, titleRegeneration: false },
       }),
-    ).toEqual(["rename", "mark-unread", "copy", "project-settings", "archive", "delete"]);
+    ).toEqual([
+      "handoff",
+      "rename",
+      "mark-unread",
+      "copy",
+      "project-settings",
+      "archive",
+      "delete",
+    ]);
+  });
+
+  it("offers handoff even while the agent runs, since the dialog can stop it first", () => {
+    expect(ids({ ...baseState, isRunning: true })).toContain("handoff");
+    const handoff = buildThreadActionMenuItems({ ...baseState, isRunning: true }).find(
+      (item) => item.id === "handoff",
+    );
+    expect(handoff?.disabled).toBeFalsy();
   });
 
   it("groups project settings with utility actions before archive", () => {

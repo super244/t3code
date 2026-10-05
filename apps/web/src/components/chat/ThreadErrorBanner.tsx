@@ -1,7 +1,8 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 import { memo } from "react";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
-import { CircleAlertIcon, XIcon } from "lucide-react";
+import { ArrowRightLeftIcon, CircleAlertIcon, XIcon } from "lucide-react";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export function getThreadErrorBannerKey(threadKey: string, error: string | null): string | null {
@@ -36,9 +37,12 @@ export function isThreadErrorBannerDismissedForSession(bannerKey: string | null)
 export const ThreadErrorBanner = memo(function ThreadErrorBanner({
   error,
   onDismiss,
+  onHandoff,
 }: {
   error: string | null;
   onDismiss?: () => void;
+  /** Offered on server threads: a failed or rate-limited provider can hand the work on. */
+  onHandoff?: () => void;
 }) {
   if (!error) return null;
   return (
@@ -58,13 +62,21 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
             </TooltipPopup>
           </Tooltip>
         </AlertDescription>
-        {onDismiss && (
+        {onDismiss || onHandoff ? (
           <AlertAction>
-            <Button variant="ghost" size="icon-xs" aria-label="Dismiss error" onClick={onDismiss}>
-              <XIcon className="text-destructive" />
-            </Button>
+            {onHandoff ? (
+              <Button variant="outline" size="compact" onClick={onHandoff}>
+                <ArrowRightLeftIcon />
+                Continue with another agent
+              </Button>
+            ) : null}
+            {onDismiss ? (
+              <Button variant="ghost" size="icon-xs" aria-label="Dismiss error" onClick={onDismiss}>
+                <XIcon className="text-destructive" />
+              </Button>
+            ) : null}
           </AlertAction>
-        )}
+        ) : null}
       </Alert>
     </div>
   );
