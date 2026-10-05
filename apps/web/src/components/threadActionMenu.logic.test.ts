@@ -36,6 +36,7 @@ describe("buildThreadActionMenuItems", () => {
       }),
     ).toEqual([
       "handoff",
+      "review",
       "rename",
       "mark-unread",
       "copy",

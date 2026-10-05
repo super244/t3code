@@ -10,6 +10,7 @@ import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"
 export type ThreadActionMenuId =
   | "new-thread-on-branch"
   | "handoff"
+  | "review"
   | "project-settings"
   | "pin"
   | "unpin"
@@ -109,6 +110,8 @@ export function buildThreadActionMenuItems(
       label: "Continue with another agent…",
       icon: "arrow-right-left",
     },
+    // A second provider checks the work read-only; its findings can be sent back.
+    { id: "review", label: "Review with another agent…", icon: "scan-search" },
     { id: "rename", label: "Rename thread", icon: "pencil", separatorBefore: true },
     ...(state.supports.titleRegeneration
       ? [

@@ -149,7 +149,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
-import { openHandoffDialog } from "../handoffDialog";
+import { openHandoffDialog, openReviewDialog } from "../handoffDialog";
 import {
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
@@ -4352,6 +4352,9 @@ export default function Sidebar() {
           }
           case "handoff":
             openHandoffDialog(threadRef);
+            return;
+          case "review":
+            openReviewDialog(threadRef);
             return;
           case "new-thread-on-branch": {
             // Explicit branch carry-over: reuse the thread's worktree when it

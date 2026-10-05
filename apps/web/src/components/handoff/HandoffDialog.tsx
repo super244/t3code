@@ -5,16 +5,22 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { type ModelSelection } from "@t3tools/contracts";
-import { buildHandoffBrief, buildHandoffTitle } from "@t3tools/shared/handoff";
+import {
+  buildHandoffBrief,
+  buildHandoffTitle,
+  buildReviewBrief,
+  buildReviewTitle,
+} from "@t3tools/shared/handoff";
 import { truncate } from "@t3tools/shared/String";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowRightLeftIcon, SquareIcon } from "lucide-react";
+import { ArrowRightLeftIcon, ScanSearchIcon, SquareIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   closeHandoffDialog,
   readHandoffDialogState,
   subscribeHandoffDialog,
+  type HandoffDialogMode,
 } from "../../handoffDialog";
 import { newMessageId, newThreadId } from "../../lib/utils";
 import { useProjects, useThread, waitForThreadShell } from "../../state/entities";
@@ -70,7 +76,8 @@ export function HandoffDialogHost() {
       <DialogPopup className="max-w-xl">
         {state.threadRef ? (
           <HandoffForm
-            key={`${state.threadRef.environmentId}:${state.threadRef.threadId}`}
+            key={`${state.mode}:${state.threadRef.environmentId}:${state.threadRef.threadId}`}
+            mode={state.mode}
             reason={state.reason}
             threadRef={state.threadRef}
           />
@@ -80,13 +87,35 @@ export function HandoffDialogHost() {
   );
 }
 
+const COPY = {
+  handoff: {
+    title: "Continue with another agent",
+    picker: "Agent to continue with",
+    noteLabel: "What should it do next? (optional)",
+    notePlaceholder: "Finish the original request and tell me what changed.",
+    submit: "Continue",
+    failed: "The handoff could not start",
+  },
+  review: {
+    title: "Review with another agent",
+    picker: "Agent to review with",
+    noteLabel: "What should it focus on? (optional)",
+    notePlaceholder: "Correctness, missed edge cases, tests that should exist…",
+    submit: "Start review",
+    failed: "The review could not start",
+  },
+} as const;
+
 function HandoffForm({
   threadRef,
   reason,
+  mode,
 }: {
   threadRef: NonNullable<ReturnType<typeof readHandoffDialogState>["threadRef"]>;
   reason: string | null;
+  mode: HandoffDialogMode;
 }) {
+  const copy = COPY[mode];
   const navigate = useNavigate();
   const thread = useThread(threadRef);
   const projects = useProjects();
@@ -135,21 +164,32 @@ function HandoffForm({
 
   const brief = useMemo(
     () =>
-      thread
-        ? buildHandoffBrief({
-            sourceThreadId: thread.id,
-            sourceTitle: thread.title,
-            sourceAgentLabel,
-            messages,
-            latestPlan,
-            changedFiles,
-            branch: thread.branch,
-            worktreePath: thread.worktreePath,
-            lastError,
-            note,
-          })
-        : "",
-    [thread, sourceAgentLabel, messages, latestPlan, changedFiles, lastError, note],
+      !thread
+        ? ""
+        : mode === "review"
+          ? buildReviewBrief({
+              sourceThreadId: thread.id,
+              sourceTitle: thread.title,
+              sourceAgentLabel,
+              messages,
+              changedFiles,
+              branch: thread.branch,
+              worktreePath: thread.worktreePath,
+              focus: note,
+            })
+          : buildHandoffBrief({
+              sourceThreadId: thread.id,
+              sourceTitle: thread.title,
+              sourceAgentLabel,
+              messages,
+              latestPlan,
+              changedFiles,
+              branch: thread.branch,
+              worktreePath: thread.worktreePath,
+              lastError,
+              note,
+            }),
+    [mode, thread, sourceAgentLabel, messages, latestPlan, changedFiles, lastError, note],
   );
 
   const validation = validateHandoff({
@@ -192,7 +232,11 @@ function HandoffForm({
     const createdAt = new Date().toISOString();
     const threadId = newThreadId();
     const modelSelection: ModelSelection = { instanceId: target.instanceId, model: target.model };
-    const title = buildHandoffTitle(thread.title);
+    const title =
+      mode === "review" ? buildReviewTitle(thread.title) : buildHandoffTitle(thread.title);
+    // A reviewer plans instead of editing: plan mode keeps it read-only on
+    // providers that honor it, and the brief says so for the rest.
+    const interactionMode = mode === "review" ? "plan" : thread.interactionMode;
     try {
       const result = await startTurn({
         environmentId: thread.environmentId,
@@ -204,14 +248,14 @@ function HandoffForm({
           // generated one; the prefix is what links the two threads.
           titleSeed: truncate(thread.title),
           runtimeMode: thread.runtimeMode,
-          interactionMode: thread.interactionMode,
+          interactionMode,
           bootstrap: {
             createThread: {
               projectId: thread.projectId,
               title,
               modelSelection,
               runtimeMode: thread.runtimeMode,
-              interactionMode: thread.interactionMode,
+              interactionMode,
               // Same branch and checkout: the new agent picks up the files as they are.
               branch: thread.branch,
               worktreePath: thread.worktreePath,
@@ -226,7 +270,7 @@ function HandoffForm({
           const error = squashAtomCommandFailure(result);
           toastManager.add({
             type: "error",
-            title: "The handoff could not start",
+            title: copy.failed,
             description: error instanceof Error ? error.message : "The new thread failed to start.",
           });
         }
@@ -239,7 +283,7 @@ function HandoffForm({
       closeHandoffDialog();
       toastManager.add({
         type: "success",
-        title: `Continuing with ${targetLabel}`,
+        title: mode === "review" ? `${targetLabel} is reviewing` : `Continuing with ${targetLabel}`,
         description: thread.title,
       });
       void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(newRef) });
@@ -252,7 +296,7 @@ function HandoffForm({
   if (!thread) {
     return (
       <DialogHeader>
-        <DialogTitle>Continue with another agent</DialogTitle>
+        <DialogTitle>{copy.title}</DialogTitle>
         <DialogDescription>Loading the thread…</DialogDescription>
       </DialogHeader>
     );
@@ -269,10 +313,11 @@ function HandoffForm({
       }}
     >
       <DialogHeader>
-        <DialogTitle>Continue with another agent</DialogTitle>
+        <DialogTitle>{copy.title}</DialogTitle>
         <DialogDescription>
-          A new thread picks up “{thread.title}” in the same checkout, with a brief of the
-          conversation so far. This thread stays as it is.
+          {mode === "review"
+            ? `A second agent reads the changes for “${thread.title}” in the same checkout without editing them and reports findings. You can send them back here in one click.`
+            : `A new thread picks up “${thread.title}” in the same checkout, with a brief of the conversation so far. This thread stays as it is.`}
         </DialogDescription>
       </DialogHeader>
       <DialogPanel className="flex flex-col gap-4">
@@ -290,7 +335,7 @@ function HandoffForm({
             )}
           </span>
           <select
-            aria-label="Agent to continue with"
+            aria-label={copy.picker}
             className={selectClass}
             value={target?.instanceId ?? ""}
             disabled={starting || providers.length === 0}
@@ -323,7 +368,7 @@ function HandoffForm({
           </select>
         </div>
         <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-          <span>What should it do next? (optional)</span>
+          <span>{copy.noteLabel}</span>
           <Textarea
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -333,7 +378,7 @@ function HandoffForm({
             }}
             value={note}
             disabled={starting}
-            placeholder="Finish the original request and tell me what changed."
+            placeholder={copy.notePlaceholder}
             rows={2}
             onChange={(event) => setNote(event.currentTarget.value)}
           />
@@ -387,8 +432,8 @@ function HandoffForm({
             </Button>
           ) : null}
           <Button type="submit" disabled={starting || !validation.ok}>
-            <ArrowRightLeftIcon />
-            {starting ? "Starting…" : "Continue"}
+            {mode === "review" ? <ScanSearchIcon /> : <ArrowRightLeftIcon />}
+            {starting ? "Starting…" : copy.submit}
             <Kbd className="ms-1 max-sm:hidden">⌘↵</Kbd>
           </Button>
         </div>

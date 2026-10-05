@@ -111,3 +111,18 @@ export function handoffMessages(
         : [],
     );
 }
+
+/** What a finished review found: its proposed plan, else its last non-empty reply. */
+export function reviewFindings(thread: {
+  readonly messages: ReadonlyArray<{ readonly role: string; readonly text: string }>;
+  readonly proposedPlans: ReadonlyArray<{ readonly planMarkdown: string }>;
+}): string {
+  const plan = thread.proposedPlans.at(-1)?.planMarkdown?.trim();
+  if (plan) return plan;
+  return (
+    thread.messages
+      .toReversed()
+      .find((message) => message.role === "assistant" && message.text.trim().length > 0)
+      ?.text.trim() ?? ""
+  );
+}

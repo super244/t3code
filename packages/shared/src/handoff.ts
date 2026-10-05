@@ -245,3 +245,125 @@ export function findHandoffsFrom<T extends HandoffThreadLike>(
     )
     .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
+
+/* ------------------------------------------------------------------ review */
+
+/**
+ * Review is a handoff that reads instead of writes: a second provider looks at
+ * the work in the same checkout and reports findings, which can then be sent
+ * back to the original thread as a follow-up turn.
+ */
+export const REVIEW_TITLE_PREFIX = "Review · ";
+const REVIEW_MARKER_PATTERN = /^\[Review of thread ([^\]\s]+)\]/;
+const FINDINGS_MARKER_PATTERN = /^\[Review findings from thread ([^\]\s]+)\]/;
+const FINDINGS_CLIP_CHARS = 8_000;
+
+export function buildReviewTitle(sourceTitle: string): string {
+  const base = sourceTitle.replace(/^(↪ |Review · )+/, "").trim();
+  return `${REVIEW_TITLE_PREFIX}${base || "Review"}`;
+}
+
+export function parseReviewSource(firstMessageText: string | null | undefined): string | null {
+  const match = REVIEW_MARKER_PATTERN.exec((firstMessageText ?? "").trimStart());
+  return match ? match[1]! : null;
+}
+
+/** The review thread whose findings a message carries, if it is a findings turn. */
+export function parseFindingsSource(messageText: string | null | undefined): string | null {
+  const match = FINDINGS_MARKER_PATTERN.exec((messageText ?? "").trimStart());
+  return match ? match[1]! : null;
+}
+
+export interface ReviewBriefInput {
+  readonly sourceThreadId: string;
+  readonly sourceTitle: string;
+  readonly sourceAgentLabel: string;
+  readonly messages: ReadonlyArray<HandoffMessage>;
+  readonly changedFiles?: ReadonlyArray<HandoffChangedFile> | null;
+  readonly branch?: string | null;
+  readonly worktreePath?: string | null;
+  /** What the reviewer should concentrate on. */
+  readonly focus?: string | null;
+}
+
+export function buildReviewBrief(input: ReviewBriefInput): string {
+  const messages = input.messages.filter((message) => message.text.trim().length > 0);
+  const firstRequest = messages.find((message) => message.role === "user");
+  const lastAssistant = messages.toReversed().find((message) => message.role === "assistant");
+  const original = firstRequest ? originalRequestOf(firstRequest.text) : null;
+
+  const lines = [
+    `[Review of thread ${input.sourceThreadId}]`,
+    "",
+    `Review the work another agent (${input.sourceAgentLabel}) did in this checkout for the thread "${input.sourceTitle}". This is a read-only review: do not edit files, commit, or run commands that change state.`,
+  ];
+  if (original) {
+    lines.push(
+      "",
+      "## What it was asked to do",
+      quote(clip(original.text, FIRST_REQUEST_CLIP_CHARS)),
+    );
+  }
+  if (lastAssistant) {
+    lines.push("", "## What it says it did", quote(clip(lastAssistant.text, MESSAGE_CLIP_CHARS)));
+  }
+  lines.push("", "## Changes to review");
+  const where = [
+    input.branch ? `branch \`${input.branch}\`` : null,
+    input.worktreePath ? `worktree \`${input.worktreePath}\`` : null,
+  ].filter(Boolean);
+  if (where.length > 0) lines.push(`You are on ${where.join(", ")}.`);
+  const files = input.changedFiles;
+  if (files && files.length > 0) {
+    for (const file of files.slice(0, MAX_CHANGED_FILES)) {
+      lines.push(`- \`${file.path}\` +${file.insertions} −${file.deletions}`);
+    }
+    if (files.length > MAX_CHANGED_FILES)
+      lines.push(`- …and ${files.length - MAX_CHANGED_FILES} more`);
+  }
+  lines.push(
+    "Read the changes with `git diff`, `git diff --staged` and `git log -5 -p` for anything already committed. Run read-only checks (tests, type checks) if they help.",
+    "",
+    "## Your report",
+    "A numbered list of findings, most severe first. For each: severity (blocker, major or minor), `file:line`, what is wrong and why it matters, and the fix. Skip style nits unless they hide a bug. If nothing needs changing, say so plainly.",
+  );
+  if (input.focus?.trim()) lines.push("", `Focus on: ${input.focus.trim()}`);
+  return lines.join("\n").trim();
+}
+
+/** The follow-up turn that carries a review's findings back to the original agent. */
+export function buildFindingsMessage(input: {
+  readonly reviewThreadId: string;
+  readonly reviewerLabel: string;
+  readonly findings: string;
+}): string {
+  return [
+    `[Review findings from thread ${input.reviewThreadId}]`,
+    "",
+    `Another agent (${input.reviewerLabel}) reviewed your changes in this checkout. Its findings:`,
+    "",
+    quote(clip(input.findings, FINDINGS_CLIP_CHARS)),
+    "",
+    "Fix the findings you agree with, explain any you reject, and tell me what changed.",
+  ].join("\n");
+}
+
+/** Review threads of `source`: review-titled threads in the same checkout, created after it. */
+export function findReviewsOf<T extends HandoffThreadLike>(
+  source: HandoffThreadLike,
+  threads: ReadonlyArray<T>,
+): T[] {
+  const expected = buildReviewTitle(source.title);
+  return threads
+    .filter(
+      (thread) =>
+        thread.id !== source.id &&
+        !thread.archivedAt &&
+        thread.environmentId === source.environmentId &&
+        thread.projectId === source.projectId &&
+        thread.worktreePath === source.worktreePath &&
+        thread.createdAt >= source.createdAt &&
+        thread.title === expected,
+    )
+    .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
+}

@@ -36,7 +36,7 @@ import {
 } from "../logicalProject";
 import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
 import { useUiStateStore } from "../uiStateStore";
-import { openHandoffDialog } from "../handoffDialog";
+import { openHandoffDialog, openReviewDialog } from "../handoffDialog";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
@@ -210,6 +210,9 @@ export function useThreadActionMenu(input: {
           }
           case "handoff":
             openHandoffDialog(threadRef);
+            return;
+          case "review":
+            openReviewDialog(threadRef);
             return;
           case "new-thread-on-branch": {
             // Explicit branch carry-over: reuse the thread's worktree when it

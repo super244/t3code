@@ -39,7 +39,7 @@ import {
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { openHandoffDialog } from "../handoffDialog";
+import { openHandoffDialog, openReviewDialog } from "../handoffDialog";
 import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
@@ -56,6 +56,7 @@ import {
   SquarePenIcon,
   TextSearchIcon,
   ArrowRightLeftIcon,
+  ScanSearchIcon,
 } from "lucide-react";
 import {
   useCallback,
@@ -1647,6 +1648,24 @@ function OpenCommandPaletteDialog(props: {
       icon: <ArrowRightLeftIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         openHandoffDialog(handoffRef);
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:review",
+      searchTerms: [
+        "review",
+        "code review",
+        "second opinion",
+        "check work",
+        "audit",
+        "another agent",
+      ],
+      title: "Review with another agent…",
+      description: activeThread.title,
+      icon: <ScanSearchIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        openReviewDialog(handoffRef);
       },
     });
   }
