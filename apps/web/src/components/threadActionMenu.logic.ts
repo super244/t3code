@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
@@ -29,6 +30,9 @@ export type ThreadActionMenuId =
   | "copy-path"
   | "copy-branch"
   | "copy-thread-id"
+  | "copy-report"
+  | "copy-pr"
+  | "export-report"
   | "archive"
   | "delete";
 
@@ -153,8 +157,13 @@ export function buildThreadActionMenuItems(
           ? [{ id: "copy-branch" as const, label: "Branch", icon: "git-branch" }]
           : []),
         { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
+        { id: "copy-report", label: "Thread as Markdown", icon: "copy", separatorBefore: true },
+        { id: "copy-pr", label: "PR description", icon: "git-branch" },
       ],
     },
+    // The whole record — prompts, tool calls, files changed, answers — as a
+    // Markdown file someone else can read without T3 Code.
+    { id: "export-report", label: "Export as Markdown…", icon: "file-down" },
     { id: "project-settings", label: "Project settings", icon: "settings" },
     // Archive removes the thread from the sidebar while keeping its
     // conversation under Settings > Archived threads — distinct from Settle

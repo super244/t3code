@@ -7,6 +7,10 @@
       "types": "./src/load-balancing.ts",
       "default": "./src/load-balancing.ts"
     },
+    "./threadReport": {
+      "types": "./src/threadReport.ts",
+      "default": "./src/threadReport.ts"
+    },
     "./project-favicon-cache": {
       "types": "./src/projectFaviconCache.ts",
       "default": "./src/projectFaviconCache.ts"

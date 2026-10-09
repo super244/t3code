@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 import { scopeProjectRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
@@ -41,6 +42,7 @@ import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { useThreadActions } from "./useThreadActions";
+import { copyThreadReport, exportThreadReport } from "../threadReportActions";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -283,6 +285,15 @@ export function useThreadActionMenu(input: {
             return;
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+            return;
+          case "copy-report":
+            void copyThreadReport(threadRef, "report");
+            return;
+          case "copy-pr":
+            void copyThreadReport(threadRef, "pr");
+            return;
+          case "export-report":
+            void exportThreadReport(threadRef);
             return;
           case "archive": {
             if (confirmThreadArchive) {

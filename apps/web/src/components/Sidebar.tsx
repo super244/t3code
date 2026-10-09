@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { LinkBranchPullRequestButton } from "./pullRequest/LinkBranchPullRequestButton";
@@ -255,6 +256,7 @@ import {
   type ComposerThreadDraftState,
   type DraftSessionState,
 } from "../composerDraftStore";
+import { copyThreadReport, exportThreadReport } from "../threadReportActions";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
@@ -4438,6 +4440,15 @@ export default function Sidebar() {
             return;
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+            return;
+          case "copy-report":
+            void copyThreadReport(threadRef, "report");
+            return;
+          case "copy-pr":
+            void copyThreadReport(threadRef, "pr");
+            return;
+          case "export-report":
+            void exportThreadReport(threadRef);
             return;
           case "archive": {
             if (confirmThreadArchive) {

@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 "use client";
 
@@ -40,6 +41,7 @@ import {
 } from "@t3tools/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { openHandoffDialog, openReviewDialog } from "../handoffDialog";
+import { copyThreadReport, exportThreadReport } from "../threadReportActions";
 import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
@@ -56,6 +58,7 @@ import {
   SquarePenIcon,
   TextSearchIcon,
   ArrowRightLeftIcon,
+  FileDownIcon,
   ScanSearchIcon,
 } from "lucide-react";
 import {
@@ -1666,6 +1669,28 @@ function OpenCommandPaletteDialog(props: {
       icon: <ScanSearchIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         openReviewDialog(handoffRef);
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:export-report",
+      searchTerms: ["export", "markdown", "report", "download", "share", "transcript", "save thread"],
+      title: "Export thread as Markdown",
+      description: activeThread.title,
+      icon: <FileDownIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await exportThreadReport(handoffRef);
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:copy-pr-description",
+      searchTerms: ["pr description", "pull request", "copy", "summary", "changelog"],
+      title: "Copy thread as PR description",
+      description: activeThread.title,
+      icon: <GitPullRequestArrowIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await copyThreadReport(handoffRef, "pr");
       },
     });
   }
