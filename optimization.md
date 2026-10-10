@@ -7,7 +7,7 @@ Audit: 2026-10-10, America/Vancouver. Small resource-focused pass; source inspec
 
 apps/server/src/resourceTelemetry/HostResources.ts explicitly avoids idle polling; ResourceTelemetryHistory.ts bounds query windows; packages/client-runtime/src/state/terminalSession.ts bounds terminal buffers.
 
-The Alpha main process snapshot was 484,304 KiB RSS (about 473 MiB); this excludes renderer/server/agent children. Electron renderers, active agent sessions and terminals are distinct costs. Existing telemetry/history/buffer bounds are present; no new leak was proven.
+The Alpha main process snapshot was 484,304 KiB RSS (about 473 MiB); this excludes renderer/server/agent children. A later sample identified multiple Alpha helpers and main/backend processes totaling roughly 1.1 GiB RSS; three separate Node processes with this project cwd used about 631 MiB combined. These are additive RSS snapshots, not unique physical memory or a proven single owned process tree. Electron renderers, active agent sessions and terminals are distinct costs. Existing telemetry/history/buffer bounds are present; no new leak was proven.
 
 ## Fix and verification
 
