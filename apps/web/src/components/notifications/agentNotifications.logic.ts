@@ -15,7 +15,12 @@ export interface AgentShellLike {
   readonly hasPendingApprovals: boolean;
   readonly hasPendingUserInput: boolean;
   readonly session: { readonly status: string; readonly lastError?: string | null } | null;
-  readonly latestTurn: { readonly turnId: string; readonly state: string } | null;
+  readonly latestTurn: {
+    readonly turnId: string;
+    readonly state: string;
+    readonly startedAt?: string | null;
+    readonly completedAt?: string | null;
+  } | null;
 }
 
 export interface AgentNotificationPrefs {
@@ -47,6 +52,20 @@ export interface AgentEvent {
   readonly kind: AgentEventKind;
   readonly title: string;
   readonly detail: string | null;
+}
+
+/** How long a turn ran, as a person says it: "38s", "4m 12s", "1h 5m". Null when either end is unknown. */
+export function turnDuration(
+  startedAt?: string | null,
+  completedAt?: string | null,
+): string | null {
+  if (!startedAt || !completedAt) return null;
+  const seconds = Math.round((Date.parse(completedAt) - Date.parse(startedAt)) / 1000);
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 export function agentAttention(shell: AgentShellLike): AgentAttention {
@@ -91,7 +110,8 @@ export function diffAgentShells(
         break;
       case "idle":
         if (before.attention === "working" && shell.latestTurn?.state === "completed") {
-          events.push({ ...base, kind: "finished", detail: null });
+          const took = turnDuration(shell.latestTurn.startedAt, shell.latestTurn.completedAt);
+          events.push({ ...base, kind: "finished", detail: took ? `Finished in ${took}` : null });
         }
         break;
       default:

@@ -5,6 +5,7 @@ import {
   diffAgentShells,
   notificationText,
   shouldNotify,
+  turnDuration,
   type AgentShellLike,
 } from "./agentNotifications.logic";
 
@@ -79,5 +80,35 @@ describe("preferences and text", () => {
     );
     expect(text.title).toBe("Failed · t3code");
     expect(text.body.split("\n")[1]).toHaveLength(160);
+  });
+});
+
+describe("turnDuration", () => {
+  it("says how long a turn ran, and nothing when an end is unknown", () => {
+    expect(turnDuration("2026-10-11T10:00:00Z", "2026-10-11T10:00:38Z")).toBe("38s");
+    expect(turnDuration("2026-10-11T10:00:00Z", "2026-10-11T10:04:12Z")).toBe("4m 12s");
+    expect(turnDuration("2026-10-11T10:00:00Z", "2026-10-11T11:05:00Z")).toBe("1h 5m");
+    expect(turnDuration(null, "2026-10-11T10:00:00Z")).toBeNull();
+    expect(turnDuration("2026-10-11T10:05:00Z", "2026-10-11T10:00:00Z")).toBeNull();
+  });
+
+  it("a finished notification carries the duration", () => {
+    const working = diffAgentShells(new Map(), [
+      shell({
+        session: { status: "running", lastError: null },
+        latestTurn: { turnId: "t", state: "running" },
+      }),
+    ]).next;
+    const done = diffAgentShells(working, [
+      shell({
+        latestTurn: {
+          turnId: "t",
+          state: "completed",
+          startedAt: "2026-10-11T10:00:00Z",
+          completedAt: "2026-10-11T10:04:12Z",
+        },
+      }),
+    ]);
+    expect(done.events[0]?.detail).toBe("Finished in 4m 12s");
   });
 });
