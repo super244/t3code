@@ -195,6 +195,13 @@ export type UsageSummaryInput = typeof UsageSummaryInput.Type;
  * session, resolved on the environment that read it; `null` collects the
  * records whose transcript names no project (Codex rollouts, for one).
  */
+export const UsageProjectModel = Schema.Struct({
+  model: TrimmedNonEmptyString,
+  costUsd: Schema.Number,
+  totalTokens: NonNegativeInt,
+});
+export type UsageProjectModel = typeof UsageProjectModel.Type;
+
 export const UsageProjectTotals = Schema.Struct({
   provider: UsageProviderKind,
   projectPath: Schema.NullOr(TrimmedNonEmptyString),
@@ -203,6 +210,8 @@ export const UsageProjectTotals = Schema.Struct({
   costUsd: Schema.Number,
   records: NonNegativeInt,
   sessions: NonNegativeInt,
+  /** The project's most expensive models in the window, largest first. */
+  models: Schema.optional(Schema.Array(UsageProjectModel)),
 });
 export type UsageProjectTotals = typeof UsageProjectTotals.Type;
 

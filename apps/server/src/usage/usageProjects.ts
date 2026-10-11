@@ -104,7 +104,10 @@ interface MutableProject {
   costUsd: number;
   records: number;
   sessions: Set<string>;
+  models: Map<string, { costUsd: number; totalTokens: number }>;
 }
+
+const MODELS_PER_PROJECT = 6;
 
 /** Folds records that already passed the window and dedupe checks into per-project totals. */
 export class UsageProjectAggregator {
@@ -128,17 +131,27 @@ export class UsageProjectAggregator {
         costUsd: 0,
         records: 0,
         sessions: new Set(),
+        models: new Map(),
       };
       this.#projects.set(key, entry);
     }
     entry.totals = addTotals(entry.totals, record.totals);
-    entry.costUsd += priceUsage(
+    const recordCost = priceUsage(
       this.#rates,
       record.model,
       record.totals,
       record.reportedCostUsd,
       this.#priceOverrides,
     ).costUsd;
+    entry.costUsd += recordCost;
+    const model = entry.models.get(record.model) ?? { costUsd: 0, totalTokens: 0 };
+    model.costUsd += recordCost;
+    model.totalTokens +=
+      record.totals.uncachedInputTokens +
+      record.totals.cachedInputTokens +
+      record.totals.cacheCreationTokens +
+      record.totals.outputTokens;
+    entry.models.set(record.model, model);
     entry.records += 1;
     if (record.sessionId.length > 0) entry.sessions.add(record.sessionId);
   }
@@ -153,6 +166,10 @@ export class UsageProjectAggregator {
         costUsd: entry.costUsd,
         records: entry.records,
         sessions: entry.sessions.size,
+        models: [...entry.models.entries()]
+          .map(([model, totals]) => ({ model, ...totals }))
+          .toSorted((a, b) => b.costUsd - a.costUsd || b.totalTokens - a.totalTokens)
+          .slice(0, MODELS_PER_PROJECT),
       }))
       .sort((a, b) => b.costUsd - a.costUsd || a.name.localeCompare(b.name));
   }

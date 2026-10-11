@@ -15,6 +15,12 @@ export interface ProjectUsage {
   readonly totalTokens: number;
   readonly sessions: number;
   readonly providers: readonly UsageProviderKind[];
+  /** Most expensive models across environments, largest first. */
+  readonly models: readonly {
+    readonly model: string;
+    readonly costUsd: number;
+    readonly totalTokens: number;
+  }[];
   /** Share of the window's attributed cost, 0–1. */
   readonly costShare: number;
 }
@@ -67,6 +73,7 @@ export function mergeUsageProjects(
       totalTokens: number;
       sessions: number;
       providers: Set<UsageProviderKind>;
+      models: Map<string, { costUsd: number; totalTokens: number }>;
     }
   >();
   for (const environment of ordered) {
@@ -92,11 +99,18 @@ export function mergeUsageProjects(
         totalTokens: 0,
         sessions: 0,
         providers: new Set<UsageProviderKind>(),
+        models: new Map<string, { costUsd: number; totalTokens: number }>(),
       };
       entry.costUsd += row.costUsd;
       entry.totalTokens += tokensOf(row);
       entry.sessions += row.sessions;
       entry.providers.add(row.provider);
+      for (const model of row.models ?? []) {
+        const current = entry.models.get(model.model) ?? { costUsd: 0, totalTokens: 0 };
+        current.costUsd += model.costUsd;
+        current.totalTokens += model.totalTokens;
+        entry.models.set(model.model, current);
+      }
       merged.set(key, entry);
     }
   }
@@ -111,6 +125,10 @@ export function mergeUsageProjects(
       totalTokens: entry.totalTokens,
       sessions: entry.sessions,
       providers: [...entry.providers].sort(),
+      models: [...entry.models.entries()]
+        .map(([model, totals]) => ({ model, ...totals }))
+        .sort((a, b) => b.costUsd - a.costUsd)
+        .slice(0, 6),
       costShare: totalCost > 0 ? entry.costUsd / totalCost : 0,
     }))
     .sort(

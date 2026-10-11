@@ -15,6 +15,7 @@ import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useUsage } from "../../state/usage";
+import { mergeUsageProjects } from "@t3tools/shared/usageProjects";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
@@ -83,6 +84,19 @@ export function CommandCenterPage() {
   const threads = useThreadShells();
   const usageWindow = useMemo(() => makeWindow(7), []);
   const usage = useUsage(usageWindow);
+  const topProjects = useMemo(
+    () =>
+      mergeUsageProjects(
+        usage.selectedEnvironments.flatMap((environment) =>
+          environment.summary === null
+            ? []
+            : [{ environmentId: environment.environmentId, summary: environment.summary }],
+        ),
+      )
+        .projects.filter((project) => project.projectPath !== null)
+        .slice(0, 4),
+    [usage.selectedEnvironments],
+  );
   const projectsByKey = useMemo(
     () =>
       new Map(
@@ -234,6 +248,28 @@ export function CommandCenterPage() {
                     billed
                   </span>
                 </Link>
+                {topProjects.length > 0 ? (
+                  <Link
+                    to="/usage"
+                    className="flex flex-col gap-1.5 border-t border-border pt-4 hover:text-foreground"
+                  >
+                    <span className="text-xs font-medium text-foreground">
+                      Top projects · 7 days
+                    </span>
+                    {topProjects.map((project) => (
+                      <span
+                        key={project.key}
+                        className="flex items-baseline gap-2 text-xs"
+                        title={project.projectPath ?? undefined}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                        <span className="tabular-nums text-muted-foreground">
+                          {formatUsd(project.costUsd)}
+                        </span>
+                      </span>
+                    ))}
+                  </Link>
+                ) : null}
               </div>
 
               <section className="flex min-w-0 flex-col gap-3">
