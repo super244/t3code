@@ -3,6 +3,10 @@
 Customize shortcuts in **Settings → Keybindings** on web and desktop. That page
 also lists the command IDs and defaults available in your version.
 
+Press **⌘/** (**Ctrl+/** elsewhere), or **?** outside a text field, to see every
+shortcut that is live right now, including the ones you changed, grouped and
+searchable. **Customize shortcuts** at the bottom opens the settings page.
+
 ## Edit the configuration file
 
 Keybindings live on the environment's machine, in
