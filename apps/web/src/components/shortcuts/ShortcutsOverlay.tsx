@@ -175,8 +175,13 @@ export function ShortcutsOverlay() {
                           ) : null}
                         </span>
                         <span className={cn("flex shrink-0 items-center gap-1.5")}>
-                          {entry.keys.map((key) => (
-                            <Shortcut key={key} label={key} />
+                          {entry.keys.map((key, index) => (
+                            <span key={key} className="flex items-center gap-1.5">
+                              {index > 0 ? (
+                                <span className="text-[11px] text-muted-foreground">or</span>
+                              ) : null}
+                              <Shortcut label={key} />
+                            </span>
                           ))}
                         </span>
                       </li>
