@@ -48,9 +48,9 @@ function keycaps(label: string): ReadonlyArray<string> {
 function Shortcut({ label }: { label: string }) {
   return (
     <KbdGroup>
-      {keycaps(label).map((cap, index) => (
+      {keycaps(label).map((cap) => (
         <Kbd
-          key={`${cap}-${index}`}
+          key={cap}
           className="min-w-6 border border-border/70 bg-background px-1.5 text-foreground shadow-xs"
         >
           {cap}
@@ -95,10 +95,6 @@ export function ShortcutsOverlay() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!open) setQuery("");
-  }, [open]);
-
   const groups = useMemo(() => {
     if (!open) return [];
     const bindings = buildKeybindingRows(keybindings, "").map((row) => ({
@@ -114,7 +110,13 @@ export function ShortcutsOverlay() {
   const total = groups.reduce((sum, group) => sum + group.entries.length, 0);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery("");
+      }}
+    >
       <DialogPopup className="max-w-3xl" initialFocus={searchRef}>
         <DialogHeader className="gap-3">
           <div className="flex items-center gap-2.5">

@@ -89,14 +89,14 @@ export function AgentNotifications() {
         tag: `${event.key}:${event.kind}`,
         silent: event.kind === "finished",
       });
-      notification.onclick = () => {
+      notification.addEventListener("click", () => {
         window.focus();
         void router.navigate({
           to: "/$environmentId/$threadId",
           params: buildThreadRouteParams(scopeThreadRef(shell.environmentId, shell.id)),
         });
         notification.close();
-      };
+      });
     }
   }, [shells, prefs, projectTitles, router]);
 
