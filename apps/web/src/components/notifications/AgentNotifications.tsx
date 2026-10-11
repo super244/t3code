@@ -1,0 +1,201 @@
+import {
+  scopedProjectKey,
+  scopedThreadKey,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
+import { useRouter } from "@tanstack/react-router";
+import { BellIcon, BellOffIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
+
+import { resolveStorage } from "../../lib/storage";
+import { useProjects, useThreadShells } from "../../state/entities";
+import { buildThreadRouteParams } from "../../threadRoutes";
+import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
+import { Button } from "../ui/button";
+import { Switch } from "../ui/switch";
+import {
+  DEFAULT_AGENT_NOTIFICATION_PREFS,
+  diffAgentShells,
+  notificationText,
+  shouldNotify,
+  type AgentNotificationPrefs,
+  type AgentSnapshot,
+} from "./agentNotifications.logic";
+
+interface AgentNotificationStore extends AgentNotificationPrefs {
+  readonly set: (patch: Partial<AgentNotificationPrefs>) => void;
+}
+
+/** Per device: a phone and a desktop decide separately whether to buzz. */
+export const useAgentNotificationPrefs = create<AgentNotificationStore>()(
+  persist((set) => ({ ...DEFAULT_AGENT_NOTIFICATION_PREFS, set: (patch) => set(patch) }), {
+    name: "t3code:agent-notifications:v1",
+    storage: createJSONStorage(() =>
+      resolveStorage(typeof window === "undefined" ? null : window.localStorage),
+    ),
+    partialize: ({ set: _set, ...prefs }) => prefs,
+  }),
+);
+
+const supported = () => typeof window !== "undefined" && "Notification" in window;
+
+/**
+ * Watches the thread shells and raises a system notification when a thread
+ * finishes, needs an approval or an answer, or fails. Clicking one focuses the
+ * app on that thread. Mounted once in the app layout; renders nothing.
+ */
+export function AgentNotifications() {
+  const prefs = useAgentNotificationPrefs();
+  const shells = useThreadShells();
+  const projects = useProjects();
+  const router = useRouter();
+  const previous = useRef<Map<string, AgentSnapshot> | null>(null);
+
+  const projectTitles = useMemo(() => {
+    const titles = new Map<string, string>();
+    for (const project of projects) {
+      titles.set(
+        scopedProjectKey({ environmentId: project.environmentId, projectId: project.id }),
+        project.title,
+      );
+    }
+    return titles;
+  }, [projects]);
+
+  useEffect(() => {
+    const keyed = shells.map((shell) => ({
+      ...shell,
+      key: scopedThreadKey(scopeThreadRef(shell.environmentId, shell.id)),
+    }));
+    const { next, events } = diffAgentShells(previous.current ?? new Map(), keyed);
+    const firstObservation = previous.current === null;
+    previous.current = next;
+    if (firstObservation || events.length === 0 || !prefs.enabled || !supported()) return;
+    if (Notification.permission !== "granted") return;
+    if (prefs.onlyWhenAway && document.visibilityState === "visible" && document.hasFocus()) return;
+
+    for (const event of events) {
+      if (!shouldNotify(event, prefs)) continue;
+      const shell = keyed.find((s) => s.key === event.key);
+      if (!shell) continue;
+      const project = projectTitles.get(
+        scopedProjectKey({ environmentId: shell.environmentId, projectId: shell.projectId }),
+      );
+      const { title, body } = notificationText(event, project ?? null);
+      const notification = new Notification(title, {
+        body,
+        tag: `${event.key}:${event.kind}`,
+        silent: event.kind === "finished",
+      });
+      notification.onclick = () => {
+        window.focus();
+        void router.navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(scopeThreadRef(shell.environmentId, shell.id)),
+        });
+        notification.close();
+      };
+    }
+  }, [shells, prefs, projectTitles, router]);
+
+  return null;
+}
+
+/** Settings › General › Notifications. */
+export function AgentNotificationsSettingsSection() {
+  const prefs = useAgentNotificationPrefs();
+  const [permission, setPermission] = useState<NotificationPermission | "unsupported">(
+    supported() ? Notification.permission : "unsupported",
+  );
+
+  async function setEnabled(enabled: boolean) {
+    if (enabled && supported() && Notification.permission === "default") {
+      setPermission(await Notification.requestPermission());
+    }
+    prefs.set({ enabled });
+  }
+
+  const blocked = permission === "denied" || permission === "unsupported";
+  const kinds: ReadonlyArray<[keyof AgentNotificationPrefs, string, string]> = [
+    ["finished", "Turn finished", "An agent finished what you asked."],
+    ["approval", "Approval needed", "An agent is waiting for you to approve a command or edit."],
+    ["input", "Question asked", "An agent asked you something and is waiting."],
+    ["failed", "Turn failed", "A turn stopped with an error, with the error's first line."],
+  ];
+
+  return (
+    <SettingsSection
+      id="agent-notifications"
+      title="Notifications"
+      icon={prefs.enabled ? <BellIcon className="size-4" /> : <BellOffIcon className="size-4" />}
+    >
+      <SettingsRow
+        title="Notify me about agents"
+        description={
+          permission === "unsupported"
+            ? "This browser has no system notifications."
+            : permission === "denied"
+              ? "Notifications are blocked for T3 Code. Allow them in your system or browser settings, then switch this on."
+              : "A system notification when a thread needs you or is done. Click it to jump to the thread."
+        }
+        control={
+          <Switch
+            checked={prefs.enabled && !blocked}
+            disabled={blocked}
+            onCheckedChange={(checked) => void setEnabled(checked)}
+            aria-label="Agent notifications"
+          />
+        }
+      />
+      {prefs.enabled && !blocked ? (
+        <>
+          {kinds.map(([key, title, description]) => (
+            <SettingsRow
+              key={key}
+              title={title}
+              description={description}
+              control={
+                <Switch
+                  checked={Boolean(prefs[key])}
+                  onCheckedChange={(checked) => prefs.set({ [key]: checked })}
+                  aria-label={title}
+                />
+              }
+            />
+          ))}
+          <SettingsRow
+            title="Only while T3 Code is in the background"
+            description="Off also notifies while you are looking at another thread."
+            control={
+              <Switch
+                checked={prefs.onlyWhenAway}
+                onCheckedChange={(checked) => prefs.set({ onlyWhenAway: checked })}
+                aria-label="Only while in the background"
+              />
+            }
+          />
+          <SettingsRow
+            title="Test"
+            description="Send one now to see how it looks on this device."
+            control={
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  new Notification("Finished · T3 Code", {
+                    body: "This is how a finished turn will look.",
+                    tag: "t3code:test",
+                  })
+                }
+              >
+                Send test
+              </Button>
+            }
+          />
+        </>
+      ) : null}
+    </SettingsSection>
+  );
+}
