@@ -1,7 +1,7 @@
 /* agent-watermark: model=opus-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-10 */
 import type { DailyTotals } from "@t3tools/shared/usageMerge";
 import { formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "../../lib/utils";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
@@ -58,9 +58,11 @@ export function buildHeatmap(
 
   const weeks: HeatCell[][] = [];
   const byWeekday = Array.from({ length: 7 }, () => 0);
-  for (let cursor = new Date(start); cursor <= end;) {
+  const totalWeeks = Math.round((end.getTime() - start.getTime()) / (7 * 86_400_000)) + 1;
+  for (let w = 0; w < totalWeeks; w += 1) {
     const week: HeatCell[] = [];
     for (let i = 0; i < 7; i += 1) {
+      const cursor = new Date(start.getTime() + (w * 7 + i) * 86_400_000);
       const day = utcToDay(cursor);
       const inRange = day >= first && day <= last;
       const value = inRange ? (valueOf.get(day) ?? 0) : 0;
@@ -69,9 +71,8 @@ export function buildHeatmap(
         value > 0 && peak > 0
           ? Math.min(4, Math.max(1, Math.ceil(Math.sqrt(value / peak) * 4)))
           : 0;
-      if (inRange) byWeekday[weekdayIndex(cursor)] = (byWeekday[weekdayIndex(cursor)] ?? 0) + value;
+      if (inRange) byWeekday[i] = (byWeekday[i] ?? 0) + value;
       week.push({ day, value, level, inRange });
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
     weeks.push(week);
   }
@@ -120,6 +121,7 @@ export function UsageCalendarHeatmap({
   readonly metric: "cost" | "tokens";
 }) {
   const heat = useMemo(() => buildHeatmap(days, daily, metric), [days, daily, metric]);
+  const [hovered, setHovered] = useState<HeatCell | undefined>(undefined);
   if (!heat || heat.totalDays < 7) return null;
 
   return (
@@ -143,18 +145,19 @@ export function UsageCalendarHeatmap({
             </span>
           ))}
         </div>
-        <div className="flex gap-[3px]" role="grid" aria-readonly="true">
+        <div
+          className="flex gap-[3px]"
+          role="grid"
+          aria-readonly="true"
+          onMouseLeave={() => setHovered(undefined)}
+        >
           {heat.weeks.map((week) => (
             <div key={week[0]?.day} className="grid grid-rows-7 gap-[3px]" role="row">
               {week.map((cell) => (
                 <span
                   key={cell.day}
                   role="gridcell"
-                  title={
-                    cell.inRange
-                      ? `${formatCellDay(cell.day)}: ${cell.value > 0 ? formatValue(cell.value, metric) : "no usage"}`
-                      : undefined
-                  }
+                  onMouseEnter={cell.inRange ? () => setHovered(cell) : undefined}
                   aria-label={
                     cell.inRange
                       ? `${formatCellDay(cell.day)}, ${cell.value > 0 ? formatValue(cell.value, metric) : "no usage"}`
@@ -176,6 +179,11 @@ export function UsageCalendarHeatmap({
           <span key={cls} className={cn("size-[11px] rounded-[2px]", cls)} aria-hidden="true" />
         ))}
         <span>More</span>
+        <span className="ml-3 text-foreground/80 tabular-nums" aria-live="polite">
+          {hovered
+            ? `${formatCellDay(hovered.day)} · ${hovered.value > 0 ? formatValue(hovered.value, metric) : "no usage"}`
+            : ""}
+        </span>
       </div>
     </section>
   );
