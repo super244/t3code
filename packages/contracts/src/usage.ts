@@ -188,6 +188,24 @@ export const UsageSummaryInput = Schema.Struct({
 });
 export type UsageSummaryInput = typeof UsageSummaryInput.Type;
 
+/**
+ * Usage attributed to the project a transcript ran in, for one provider.
+ *
+ * `projectPath` is the working directory the provider recorded for the
+ * session, resolved on the environment that read it; `null` collects the
+ * records whose transcript names no project (Codex rollouts, for one).
+ */
+export const UsageProjectTotals = Schema.Struct({
+  provider: UsageProviderKind,
+  projectPath: Schema.NullOr(TrimmedNonEmptyString),
+  name: TrimmedNonEmptyString,
+  totals: UsageTokenTotals,
+  costUsd: Schema.Number,
+  records: NonNegativeInt,
+  sessions: NonNegativeInt,
+});
+export type UsageProjectTotals = typeof UsageProjectTotals.Type;
+
 export const UsageSummary = Schema.Struct({
   contractVersion: Schema.Number,
   readAt: Schema.String,
@@ -199,6 +217,8 @@ export const UsageSummary = Schema.Struct({
   pricing: UsagePricing,
   /** Wall-clock cost of the scan, surfaced in diagnostics. */
   scanDurationMs: NonNegativeInt,
+  /** Window usage by project. Absent from servers that predate it. */
+  projects: Schema.optional(Schema.Array(UsageProjectTotals)),
 });
 export type UsageSummary = typeof UsageSummary.Type;
 

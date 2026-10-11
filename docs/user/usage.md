@@ -79,3 +79,7 @@ account and choose **Use reset** to redeem one. No hub plugin is required.
 This connection supplies usage information; configure
 the provider separately to send agent requests through the hub. Remove the hub from the same
 settings section when you no longer need it.
+
+## Usage by project
+
+Choose **Project** under **Breakdown** to see cost and tokens per project for the selected window. Claude Code records which project each session ran in; other harnesses' usage appears as **Not recorded**. A project whose folder no longer exists keeps its usage under its last folder name.

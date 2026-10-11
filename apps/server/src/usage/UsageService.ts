@@ -45,6 +45,11 @@ import * as ServerSettings from "../serverSettings.ts";
 import { resolveClaudeHomePath } from "../provider/Drivers/ClaudeHome.ts";
 import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
 import { UsageAggregator } from "./usageAggregation.ts";
+import {
+  claudeProjectSlug,
+  resolveTranscriptProjects,
+  UsageProjectAggregator,
+} from "./usageProjects.ts";
 import { createOverrideRateTable, parseRateTable, type RateTable } from "./usagePricing.ts";
 import {
   listTranscriptFiles,
@@ -478,6 +483,24 @@ export const make = Effect.gen(function* () {
       priceOverrides: createOverrideRateTable(settings.usagePriceOverrides),
     });
 
+    const projects = new UsageProjectAggregator(
+      rates,
+      createOverrideRateTable(settings.usagePriceOverrides),
+    );
+    // Claude Code folders resolve to their project directory once per scan.
+    const projectOf = yield* resolveTranscriptProjects(
+      scannedDirs.flatMap(({ provider, dir, files }) =>
+        provider !== "claude" || files === null
+          ? []
+          : files.flatMap((file) => {
+              const slug = claudeProjectSlug(dir, file.path);
+              return slug === null ? [] : [slug];
+            }),
+      ),
+      (path) =>
+        fileSystem.readDirectory(path).pipe(Effect.orElseSucceed(() => [] as readonly string[])),
+    );
+
     const sources: UsageSource[] = [];
     const livePaths = new Set<string>();
     const walkedRoots: string[] = [];
@@ -510,12 +533,13 @@ export const make = Effect.gen(function* () {
           continue;
         }
         scannedFiles += 1;
+        const project = projectOf(provider, dir, file.path);
         for (const record of file.records) {
           // Only sessions that contributed in-window count: the mtime slack
           // admits boundary files whose records fall outside the range.
-          if (aggregator.add(record) && record.sessionId.length > 0) {
-            sessionIds.add(record.sessionId);
-          }
+          if (!aggregator.add(record)) continue;
+          projects.add(project, record);
+          if (record.sessionId.length > 0) sessionIds.add(record.sessionId);
         }
       }
 
@@ -553,6 +577,7 @@ export const make = Effect.gen(function* () {
       sources,
       pricing: pricing(),
       scanDurationMs: Math.max(0, finishedAtMs - startedAtMs),
+      projects: projects.finish(),
     } satisfies UsageSummary;
   });
 

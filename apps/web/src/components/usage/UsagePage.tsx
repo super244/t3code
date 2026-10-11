@@ -58,7 +58,9 @@ import {
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection } from "./UsageLimits";
+import { mergeUsageProjects } from "@t3tools/shared/usageProjects";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
+import { UsageProjectBreakdown } from "./UsageProjectBreakdown";
 import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";
 import { readUsagePagePreferences, saveUsagePagePreferences } from "./usagePagePreferences";
@@ -90,7 +92,7 @@ export function UsagePage() {
   const showingLimits = metric === "limits";
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshingRef = useRef(false);
-  const [breakdown, setBreakdown] = useState<"model" | "time">("model");
+  const [breakdown, setBreakdown] = useState<"model" | "project" | "time">("model");
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] =
     useState<ReadonlySet<EnvironmentId> | null>(null);
   const { preset: windowPreset, window } = windowSelection;
@@ -99,6 +101,17 @@ export function UsagePage() {
   const { merged, environments, selectedEnvironments, isPending, isPartial, refresh } = useUsage(
     window,
     selectedEnvironmentIds,
+  );
+  const projectUsage = useMemo(
+    () =>
+      mergeUsageProjects(
+        selectedEnvironments.flatMap((environment) =>
+          environment.summary === null
+            ? []
+            : [{ environmentId: environment.environmentId, summary: environment.summary }],
+        ),
+      ),
+    [selectedEnvironments],
   );
   const presentations = useAtomValue(environmentPresentations.presentationsAtom);
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
@@ -469,12 +482,14 @@ export function UsagePage() {
                       value={[breakdown]}
                       onValueChange={(next) => {
                         const value = next[0];
-                        if (value === "model" || value === "time") setBreakdown(value);
+                        if (value === "model" || value === "project" || value === "time")
+                          setBreakdown(value);
                       }}
                     >
                       {(
                         [
                           { value: "model", label: "Model" },
+                          { value: "project", label: "Project" },
                           { value: "time", label: isHourlyWindow ? "Hour" : "Day" },
                         ] as const
                       ).map((option) => (
@@ -485,7 +500,12 @@ export function UsagePage() {
                     </ToggleGroup>
                   </div>
 
-                  {breakdown === "model" ? (
+                  {breakdown === "project" ? (
+                    <UsageProjectBreakdown
+                      summary={projectUsage}
+                      hasActivity={merged.models.length > 0}
+                    />
+                  ) : breakdown === "model" ? (
                     <table className="w-full table-fixed text-sm">
                       <colgroup>
                         <col className="w-2/5" />
