@@ -14,6 +14,7 @@ import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalSt
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
+import { ShortcutsOverlay } from "./shortcuts/ShortcutsOverlay";
 import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
 import {
   PanelAnimationSuppressionProvider,
@@ -227,6 +228,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         style={sidebarProviderStyle}
       >
         <ProjectProjectionRetention />
+        <ShortcutsOverlay />
         <Sidebar
           side="left"
           collapsible="offcanvas"
