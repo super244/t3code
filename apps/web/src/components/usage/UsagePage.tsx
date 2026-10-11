@@ -57,6 +57,7 @@ import {
 } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { UsageCalendarHeatmap } from "./UsageCalendarHeatmap";
 import { UsageLimitsSection } from "./UsageLimits";
 import { mergeUsageProjects } from "@t3tools/shared/usageProjects";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
@@ -431,6 +432,14 @@ export function UsagePage() {
                     />
                   </div>
                 </section>
+
+                {!isHourlyWindow ? (
+                  <UsageCalendarHeatmap
+                    days={days}
+                    daily={merged.daily}
+                    metric={metric === "tokens" ? "tokens" : "cost"}
+                  />
+                ) : null}
 
                 <section className="flex flex-col gap-2">
                   <h2 className="text-sm font-medium text-foreground">Totals</h2>
