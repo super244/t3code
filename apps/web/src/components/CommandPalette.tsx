@@ -49,6 +49,7 @@ import {
   FolderPlusIcon,
   GitPullRequestArrowIcon,
   LinkIcon,
+  KeyboardIcon,
   LayoutDashboardIcon,
   MessageSquareIcon,
   PaletteIcon,
@@ -184,6 +185,7 @@ import {
   buildSidebarProjectSnapshots,
 } from "../sidebarProjectGrouping";
 import type { Project } from "../types";
+import { OPEN_SHORTCUTS_EVENT } from "./shortcuts/shortcutsOverlay.logic";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -1716,6 +1718,17 @@ function OpenCommandPaletteDialog(props: {
     icon: <LayoutDashboardIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/command-center" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:keyboard-shortcuts",
+    searchTerms: ["keyboard", "shortcuts", "keybindings", "hotkeys", "cheat sheet", "help"],
+    title: "Show keyboard shortcuts",
+    icon: <KeyboardIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      window.dispatchEvent(new Event(OPEN_SHORTCUTS_EVENT));
     },
   });
 
