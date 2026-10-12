@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-11 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-10 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=30m; seat=codex; date=2026-10-08 */
@@ -330,7 +331,7 @@ export function RoutinesPage() {
                 Connect an environment to manage routines.
               </p>
             ) : (
-              <div className="grid overflow-hidden border-y border-border lg:grid-cols-[18rem_minmax(0,1fr)]">
+              <div className="grid overflow-hidden border-y border-border lg:min-h-[28rem] lg:grid-cols-[18rem_minmax(0,1fr)]">
                 <aside className="border-b border-border lg:border-r lg:border-b-0">
                   <div className="flex flex-col gap-2 p-2">
                     <Button
@@ -460,7 +461,7 @@ export function RoutinesPage() {
                   </div>
                   {filteredRoutines.length === 0 ? (
                     <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-                      {routines.length === 0 ? "No routines configured." : "No matching routines."}
+                      {routines.length === 0 ? "No routines yet." : "No matching routines."}
                     </p>
                   ) : (
                     filteredRoutines.map(([id, routine]) => (
@@ -1070,8 +1071,26 @@ export function RoutinesPage() {
                     ) : null}
                   </main>
                 ) : (
-                  <div className="p-10 text-center text-sm text-muted-foreground">
-                    Select a routine or create one.
+                  <div className="flex flex-col items-center justify-center gap-3 px-10 py-16 text-center">
+                    <span className="flex size-10 items-center justify-center rounded-full border border-border bg-muted/40 text-muted-foreground">
+                      <CalendarClockIcon className="size-4.5" aria-hidden />
+                    </span>
+                    {routines.length === 0 ? (
+                      <>
+                        <p className="text-sm font-medium text-foreground">
+                          Run a prompt on a schedule
+                        </p>
+                        <p className="max-w-sm text-sm text-muted-foreground">
+                          A routine starts a thread on this environment at the times you set — a
+                          nightly review, a morning triage. Start with New routine or import a
+                          template.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Select a routine to edit it, or create a new one.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
