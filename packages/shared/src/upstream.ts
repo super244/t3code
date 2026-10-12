@@ -1,4 +1,5 @@
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=3m; seat=claude-code; date=2026-10-12 */
 // @effect-diagnostics globalFetch:off globalDate:off
 // This helper runs in both browsers and Node; it owns AbortSignal deadlines.
 import { compareSemverVersions, parseSemver } from "./semver.ts";
@@ -30,6 +31,45 @@ export interface UpstreamCommit {
   readonly htmlUrl: string;
   readonly prNumber: number | null;
 }
+/**
+ * What this server's own state holds next to upstream builds. Upstream Nightly
+ * and this build can share one state directory; upstream then records migrations
+ * this build does not define.
+ */
+export interface UpstreamSharedState {
+  /** Highest migration id this build defines. */
+  readonly knownMigration: number;
+  /** Highest migration id recorded in this server's state.sqlite; null when it is empty or unreadable. */
+  readonly foundMigration: number | null;
+  /** Recorded migrations this build does not define, as "<id>_<name>", in id order. */
+  readonly foreignMigrations: ReadonlyArray<string>;
+  /** Whether Orchestration V2's statev2.sqlite sits beside state.sqlite. */
+  readonly orchestratorV2StorePresent: boolean;
+}
+
+/** The Nightly desktop app installed in /Applications, read from its Info.plist. */
+export interface UpstreamNightlyInstall {
+  readonly appPath: string;
+  readonly version: string;
+  readonly bundleId: string;
+  /** LSEnvironment T3CODE_HOME, or null when the bundle does not set one. */
+  readonly home: string | null;
+  readonly autoUpdateDisabled: boolean;
+  /** The bundle keeps its state out of ~/.t3 and cannot update itself back into it. */
+  readonly isolated: boolean;
+}
+
+export interface UpstreamNightlyStatus {
+  /** Newest upstream nightly prerelease from the same GitHub call as `releases`. */
+  readonly latestRelease: UpstreamRelease | null;
+  readonly installed: UpstreamNightlyInstall | null;
+  /** True when the latest nightly is newer than the installed one, or nothing is installed. */
+  readonly updateAvailable: boolean;
+  /** False when this server cannot run the install script; see installBlockedReason. */
+  readonly canInstall: boolean;
+  readonly installBlockedReason: string | null;
+}
+
 export interface UpstreamStatus {
   readonly repo: string;
   readonly currentVersion: string;
@@ -41,6 +81,10 @@ export interface UpstreamStatus {
   readonly hasNewRelease: boolean;
   readonly isChecking: boolean;
   readonly error: string | null;
+  /** Filled in by the server on every status and check response; null only in the bare monitor state. */
+  readonly sharedState: UpstreamSharedState | null;
+  /** Filled in by the server on every status and check response; null only in the bare monitor state. */
+  readonly nightly: UpstreamNightlyStatus | null;
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -106,13 +150,44 @@ export function parseUpstreamReleases(value: unknown): ReadonlyArray<UpstreamRel
   });
 }
 
+const NIGHTLY_ORDER = /^v?\d+\.\d+\.\d+-nightly\.(\d{8})\.(\d+)$/;
+const NIGHTLY_RELEASE_TAG = /^v\d+\.\d+\.\d+-nightly\.\d{8}\.\d+$/;
+
+/**
+ * Orders an upstream nightly tag or version by (date, build). Upstream also publishes
+ * `-preview.` prereleases and `android-nightly` tags; those return null here, so
+ * semver prerelease-string order never decides which nightly is newest.
+ */
+export function nightlyOrderKey(tagOrVersion: string): readonly [number, number] | null {
+  const match = NIGHTLY_ORDER.exec(tagOrVersion);
+  return match ? [Number(match[1]), Number(match[2])] : null;
+}
+
+function compareNightlyKeys(
+  left: readonly [number, number],
+  right: readonly [number, number],
+): number {
+  return left[0] - right[0] || left[1] - right[1];
+}
+
+/** Newest nightly that matches the tag pattern and ships a mac arm64 DMG, or null. */
+function selectNightlyRelease(releases: ReadonlyArray<UpstreamRelease>): UpstreamRelease | null {
+  let best: { readonly key: readonly [number, number]; readonly release: UpstreamRelease } | null =
+    null;
+  for (const release of releases) {
+    const key = NIGHTLY_RELEASE_TAG.test(release.tagName) ? nightlyOrderKey(release.tagName) : null;
+    if (key === null || !release.assets.some((asset) => asset.platform === "mac-arm64")) continue;
+    if (best === null || compareNightlyKeys(key, best.key) > 0) best = { key, release };
+  }
+  return best?.release ?? null;
+}
+
 export function selectUpstreamRelease(
   releases: ReadonlyArray<UpstreamRelease>,
   channel: UpstreamChannel,
 ): UpstreamRelease | null {
-  const candidates = releases.filter((release) =>
-    channel === "stable" ? !release.isPrerelease : release.isPrerelease,
-  );
+  if (channel === "nightly") return selectNightlyRelease(releases);
+  const candidates = releases.filter((release) => !release.isPrerelease);
   return (
     candidates.toSorted((a, b) => {
       if (parseSemver(a.tagName) && parseSemver(b.tagName))
@@ -141,6 +216,62 @@ export function emptyUpstreamStatus(version: string): UpstreamStatus {
     hasNewRelease: false,
     isChecking: false,
     error: null,
+    sharedState: null,
+    nightly: null,
+  };
+}
+
+/**
+ * Reads the isolation facts from an installed Nightly's LSEnvironment. The
+ * bundle is isolated only when it points T3CODE_HOME away from `sharedHome` and
+ * turns the updater off, since an updater would copy the shared bundle back in.
+ */
+export function nightlyIsolation(input: {
+  readonly environment: Readonly<Record<string, unknown>>;
+  readonly sharedHome: string;
+}): Pick<UpstreamNightlyInstall, "home" | "autoUpdateDisabled" | "isolated"> {
+  const rawHome =
+    typeof input.environment.T3CODE_HOME === "string" ? input.environment.T3CODE_HOME.trim() : "";
+  const home = rawHome.startsWith("/") ? rawHome.replace(/\/+$/, "") : null;
+  const sharedHome = input.sharedHome.replace(/\/+$/, "");
+  const updater = String(input.environment.T3CODE_DISABLE_AUTO_UPDATE ?? "")
+    .trim()
+    .toLowerCase();
+  const autoUpdateDisabled = ["1", "true", "yes", "on"].includes(updater);
+  return {
+    home,
+    autoUpdateDisabled,
+    isolated: home !== null && home !== sharedHome && autoUpdateDisabled,
+  };
+}
+
+/** True when a release tag is a newer upstream nightly than an installed version. */
+/**
+ * True when the latest nightly is strictly newer by (date, build). An installed
+ * version that is not a nightly counts as older.
+ */
+function isNewerNightly(latestTag: string, installedVersion: string): boolean {
+  const latest = nightlyOrderKey(latestTag);
+  if (latest === null) return false;
+  const installed = nightlyOrderKey(installedVersion);
+  return installed === null || compareNightlyKeys(latest, installed) > 0;
+}
+
+export function buildUpstreamNightlyStatus(input: {
+  readonly releases: ReadonlyArray<UpstreamRelease>;
+  readonly installed: UpstreamNightlyInstall | null;
+  /** Why this server cannot install Nightly, or null when it can. */
+  readonly installBlockedReason: string | null;
+}): UpstreamNightlyStatus {
+  const latestRelease = selectUpstreamRelease(input.releases, "nightly");
+  return {
+    latestRelease,
+    installed: input.installed,
+    updateAvailable:
+      latestRelease !== null &&
+      (input.installed === null || isNewerNightly(latestRelease.tagName, input.installed.version)),
+    canInstall: input.installBlockedReason === null,
+    installBlockedReason: input.installBlockedReason,
   };
 }
 function parseCommits(value: unknown): ReadonlyArray<UpstreamCommit> {

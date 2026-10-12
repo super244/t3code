@@ -1,4 +1,5 @@
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=3m; seat=claude-code; date=2026-10-12 */
 import { describe, expect, it, vi } from "vite-plus/test";
 import { AuthSessionId, type AuthEnvironmentScope } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -56,6 +57,7 @@ const endpoints = [
   ["/api/prism/sync", "POST"],
   ["/api/upstream/status", "GET"],
   ["/api/upstream/check", "POST"],
+  ["/api/upstream/nightly/install", "POST"],
 ] as const;
 describe("custom integration routes", () => {
   it("does not perform a sync while building the routes", async () => {

@@ -12,8 +12,10 @@ describe("UpstreamUpdate tracker contract", () => {
     function classifyPlatform(assetName: string) {
       const lower = assetName.toLowerCase();
       if (lower.includes("arm64.dmg") || lower.includes("darwin-arm64")) return "mac-arm64";
-      if (lower.includes("x64.dmg") || lower.includes("darwin-x64") || lower.includes("mac.dmg")) return "mac-x64";
-      if (lower.endsWith(".appimage") || lower.endsWith(".deb") || lower.includes("linux")) return "linux";
+      if (lower.includes("x64.dmg") || lower.includes("darwin-x64") || lower.includes("mac.dmg"))
+        return "mac-x64";
+      if (lower.endsWith(".appimage") || lower.endsWith(".deb") || lower.includes("linux"))
+        return "linux";
       if (lower.endsWith(".exe") || lower.includes("win32")) return "windows";
       return "other";
     }

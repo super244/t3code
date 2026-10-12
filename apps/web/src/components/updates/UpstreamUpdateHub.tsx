@@ -1,10 +1,13 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
 import {
   ArrowDownToLineIcon,
   ExternalLinkIcon,
-  GitCommitIcon,
   GithubIcon,
+  LaptopIcon,
+  MonitorIcon,
   RefreshCwIcon,
+  TerminalIcon,
   ZapIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -32,6 +35,8 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { ScrollArea } from "../ui/scroll-area";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { NightlyPanel } from "./NightlyPanel";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -65,7 +70,10 @@ export function UpstreamUpdateHubModal({
   status,
   onCheckNow,
 }: UpstreamUpdateHubModalProps) {
-  const [activeTab, setActiveTab] = useState<"releases" | "commits" | "status">("releases");
+  // Nightly first: it is the one tab that acts on this computer.
+  const [activeTab, setActiveTab] = useState<"nightly" | "releases" | "commits" | "status">(
+    "nightly",
+  );
 
   const [channel, setChannel] = useState<UpstreamChannel>("stable");
   const latest = selectUpstreamRelease(status.releases, channel);
@@ -77,21 +85,21 @@ export function UpstreamUpdateHubModal({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="max-w-2xl border-sky-500/20 bg-background/95 p-0 backdrop-blur-2xl">
-        <DialogHeader className="border-b border-border/50 px-6 pt-6 pb-4">
+      <DialogContent className="max-w-2xl p-0">
+        <DialogHeader className="border-b border-border/50 px-6 pt-6 pr-14 pb-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500/10 text-sky-400 ring-1 ring-sky-500/30">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-foreground">
                 <ZapIcon className="h-5 w-5" />
               </div>
               <div>
                 <DialogTitle className="text-base font-semibold tracking-tight text-foreground">
-                  Upstream releases
+                  Upstream
                 </DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground">
                   Release and commit checks for{" "}
                   <a
-                    className="font-medium text-sky-400 hover:underline"
+                    className="font-medium text-foreground hover:underline"
                     href={`https://github.com/${UPSTREAM_REPO}`}
                     rel="noreferrer"
                     target="_blank"
@@ -113,43 +121,26 @@ export function UpstreamUpdateHubModal({
             </Button>
           </div>
 
-          {/* Navigation Tabs */}
-          <div className="mt-4 flex flex-wrap items-center gap-2 border-b border-border/40 pb-1">
-            <button
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                activeTab === "releases"
-                  ? "bg-sky-500/15 text-sky-300 font-semibold"
-                  : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-              }`}
-              onClick={() => setActiveTab("releases")}
-              type="button"
-            >
-              Official Releases & Downloads
-            </button>
-            <button
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                activeTab === "commits"
-                  ? "bg-sky-500/15 text-sky-300 font-semibold"
-                  : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-              }`}
-              onClick={() => setActiveTab("commits")}
-              type="button"
-            >
-              <GitCommitIcon className="h-3.5 w-3.5" />
-              Community Contributions ({status.recentCommits.length})
-            </button>
-            <button
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                activeTab === "status"
-                  ? "bg-sky-500/15 text-sky-300 font-semibold"
-                  : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-              }`}
-              onClick={() => setActiveTab("status")}
-              type="button"
-            >
-              App & Check Status
-            </button>
-          </div>
+          <ToggleGroup
+            aria-label="Upstream sections"
+            className="mt-4"
+            value={[activeTab]}
+            onValueChange={(value) => {
+              const next = value[0];
+              if (
+                next === "nightly" ||
+                next === "releases" ||
+                next === "commits" ||
+                next === "status"
+              )
+                setActiveTab(next);
+            }}
+          >
+            <Toggle value="nightly">Nightly</Toggle>
+            <Toggle value="releases">Releases</Toggle>
+            <Toggle value="commits">Commits ({status.recentCommits.length})</Toggle>
+            <Toggle value="status">About</Toggle>
+          </ToggleGroup>
         </DialogHeader>
 
         <ScrollArea className="max-h-[60vh] px-6 py-4">
@@ -159,6 +150,7 @@ export function UpstreamUpdateHubModal({
               {status.checkedAt ? "Showing last known information." : "Use Check Now to retry."}
             </p>
           )}
+          {activeTab === "nightly" && <NightlyPanel />}
           {activeTab === "releases" && (
             <div className="space-y-4">
               <div className="flex gap-1 border-b border-border pb-2" aria-label="Release channel">
@@ -182,23 +174,17 @@ export function UpstreamUpdateHubModal({
               </p>
               {latest ? (
                 <>
-                  <div className="rounded-xl border border-sky-500/30 bg-sky-950/20 p-4">
+                  <div className="rounded-xl border border-border bg-card p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <Badge className="bg-sky-500/20 text-sky-300 border-sky-500/40">
-                          {latest.tagName}
-                        </Badge>
-                        {latest.isPrerelease && (
-                          <Badge variant="outline" className="text-amber-400 border-amber-500/30">
-                            Nightly
-                          </Badge>
-                        )}
+                        <Badge variant="outline">{latest.tagName}</Badge>
+                        {latest.isPrerelease && <Badge variant="warning">Nightly</Badge>}
                         <span className="text-xs text-muted-foreground">
                           Published {formatDate(latest.publishedAt)}
                         </span>
                       </div>
                       <a
-                        className="inline-flex items-center gap-1 text-xs text-sky-400 hover:underline"
+                        className="inline-flex items-center gap-1 text-xs text-foreground hover:underline"
                         href={latest.htmlUrl}
                         rel="noreferrer"
                         target="_blank"
@@ -214,13 +200,13 @@ export function UpstreamUpdateHubModal({
                     <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                       {macArm64 && (
                         <a
-                          className="flex items-center justify-between rounded-lg border border-border/60 bg-card/60 p-2.5 transition-colors hover:border-sky-500/50 hover:bg-sky-950/30"
+                          className="flex items-center justify-between rounded-lg border border-border/60 bg-card/60 p-2.5 transition-colors hover:border-foreground/20 hover:bg-muted/40"
                           href={macArm64.downloadUrl}
                           rel="noreferrer"
                           target="_blank"
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-base">🍏</span>
+                            <LaptopIcon className="size-4 text-muted-foreground" />
                             <div>
                               <div className="text-xs font-medium text-foreground">
                                 macOS Apple Silicon
@@ -230,19 +216,19 @@ export function UpstreamUpdateHubModal({
                               </div>
                             </div>
                           </div>
-                          <ArrowDownToLineIcon className="h-4 w-4 text-sky-400" />
+                          <ArrowDownToLineIcon className="h-4 w-4 text-muted-foreground" />
                         </a>
                       )}
 
                       {macX64 && (
                         <a
-                          className="flex items-center justify-between rounded-lg border border-border/60 bg-card/60 p-2.5 transition-colors hover:border-sky-500/50 hover:bg-sky-950/30"
+                          className="flex items-center justify-between rounded-lg border border-border/60 bg-card/60 p-2.5 transition-colors hover:border-foreground/20 hover:bg-muted/40"
                           href={macX64.downloadUrl}
                           rel="noreferrer"
                           target="_blank"
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-base">🍏</span>
+                            <LaptopIcon className="size-4 text-muted-foreground" />
                             <div>
                               <div className="text-xs font-medium text-foreground">
                                 macOS Intel (x64)
@@ -252,19 +238,19 @@ export function UpstreamUpdateHubModal({
                               </div>
                             </div>
                           </div>
-                          <ArrowDownToLineIcon className="h-4 w-4 text-sky-400" />
+                          <ArrowDownToLineIcon className="h-4 w-4 text-muted-foreground" />
                         </a>
                       )}
 
                       {linux && (
                         <a
-                          className="flex items-center justify-between rounded-lg border border-border/60 bg-card/60 p-2.5 transition-colors hover:border-sky-500/50 hover:bg-sky-950/30"
+                          className="flex items-center justify-between rounded-lg border border-border/60 bg-card/60 p-2.5 transition-colors hover:border-foreground/20 hover:bg-muted/40"
                           href={linux.downloadUrl}
                           rel="noreferrer"
                           target="_blank"
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-base">🐧</span>
+                            <TerminalIcon className="size-4 text-muted-foreground" />
                             <div>
                               <div className="text-xs font-medium text-foreground">
                                 Linux Package
@@ -274,19 +260,19 @@ export function UpstreamUpdateHubModal({
                               </div>
                             </div>
                           </div>
-                          <ArrowDownToLineIcon className="h-4 w-4 text-sky-400" />
+                          <ArrowDownToLineIcon className="h-4 w-4 text-muted-foreground" />
                         </a>
                       )}
 
                       {windows && (
                         <a
-                          className="flex items-center justify-between rounded-lg border border-border/60 bg-card/60 p-2.5 transition-colors hover:border-sky-500/50 hover:bg-sky-950/30"
+                          className="flex items-center justify-between rounded-lg border border-border/60 bg-card/60 p-2.5 transition-colors hover:border-foreground/20 hover:bg-muted/40"
                           href={windows.downloadUrl}
                           rel="noreferrer"
                           target="_blank"
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-base">🪟</span>
+                            <MonitorIcon className="size-4 text-muted-foreground" />
                             <div>
                               <div className="text-xs font-medium text-foreground">
                                 Windows Setup
@@ -296,7 +282,7 @@ export function UpstreamUpdateHubModal({
                               </div>
                             </div>
                           </div>
-                          <ArrowDownToLineIcon className="h-4 w-4 text-sky-400" />
+                          <ArrowDownToLineIcon className="h-4 w-4 text-muted-foreground" />
                         </a>
                       )}
                     </div>
@@ -333,7 +319,7 @@ export function UpstreamUpdateHubModal({
             <div className="space-y-2">
               <div className="text-xs text-muted-foreground pb-1">
                 Recent pull requests and code merged to{" "}
-                <span className="font-mono text-sky-400">main</span>:
+                <span className="font-mono text-foreground">main</span>:
               </div>
               {status.recentCommits.length === 0 && (
                 <p className="py-4 text-xs text-muted-foreground">
@@ -344,7 +330,7 @@ export function UpstreamUpdateHubModal({
               )}
               {status.recentCommits.map((commit) => (
                 <a
-                  className="flex items-start justify-between gap-3 rounded-xl border border-border/40 bg-card/40 p-3 transition-colors hover:border-sky-500/40 hover:bg-sky-950/20"
+                  className="flex items-start justify-between gap-3 rounded-xl border border-border/40 bg-card/40 p-3 transition-colors hover:border-foreground/20 hover:bg-muted/40"
                   href={commit.htmlUrl}
                   key={commit.sha}
                   rel="noreferrer"
@@ -371,7 +357,7 @@ export function UpstreamUpdateHubModal({
                         <span>•</span>
                         <span>{formatDate(commit.date)}</span>
                         {commit.prNumber && (
-                          <span className="font-mono text-sky-400">#{commit.prNumber}</span>
+                          <span className="font-mono text-foreground">#{commit.prNumber}</span>
                         )}
                       </div>
                     </div>

@@ -35,10 +35,10 @@ export function UpstreamUpdatePill({ className }: { className?: string }) {
               {hasNew ? (
                 <>
                   <span className="relative flex size-2">
-                    <span className="relative inline-flex size-2 rounded-full bg-amber-500" />
+                    <span className="relative inline-flex size-2 rounded-full bg-warning" />
                   </span>
-                  <span className="font-semibold text-amber-400">Upstream {version}</span>
-                  <span className="rounded bg-amber-500/20 px-1 py-0.2 text-[9px] font-bold text-amber-300">
+                  <span className="font-semibold text-warning-foreground">Upstream {version}</span>
+                  <span className="rounded bg-warning/16 px-1 text-[9px] font-semibold text-warning-foreground">
                     NEW
                   </span>
                 </>

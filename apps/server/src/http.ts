@@ -1,10 +1,12 @@
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=3m; seat=claude-code; date=2026-10-12 */
 import Mime from "@effect/platform-node/Mime";
 import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   EnvironmentHttpApi,
 } from "@t3tools/contracts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { isDevProxiedPath } from "@t3tools/shared/devProxy";
 import { decodeOtlpTraceRecords } from "@t3tools/shared/observability";
 import * as Data from "effect/Data";
@@ -50,6 +52,11 @@ import {
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as PrismBridge from "./prismBridge.ts";
 import * as UpstreamMonitor from "./upstreamMonitor.ts";
+import {
+  NightlyInstallError,
+  parseNightlyInstallRequest,
+  runNightlyInstall,
+} from "./upstreamNightly.ts";
 import { browserApiCorsAllowedHeaders, browserApiCorsAllowedMethods } from "./httpCors.ts";
 
 const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
@@ -686,8 +693,41 @@ export const upstreamRouteLayer = HttpRouter.add(
       }),
     ),
   ),
+  Layer.merge(
+    HttpRouter.add(
+      "POST",
+      "/api/upstream/nightly/install",
+      Effect.gen(function* () {
+        yield* authenticateRawRouteWithScope(AuthOrchestrationOperateScope);
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const body = yield* request.json.pipe(Effect.option);
+        const input = parseNightlyInstallRequest(Option.getOrUndefined(body));
+        if (input === null) {
+          return yield* HttpServerResponse.json(
+            { error: 'Expected {"tag"?: "<nightly tag>", "seed"?: boolean}.' },
+            { status: 400 },
+          ).pipe(Effect.orDie);
+        }
+        const platform = yield* HostProcessPlatform;
+        const outcome = yield* Effect.promise(() =>
+          runNightlyInstall({ request: input, platform }).then(
+            (result) => ({ status: 200 as const, body: result }),
+            (error: unknown) =>
+              error instanceof NightlyInstallError
+                ? {
+                    status: error.status,
+                    body: { error: error.message, detail: error.detail },
+                  }
+                : { status: 500 as const, body: { error: "The Nightly install failed." } },
+          ),
+        );
+        return yield* HttpServerResponse.json(outcome.body, { status: outcome.status }).pipe(
+          Effect.orDie,
+        );
+      }),
+    ),
+  ),
 );
-
 
 export const staticAndDevRouteLayer = Layer.unwrap(
   loadImmutableBuildAssets.pipe(
