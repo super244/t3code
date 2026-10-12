@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-10 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=85m; seat=claude-code; date=2026-10-04 */
@@ -408,7 +409,7 @@ export function RaceComposer() {
             <div
               // Rows are positional: slot N becomes entrant N on the board.
               key={`slot-${index + 1}`}
-              className="grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)_minmax(0,1fr)_2rem] items-center gap-2"
+              className="grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)_2rem] items-center gap-x-2 gap-y-2 min-[480px]:grid-cols-[1.5rem_minmax(0,1fr)_minmax(0,1fr)_2rem]"
             >
               <span
                 aria-hidden
@@ -416,45 +417,50 @@ export function RaceComposer() {
               >
                 {index + 1}
               </span>
-              <RaceSelect
-                ariaLabel={`Entrant ${index + 1} provider`}
-                value={entrant.instanceId}
-                options={[
-                  ...(provider ? [] : [{ value: entrant.instanceId, label: "Unavailable" }]),
-                  ...providers.map((item) => {
-                    const Icon = PROVIDER_ICON_BY_PROVIDER[item.driver];
-                    return {
-                      value: item.instanceId,
-                      label: raceProviderLabel(item),
-                      icon: Icon ? <Icon className="size-3.5" /> : undefined,
-                    };
-                  }),
-                ]}
-                onChange={(value) => {
-                  const next = providers.find((item) => item.instanceId === value);
-                  if (!next) return;
-                  updateEntrant(index, {
-                    instanceId: next.instanceId,
-                    model:
-                      (next.models.find((model) => model.isDefault) ?? next.models[0])?.slug ?? "",
-                  });
-                }}
-              />
-              <RaceSelect
-                ariaLabel={`Entrant ${index + 1} model`}
-                value={entrant.model}
-                disabled={!provider}
-                options={[
-                  ...(provider?.models.some((model) => model.slug === entrant.model)
-                    ? []
-                    : [{ value: entrant.model, label: "Choose a model" }]),
-                  ...(provider?.models.map((model) => ({
-                    value: model.slug,
-                    label: getTriggerDisplayModelLabel(model),
-                  })) ?? []),
-                ]}
-                onChange={(value) => updateEntrant(index, { ...entrant, model: value })}
-              />
+              {/* Phones stack provider over model so neither name truncates; wider
+                  screens lay them side by side in the same row. */}
+              <div className="flex min-w-0 flex-col gap-2 min-[480px]:contents">
+                <RaceSelect
+                  ariaLabel={`Entrant ${index + 1} provider`}
+                  value={entrant.instanceId}
+                  options={[
+                    ...(provider ? [] : [{ value: entrant.instanceId, label: "Unavailable" }]),
+                    ...providers.map((item) => {
+                      const Icon = PROVIDER_ICON_BY_PROVIDER[item.driver];
+                      return {
+                        value: item.instanceId,
+                        label: raceProviderLabel(item),
+                        icon: Icon ? <Icon className="size-3.5" /> : undefined,
+                      };
+                    }),
+                  ]}
+                  onChange={(value) => {
+                    const next = providers.find((item) => item.instanceId === value);
+                    if (!next) return;
+                    updateEntrant(index, {
+                      instanceId: next.instanceId,
+                      model:
+                        (next.models.find((model) => model.isDefault) ?? next.models[0])?.slug ??
+                        "",
+                    });
+                  }}
+                />
+                <RaceSelect
+                  ariaLabel={`Entrant ${index + 1} model`}
+                  value={entrant.model}
+                  disabled={!provider}
+                  options={[
+                    ...(provider?.models.some((model) => model.slug === entrant.model)
+                      ? []
+                      : [{ value: entrant.model, label: "Choose a model" }]),
+                    ...(provider?.models.map((model) => ({
+                      value: model.slug,
+                      label: getTriggerDisplayModelLabel(model),
+                    })) ?? []),
+                  ]}
+                  onChange={(value) => updateEntrant(index, { ...entrant, model: value })}
+                />
+              </div>
               <Button
                 type="button"
                 size="icon-sm"
@@ -497,9 +503,11 @@ export function RaceComposer() {
         ) : null}
       </fieldset>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4">
+      <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t border-border/70 pt-4">
+        {/* The reason sits beside the action it explains, so a disabled button
+            is never a mystery. Disabled uses the neutral token, not a faded accent. */}
         <p
-          className="min-w-0 flex-1 text-xs text-muted-foreground"
+          className="min-w-0 flex-1 text-xs text-muted-foreground sm:flex-none sm:text-right"
           aria-live="polite"
           role="status"
         >
@@ -509,7 +517,11 @@ export function RaceComposer() {
               ? `Each entrant works in its own worktree from ${baseBranch}.`
               : validation.reason}
         </p>
-        <Button type="submit" disabled={busy || !validation.ok}>
+        <Button
+          type="submit"
+          disabled={busy || !validation.ok}
+          className="disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
+        >
           <FlagIcon />
           {busy ? "Starting…" : `Start race · ${entrants.length}`}
         </Button>

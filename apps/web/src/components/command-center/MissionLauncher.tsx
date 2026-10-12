@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 */
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { type ModelSelection } from "@t3tools/contracts";
@@ -99,7 +100,7 @@ export function MissionLauncher({
     >
       <DialogPopup>
         <DialogHeader>
-          <DialogTitle>New mission</DialogTitle>
+          <DialogTitle>New task</DialogTitle>
           <DialogDescription>
             Choose where to work and which subscription to use. Review the draft before sending.
           </DialogDescription>

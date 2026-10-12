@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-12 */
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { ExternalLinkIcon, GitPullRequestIcon } from "lucide-react";
 
@@ -18,7 +19,7 @@ export function PullRequestsUnavailableState({
   refreshing = false,
   gitHubUrl,
 }: {
-  title?: string;
+  title?: string | undefined;
   error: string;
   onRetry?: () => void;
   refreshing?: boolean;

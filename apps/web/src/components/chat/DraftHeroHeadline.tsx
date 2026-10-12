@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 import type { DraftId } from "~/composerDraftStore";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import type { ScopedProjectRef } from "@t3tools/contracts";
@@ -28,6 +29,16 @@ import {
 } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
+/**
+ * First-run prompts. Each chip only fills the composer; nothing is sent until the user does.
+ * Kept generic so they describe what the composer can do, not a project's own history.
+ */
+const EXAMPLE_PROMPTS = [
+  "Explain how this project is laid out",
+  "Find the failing test and propose a fix",
+  "Review my uncommitted changes",
+] as const;
+
 interface DraftHeroHeadlineProps {
   readonly draftId: DraftId | null;
   readonly activeProjectRef: ScopedProjectRef | null;
@@ -45,6 +56,7 @@ export function DraftHeroHeadline({
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projectSortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
+  const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const setLogicalProjectDraftThreadId = useComposerDraftStore(
     (store) => store.setLogicalProjectDraftThreadId,
   );
@@ -52,6 +64,18 @@ export function DraftHeroHeadline({
   const applyStickyState = useComposerDraftStore((store) => store.applyStickyState);
   const setModelSelection = useComposerDraftStore((store) => store.setModelSelection);
   const openAddProject = useCallback(() => openCommandPalette({ open: "add-project" }), []);
+  // Appends on a new line when the composer already has text, so a chip never replaces a draft.
+  const fillComposerWithExample = useCallback(
+    (example: string) => {
+      if (draftId === null) return;
+      const currentPrompt = getComposerDraft(draftId)?.prompt ?? "";
+      setComposerDraftPrompt(
+        draftId,
+        currentPrompt.trim() ? `${currentPrompt.trimEnd()}\n${example}` : example,
+      );
+    },
+    [draftId, getComposerDraft, setComposerDraftPrompt],
+  );
 
   const environmentLabelById = useMemo(
     () =>
@@ -201,15 +225,37 @@ export function DraftHeroHeadline({
     </button>
   );
 
+  const showExamplePrompts = hasResolvedProject && draftId !== null;
+
   return (
-    <h1 className="mx-auto w-full max-w-5xl text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl">
-      {hasResolvedProject ? (
-        <>What should we build in {projectSelector}?</>
-      ) : canChooseProject ? (
-        <>{projectSelector} to start</>
-      ) : (
-        <>Add a project to start</>
-      )}
-    </h1>
+    <>
+      <h1 className="mx-auto w-full max-w-5xl text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl">
+        {hasResolvedProject ? (
+          <>What should we build in {projectSelector}?</>
+        ) : canChooseProject ? (
+          <>{projectSelector} to start</>
+        ) : (
+          <>Add a project to start</>
+        )}
+      </h1>
+      {showExamplePrompts ? (
+        <ul
+          aria-label="Example prompts"
+          className="pointer-events-auto mx-auto mt-3 flex max-w-3xl flex-wrap justify-center gap-1.5"
+        >
+          {EXAMPLE_PROMPTS.map((example) => (
+            <li key={example}>
+              <button
+                type="button"
+                onClick={() => fillComposerWithExample(example)}
+                className="rounded-full border border-border/80 bg-card/70 px-2.5 py-1 text-left text-[13px] text-muted-foreground transition-colors hover:border-foreground/25 hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {example}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
   );
 }

@@ -1,6 +1,12 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-12 */
 import { describe, expect, it } from "vite-plus/test";
+import { parseRoutineTemplate } from "@t3tools/client-runtime/routines";
 
-import { routineScheduleLabel, routineSchedulePreset } from "./routinePresets";
+import {
+  ROUTINE_EXAMPLE_TEMPLATE,
+  routineScheduleLabel,
+  routineSchedulePreset,
+} from "./routinePresets";
 
 describe("routine schedule presets", () => {
   it("renders common schedules in plain language", () => {
@@ -10,5 +16,15 @@ describe("routine schedule presets", () => {
   it("keeps uncommon cron expressions editable as custom schedules", () => {
     expect(routineSchedulePreset("15 4 * * 2")).toBe("custom");
     expect(routineScheduleLabel("15 4 * * 2")).toBe("15 4 * * 2");
+  });
+});
+
+describe("example routine", () => {
+  it("is a valid template the import path accepts", () => {
+    const template = parseRoutineTemplate(
+      JSON.stringify({ ...ROUTINE_EXAMPLE_TEMPLATE, timeZone: "UTC" }),
+    );
+    expect(template.name).toBe("Morning triage");
+    expect(template.runtimeMode).toBe("approval-required");
   });
 });

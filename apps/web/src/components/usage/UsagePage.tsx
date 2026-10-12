@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-02 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
@@ -19,12 +20,11 @@ import {
 import {
   CircleAlertIcon,
   ChevronDownIcon,
-  CircleDashedIcon,
   DownloadIcon,
   SearchIcon,
   SlidersHorizontalIcon,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   isCompatibleUsageContractVersion,
@@ -64,6 +64,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SidebarInset } from "../ui/sidebar";
 import { Skeleton } from "../ui/skeleton";
+import { Spinner } from "../ui/spinner";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import {
   WorkspaceBreadcrumb,
@@ -85,6 +86,13 @@ import {
   usageKindForDriver,
 } from "./usageProviders";
 import { readUsagePagePreferences, saveUsagePagePreferences } from "./usagePagePreferences";
+import {
+  formatSnapshotAge,
+  readUsageSnapshot,
+  usageSnapshotKey,
+  writeUsageSnapshot,
+  type UsageSnapshot,
+} from "./usageSnapshot";
 import {
   makeUsageWindow,
   USAGE_WINDOW_OPTIONS,
@@ -125,6 +133,37 @@ export function UsagePage() {
     selectedEnvironmentIds,
     selectedProvider,
   );
+  const snapshotKey = usageSnapshotKey({
+    windowPreset,
+    provider: selectedProvider,
+    environmentIds: selectedEnvironments.map((environment) => environment.environmentId),
+  });
+  // Only read while nothing has answered: the snapshot stands in for the
+  // first paint and is labelled "last read" until the live totals arrive.
+  const lastKnown = useMemo(
+    () => (isPending ? readUsageSnapshot(snapshotKey) : null),
+    [isPending, snapshotKey],
+  );
+  useEffect(() => {
+    if (showingLimits || isPending || isPartial || selectedEnvironments.length === 0) return;
+    if (!selectedEnvironments.some((environment) => environment.summary !== null)) return;
+    writeUsageSnapshot(snapshotKey, {
+      savedAt: Date.now(),
+      costUsd: merged.costUsd,
+      totalTokens: merged.totalTokens,
+      sessions: merged.sessions,
+      cachedInputTokens: merged.cachedInputTokens,
+      uncachedInputTokens: merged.uncachedInputTokens,
+      outputTokens: merged.outputTokens,
+      cacheSavingsUsd: merged.costQuality.cacheSavingsUsd,
+      providers: merged.providers.map((entry) => ({
+        provider: entry.provider,
+        costUsd: entry.costUsd,
+        totalTokens: entry.totalTokens,
+        sessions: entry.sessions,
+      })),
+    });
+  }, [isPending, isPartial, showingLimits, selectedEnvironments, snapshotKey, merged]);
   const projectUsage = useMemo(
     () =>
       mergeUsageProjects(
@@ -439,7 +478,9 @@ export function UsagePage() {
                     variant="outline"
                     className="text-xs font-normal"
                   >
-                    {monthlyBudgetUsd ? `Target: ${formatUsd(monthlyBudgetUsd)}` : "Target"}
+                    {monthlyBudgetUsd
+                      ? `Cost target: ${formatUsd(monthlyBudgetUsd)}`
+                      : "Set cost target"}
                   </Button>
                 }
               />
@@ -459,10 +500,12 @@ export function UsagePage() {
                   <Button
                     aria-label="Export usage report"
                     title="Export usage report"
-                    size="icon-sm"
-                    variant="ghost"
+                    size="compact"
+                    variant="outline"
+                    className="text-xs font-normal"
                   >
-                    <DownloadIcon className="size-3.5" />
+                    <DownloadIcon className="size-3.5" aria-hidden />
+                    Export
                   </Button>
                 }
               />
@@ -542,7 +585,7 @@ export function UsagePage() {
                     variant="outline"
                     className="text-xs font-normal"
                   >
-                    {monthlyBudgetUsd ? `Target: ${formatUsd(monthlyBudgetUsd)}` : "Target"}
+                    {monthlyBudgetUsd ? formatUsd(monthlyBudgetUsd) : "Target"}
                   </Button>
                 }
               />
@@ -598,7 +641,11 @@ export function UsagePage() {
             ) : showingLimits ? (
               <UsageLimitsSection selectedEnvironmentIds={selectedEnvironmentIds} />
             ) : isPending ? (
-              <UsageSkeleton />
+              <UsageLoadingState
+                environmentCount={selectedEnvironments.length}
+                metric={metric}
+                snapshot={lastKnown}
+              />
             ) : (
               <>
                 <section className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
@@ -1225,10 +1272,15 @@ function UsageEnvironmentFilter({
       <Menu>
         <MenuTrigger className="group/usage-environment inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">
           <span className="min-w-0 truncate">{label}</span>
+          {showUsageStatus && pendingCount > 0 ? (
+            <span className="shrink-0 whitespace-nowrap text-xs font-normal text-muted-foreground">
+              {isPartial ? "Partial totals" : "Reading"}
+            </span>
+          ) : null}
           <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
             {showUsageStatus && pendingCount > 0 ? (
               <>
-                <CircleDashedIcon className="size-3.5" aria-hidden />
+                <Spinner className="size-3" aria-hidden />
                 <span className="sr-only">
                   {pendingCount} {pendingCount === 1 ? "environment" : "environments"} still
                   scanning
@@ -1338,32 +1390,109 @@ function UsageEnvironmentFilter({
 }
 
 /**
- * Stand-in with the loaded page's shape, using the shared `Skeleton` bars so it
- * breathes with the same `animate-skeleton` pulse as every other loading state.
- * Replaced by results as soon as the first environment answers.
+ * First paint while no selected environment has answered. The page keeps its
+ * shape: a caption says what is being read, the headline and totals hold their
+ * places, and the totals this browser last read for the same window fill them
+ * in when they exist, labelled with their age. Charts stay as shaped skeletons
+ * because a snapshot cannot draw them.
  */
-function UsageSkeleton() {
+function UsageLoadingState({
+  environmentCount,
+  metric,
+  snapshot,
+}: {
+  readonly environmentCount: number;
+  readonly metric: UsageMetric;
+  readonly snapshot: UsageSnapshot | null;
+}) {
+  const [renderedAt] = useState(() => Date.now());
+  const environmentLabel = `${environmentCount} ${environmentCount === 1 ? "environment" : "environments"}`;
+  const totals: ReadonlyArray<{ readonly label: string; readonly value: string | null }> = [
+    {
+      label: "Processed tokens",
+      value: snapshot ? formatTokens(snapshot.totalTokens) : null,
+    },
+    { label: "Cached input", value: snapshot ? formatTokens(snapshot.cachedInputTokens) : null },
+    {
+      label: "Uncached input",
+      value: snapshot ? formatTokens(snapshot.uncachedInputTokens) : null,
+    },
+    { label: "Output", value: snapshot ? formatTokens(snapshot.outputTokens) : null },
+    { label: "Cache savings", value: snapshot ? formatUsd(snapshot.cacheSavingsUsd) : null },
+  ];
+
   return (
     <>
+      <p
+        role="status"
+        className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
+      >
+        <Spinner className="size-3" aria-hidden />
+        <span>{`Reading usage from ${environmentLabel}…`}</span>
+        {snapshot ? (
+          <span className="tabular-nums">
+            · Showing last read {formatSnapshotAge(snapshot.savedAt, renderedAt)}
+          </span>
+        ) : null}
+      </p>
+
       <section className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
-        <div className="flex flex-col gap-5">
+        <div className="flex min-w-0 flex-col gap-5">
           <div className="flex flex-col gap-1">
-            <Skeleton className="h-10 w-36" />
-            <Skeleton className="h-4 w-32" />
+            {snapshot ? (
+              <span className="text-4xl font-semibold text-foreground tabular-nums">
+                {metric === "cost"
+                  ? formatUsd(snapshot.costUsd)
+                  : formatTokens(snapshot.totalTokens)}
+              </span>
+            ) : (
+              <Skeleton className="h-10 w-36" />
+            )}
+            {snapshot ? (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {formatCount(snapshot.sessions)} sessions
+              </span>
+            ) : (
+              <Skeleton className="h-4 w-32" />
+            )}
           </div>
-          {PROVIDER_ORDER.map((provider) => (
-            <div key={provider} className="flex flex-col gap-1">
-              <div className="flex min-h-5 items-center justify-between gap-4">
-                <span className="flex items-center gap-2">
-                  <Skeleton className="size-2 shrink-0 rounded-full" />
-                  <Skeleton className="size-4 shrink-0 rounded-full" />
-                  <Skeleton className="h-3.5 w-20" />
-                </span>
-                <Skeleton className="h-3.5 w-14" />
-              </div>
-              <Skeleton className="h-4 w-36" />
-            </div>
-          ))}
+
+          {snapshot
+            ? snapshot.providers.map((provider) => (
+                <div key={provider.provider} className="flex flex-col gap-1">
+                  <div className="flex items-baseline justify-between gap-4">
+                    <span className="flex min-w-0 items-center gap-2 text-sm text-foreground">
+                      <span
+                        aria-hidden
+                        className="size-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: PROVIDER_PRESENTATION[provider.provider].color }}
+                      />
+                      <ProviderMark provider={provider.provider} className="size-4" />
+                      <span className="whitespace-nowrap">
+                        {PROVIDER_PRESENTATION[provider.provider].label}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-sm font-medium text-foreground tabular-nums">
+                      {metric === "cost"
+                        ? formatUsd(provider.costUsd)
+                        : formatTokens(provider.totalTokens)}
+                    </span>
+                  </div>
+                </div>
+              ))
+            : PROVIDER_ORDER.map((provider) => (
+                <div key={provider} className="flex flex-col gap-1">
+                  <div className="flex min-h-5 items-center justify-between gap-4">
+                    <span className="flex items-center gap-2">
+                      <Skeleton className="size-2 shrink-0 rounded-full" />
+                      <Skeleton className="size-4 shrink-0 rounded-full" />
+                      <Skeleton className="h-3.5 w-20" />
+                    </span>
+                    <Skeleton className="h-3.5 w-14" />
+                  </div>
+                  <Skeleton className="h-4 w-36" />
+                </div>
+              ))}
         </div>
 
         <div className="flex flex-col gap-3">
@@ -1375,21 +1504,23 @@ function UsageSkeleton() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-2">
+      <section className="mt-8 flex flex-col gap-2">
         <h2 className="text-sm font-medium text-foreground">Totals</h2>
         <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
-          {["Processed tokens", "Cached input", "Uncached input", "Output", "Cache savings"].map(
-            (label) => (
-              <div key={label} className="flex flex-col gap-0.5">
-                <span className="text-xs text-muted-foreground">{label}</span>
+          {totals.map(({ label, value }) => (
+            <div key={label} className="flex flex-col gap-0.5">
+              <span className="text-xs text-muted-foreground">{label}</span>
+              {value === null ? (
                 <Skeleton className="h-6 w-16" />
-              </div>
-            ),
-          )}
+              ) : (
+                <span className="text-base font-medium text-foreground tabular-nums">{value}</span>
+              )}
+            </div>
+          ))}
         </div>
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section className="mt-8 flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-medium text-foreground">Breakdown</h2>
           <Skeleton className="h-7 w-28 rounded-lg" />

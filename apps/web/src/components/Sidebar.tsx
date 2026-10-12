@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 /* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
@@ -5303,6 +5304,19 @@ export default function Sidebar() {
                             );
                             break;
                           case "settled-header":
+                            // An empty Settled shelf has nothing to fold, so its marker keeps the
+                            // place for the drop target but takes no height and draws no label.
+                            if (settledThreads.length === 0) {
+                              items.push(
+                                <SortableSidebarMarker
+                                  key="settled-shelf-header"
+                                  marker="settled-header"
+                                  data-testid="sidebar-settled-header"
+                                  className="relative mx-0.5 -mb-px h-0"
+                                />,
+                              );
+                              break;
+                            }
                             items.push(
                               <SidebarSectionHeader
                                 key="settled-shelf-header"

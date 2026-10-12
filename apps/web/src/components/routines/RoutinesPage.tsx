@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-11 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-10 */
@@ -82,7 +83,7 @@ import {
   routineConfigurationIssue,
   routineListSubtitle,
 } from "./routinePresentation";
-import { routineSchedulePreset } from "./routinePresets";
+import { ROUTINE_EXAMPLE_TEMPLATE, routineSchedulePreset } from "./routinePresets";
 import { RoutineRunHistory } from "./RoutineRunHistory";
 
 const EMPTY_ENVIRONMENT_ID = EnvironmentId.make("routines-unavailable");
@@ -1101,9 +1102,52 @@ export function RoutinesPage() {
                           Run a prompt on a schedule
                         </p>
                         <p className="max-w-sm text-sm text-muted-foreground">
-                          A routine starts a thread on this environment at the times you set — a
-                          nightly review, a morning triage. Start with New routine or import a
-                          template.
+                          A routine starts a thread on this environment at the times you set, such
+                          as a nightly review or a morning triage.
+                        </p>
+                        <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                          <Button
+                            size="sm"
+                            disabled={
+                              saving || routineAction !== null || !connected || freshDraft === null
+                            }
+                            onClick={() =>
+                              leaveDraft(() => {
+                                setEditingId(null);
+                                setBaseline(null);
+                                setDraft(freshDraft);
+                              })
+                            }
+                          >
+                            <PlusIcon /> New routine
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={
+                              saving || routineAction !== null || !connected || freshDraft === null
+                            }
+                            onClick={() => {
+                              if (!freshDraft) return;
+                              const example = importRoutineTemplate(
+                                JSON.stringify({
+                                  ...ROUTINE_EXAMPLE_TEMPLATE,
+                                  timeZone: freshDraft.timeZone,
+                                }),
+                                freshDraft,
+                              );
+                              leaveDraft(() => {
+                                setEditingId(null);
+                                setBaseline(null);
+                                setDraft(example);
+                              });
+                            }}
+                          >
+                            Use example: {ROUTINE_EXAMPLE_TEMPLATE.name}
+                          </Button>
+                        </div>
+                        <p className="max-w-sm text-xs text-muted-foreground">
+                          The example opens paused. Review it before you enable it.
                         </p>
                       </>
                     ) : (

@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=17m; seat=claude-code; date=2026-10-12 */
 import type { UsageProviderKind } from "@t3tools/contracts";
 import { formatPercent, formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import type { ProjectUsageSummary } from "@t3tools/shared/usageProjects";
@@ -5,6 +6,7 @@ import type { ProjectUsageSummary } from "@t3tools/shared/usageProjects";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
 
 /**
@@ -61,28 +63,32 @@ export function UsageProjectBreakdown({
                   aria-expanded={canExpand ? open : undefined}
                 >
                   <td className="py-2 text-foreground">
-                    <span
-                      className="flex min-w-0 items-center gap-2"
-                      title={project.projectPath ?? undefined}
-                    >
-                      <span className="flex shrink-0 gap-0.5">
-                        {project.providers.map((provider: UsageProviderKind) => {
-                          const Mark = PROVIDER_PRESENTATION[provider].mark;
-                          return <Mark key={provider} className="size-3.5 shrink-0" aria-hidden />;
-                        })}
-                      </span>
-                      <span
-                        className={cn(
-                          "truncate",
-                          project.projectPath === null && "text-muted-foreground",
-                        )}
-                      >
-                        {project.name}
-                      </span>
-                      <span className="ml-1 shrink-0 text-xs text-muted-foreground tabular-nums">
-                        {project.sessions} {project.sessions === 1 ? "session" : "sessions"}
-                      </span>
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger render={<span className="flex min-w-0 items-center gap-2" />}>
+                        <span className="flex shrink-0 gap-0.5">
+                          {project.providers.map((provider: UsageProviderKind) => {
+                            const Mark = PROVIDER_PRESENTATION[provider].mark;
+                            return (
+                              <Mark key={provider} className="size-3.5 shrink-0" aria-hidden />
+                            );
+                          })}
+                        </span>
+                        <span
+                          className={cn(
+                            "truncate",
+                            project.projectPath === null && "text-muted-foreground",
+                          )}
+                        >
+                          {project.name}
+                        </span>
+                        <span className="ml-1 shrink-0 text-xs text-muted-foreground tabular-nums">
+                          {project.sessions} {project.sessions === 1 ? "session" : "sessions"}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipPopup>
+                        {project.projectPath ?? "Project path not recorded"}
+                      </TooltipPopup>
+                    </Tooltip>
                   </td>
                   <td className="py-2 text-right text-foreground tabular-nums">
                     {formatUsd(project.costUsd)}

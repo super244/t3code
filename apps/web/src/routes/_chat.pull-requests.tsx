@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=29m; seat=claude-code; date=2026-10-12 */
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Spinner } from "~/components/ui/spinner";
 import { pullRequestHostOf, resolveEnvironmentMachineKind } from "@t3tools/contracts";
@@ -368,6 +369,20 @@ function PullRequestsRouteView() {
     () => findScopedProject(projects, scopedEnvironmentId, scopedProjectId),
     [projects, scopedEnvironmentId, scopedProjectId],
   );
+  // The repositories this list is read from: the GitHub remote each project resolves to, which is
+  // not always the upstream (a fork with only origin reads origin). The copy names the repository
+  // and never calls it upstream. A scoped project narrows it to the one repository it names.
+  const readRepositories = useMemo(() => {
+    const labels = new Set<string>();
+    for (const project of scopedProject !== undefined ? [scopedProject] : projects) {
+      const identity = project.repositoryIdentity;
+      if (identity?.owner && identity.name) labels.add(`${identity.owner}/${identity.name}`);
+    }
+    return [...labels];
+  }, [projects, scopedProject]);
+  const readLabel = readRepositories.length === 1 ? readRepositories[0]! : null;
+  const readScope =
+    readLabel ?? (readRepositories.length > 1 ? `${readRepositories.length} repositories` : null);
   const scopedProjects = useMemo(
     () => pullRequestFilterProjects(projects, environmentLabels, scopedProject),
     [environmentLabels, projects, scopedProject],
@@ -1605,6 +1620,13 @@ function PullRequestsRouteView() {
     showingCarried && listQuery.isPending && entries.length === 0 && typedQuery.length === 0;
   const listBody = (
     <>
+      {readRepositories.length > 0 ? (
+        <p className="px-3 pb-2 text-xs text-muted-foreground">
+          {readLabel !== null
+            ? `Reading pull requests from ${readLabel}.`
+            : `Reading pull requests from ${readRepositories.length} repositories.`}
+        </p>
+      ) : null}
       {!capabilityKnown ? (
         <PullRequestListGhost rows={7} />
       ) : !pullRequestsSupported ? (
@@ -1613,9 +1635,17 @@ function PullRequestsRouteView() {
           error="Update your T3 Code servers to browse pull requests."
         />
       ) : firstLoad ? (
-        <PullRequestListGhost rows={7} />
+        <PullRequestListGhost
+          rows={6}
+          caption={
+            readScope !== null
+              ? `Loading pull requests from ${readScope}…`
+              : "Loading pull requests…"
+          }
+        />
       ) : listQuery.error && entries.length === 0 ? (
         <PullRequestsUnavailableState
+          title={readLabel !== null ? `Could not load pull requests from ${readLabel}` : undefined}
           error={listQuery.error}
           refreshing={listQuery.isPending}
           onRetry={() => listQuery.refresh()}
@@ -1625,6 +1655,7 @@ function PullRequestsRouteView() {
       ) : entries.length === 0 ? (
         <PullRequestListEmptyState
           hasProjects={!projectsKnown || projects.length > 0}
+          repositoryLabel={readLabel ?? undefined}
           refreshing={refreshing}
           onRefresh={() => void refreshFromHost()}
           query={typedQuery}

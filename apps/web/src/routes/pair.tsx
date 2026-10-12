@@ -1,22 +1,57 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 
+import { APP_DISPLAY_NAME } from "../branding";
 import {
   HostedPairingRouteSurface,
   PairingPendingSurface,
   PairingRouteSurface,
 } from "../components/auth/PairingRouteSurface";
+import { Button } from "../components/ui/button";
+
+// The gate reports a rejected credential as this message; it is the only signal that a
+// pairing link was already used or has expired.
+const REJECTED_PAIRING_MESSAGE = /^Invalid pairing token/i;
+
+// The router runs the pair route's beforeLoad twice for one link: once with the token and
+// once after the root route has stripped it from the address bar. The second run carries no
+// error message and can land in a different module instance, so the rejection is kept in
+// session storage for the render. It is cleared when the user asks for the token form again.
+const LINK_REJECTED_KEY = "t3code:pairing-link-rejected";
+
+function readLinkRejected(): boolean {
+  try {
+    return window.sessionStorage.getItem(LINK_REJECTED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeLinkRejected(rejected: boolean): void {
+  try {
+    if (rejected) {
+      window.sessionStorage.setItem(LINK_REJECTED_KEY, "1");
+    } else {
+      window.sessionStorage.removeItem(LINK_REJECTED_KEY);
+    }
+  } catch {
+    // Storage can be blocked; the card then falls back to the gate's own message.
+  }
+}
 
 export const Route = createFileRoute("/pair")({
-  beforeLoad: async ({ context }) => {
+  beforeLoad: async ({ context, location }) => {
     const { authGateState } = context;
-    if (authGateState.status === "hosted-pairing") {
-      return {
-        authGateState,
-      };
+    if (authGateState.status === "authenticated" || authGateState.status === "hosted-static") {
+      writeLinkRejected(false);
+      throw redirect({ to: "/", replace: true });
     }
 
-    if (authGateState.status === "authenticated" || authGateState.status === "hosted-static") {
-      throw redirect({ to: "/", replace: true });
+    // The router location still carries the hash the link arrived with.
+    const arrivedWithToken = new URLSearchParams(location.hash).has("token");
+    if (arrivedWithToken && authGateState.status === "requires-auth") {
+      writeLinkRejected(true);
     }
     return {
       authGateState,
@@ -29,6 +64,7 @@ export const Route = createFileRoute("/pair")({
 function PairRouteView() {
   const { authGateState } = Route.useRouteContext();
   const navigate = useNavigate();
+  const [retrying, setRetrying] = useState(false);
 
   if (!authGateState) {
     return null;
@@ -36,6 +72,21 @@ function PairRouteView() {
 
   if (authGateState.status === "hosted-pairing") {
     return <HostedPairingRouteSurface />;
+  }
+
+  // A link that arrived with a token but still leaves this browser signed out did not work:
+  // the token was already used, or it expired.
+  const linkRejected =
+    REJECTED_PAIRING_MESSAGE.test(authGateState.errorMessage ?? "") || readLinkRejected();
+  if (!retrying && linkRejected) {
+    return (
+      <ExpiredPairingLinkCard
+        onRetry={() => {
+          writeLinkRejected(false);
+          setRetrying(true);
+        }}
+      />
+    );
   }
 
   return (
@@ -51,4 +102,81 @@ function PairRouteView() {
 
 function PairRoutePendingView() {
   return <PairingPendingSurface />;
+}
+
+const PAIR_COMMAND = "npx t3 pair";
+
+/**
+ * Shown when the link's token was already used or has expired. Explains why, gives the one
+ * command that mints a fresh link, and offers a retry that opens the token form again.
+ */
+function ExpiredPairingLinkCard({ onRetry }: { readonly onRetry: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  const copyCommand = () => {
+    void navigator.clipboard
+      .writeText(PAIR_COMMAND)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => setCopied(false));
+  };
+
+  return (
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">
+      <div className="pointer-events-none absolute inset-0 opacity-80">
+        <div className="absolute inset-x-0 top-0 h-44 bg-[radial-gradient(44rem_16rem_at_top,color-mix(in_srgb,var(--color-amber-500)_12%,transparent),transparent)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(145deg,color-mix(in_srgb,var(--background)_90%,var(--color-black))_0%,var(--background)_55%)]" />
+      </div>
+
+      <section
+        role="alert"
+        className="relative w-full max-w-xl rounded-2xl border border-border/80 bg-card/90 p-6 shadow-2xl shadow-black/20 backdrop-blur-md sm:p-8"
+      >
+        <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+          {APP_DISPLAY_NAME}
+        </p>
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">
+          This pairing link has expired
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          Pairing links work once and expire after a few minutes. This one was already used or ran
+          out of time, so this browser cannot connect with it.
+        </p>
+
+        <div className="mt-6 space-y-2">
+          <p className="text-sm font-medium">Get a new link</p>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Run this on the computer that hosts T3 Code, then open the link it prints.
+          </p>
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/50 px-3 py-2.5 font-mono text-sm">
+            <span className="min-w-0 truncate">
+              <span className="mr-2 text-muted-foreground">$</span>
+              {PAIR_COMMAND}
+            </span>
+            <Button size="xs" variant="ghost" onClick={copyCommand} aria-live="polite">
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <Button size="sm" onClick={onRetry}>
+            Enter a token instead
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              writeLinkRejected(false);
+              window.location.reload();
+            }}
+          >
+            Reload app
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
 }

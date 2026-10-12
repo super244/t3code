@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-12 */
 /**
  * Loading states specific to the pull request surface — the first list, a search under way,
  * and a detail panel opening — use bars in the geometry of the content they stand for, pulsing
@@ -45,7 +46,7 @@ export function PullRequestListGhost({
       className="motion-safe:animate-skeleton space-y-0.5"
     >
       {caption ? (
-        <p className="px-3 pb-1 text-xs font-medium text-muted-foreground/70">{caption}</p>
+        <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">{caption}</p>
       ) : null}
       {Array.from({ length: rows }, (_, index) => (
         <div

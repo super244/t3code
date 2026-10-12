@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=29m; seat=claude-code; date=2026-10-12 */
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 /**
  * What the list shows when it has no rows to show.
@@ -71,6 +72,7 @@ export function PullRequestListEmptyState({
   filtered,
   searching,
   hasProjects,
+  repositoryLabel,
   canLoadMore,
   loadingMore,
   refreshing,
@@ -89,6 +91,8 @@ export function PullRequestListEmptyState({
    * remotes, so without one there is no host to ask and no filter or search that could help.
    */
   hasProjects: boolean;
+  /** The repository the list is read from, when there is exactly one. */
+  repositoryLabel?: string | undefined;
   canLoadMore: boolean;
   loadingMore: boolean;
   /** A re-read of the hosts is already running, from here or from the header. */
@@ -162,11 +166,15 @@ export function PullRequestListEmptyState({
     <Empty className="py-16">
       <BranchMark joined={false} />
       <EmptyHeader>
-        <EmptyTitle>{filtered ? "Nothing under these filters" : "No pull requests"}</EmptyTitle>
+        <EmptyTitle>
+          {filtered ? "Nothing under these filters" : "No open pull requests"}
+        </EmptyTitle>
         <EmptyDescription>
           {filtered
             ? "Widen the state, involvement or project filter to see more."
-            : "Pull requests from every project in this workspace appear here."}
+            : repositoryLabel !== undefined
+              ? `Open pull requests in ${repositoryLabel} appear here.`
+              : "Pull requests from every project in this workspace appear here."}
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent className="flex-row flex-wrap justify-center gap-2">

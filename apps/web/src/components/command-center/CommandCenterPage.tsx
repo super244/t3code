@@ -1,4 +1,5 @@
 /* agent-watermark: model=opus-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=29m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-10 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=6m; seat=codex; date=2026-10-01 */
@@ -355,7 +356,7 @@ export function CommandCenterPage() {
             </section>
 
             <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,19rem)]">
-              <section className="flex min-w-0 flex-col gap-3">
+              <section className="flex min-h-0 min-w-0 flex-col gap-3">
                 <div className="flex items-center justify-between gap-3">
                   <h2 className="text-sm font-medium">Mission queue</h2>
                   <Link to="/" className="text-xs text-muted-foreground hover:text-foreground">
@@ -447,27 +448,43 @@ export function CommandCenterPage() {
                     })}
                   </div>
                 ) : null}
-                <div className="min-w-0 border-y border-border">
+                <div className="flex min-w-0 flex-1 flex-col border-y border-border">
                   {activeThreads.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center gap-2 px-2 py-12 text-sm text-muted-foreground">
-                      <LayoutDashboardIcon className="size-5 text-icon-muted" />
-                      <span>
-                        {queueSearch.trim() || projectFilter !== "all"
-                          ? "No matching missions."
-                          : queueFilter === "attention"
+                    queueSearch.trim() || projectFilter !== "all" ? (
+                      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-2 py-12 text-sm text-muted-foreground">
+                        <LayoutDashboardIcon className="size-5 text-icon-muted" />
+                        <span>No matching missions.</span>
+                      </div>
+                    ) : queueFilter === "active" ? (
+                      <div className="flex flex-1 flex-col justify-center gap-4 px-4 py-10">
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-sm font-medium text-foreground">
+                            No active missions
+                          </span>
+                          <span className="max-w-prose text-sm text-muted-foreground">
+                            A task is one agent working in one of your projects. Start one here, and
+                            its progress appears in this queue until it settles.
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button size="sm" onClick={() => setLauncherOpen(true)}>
+                            <PlayIcon /> New task
+                          </Button>
+                          <Button size="sm" variant="ghost" render={<Link to="/routines" />}>
+                            Schedule a routine
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-2 py-12 text-sm text-muted-foreground">
+                        <LayoutDashboardIcon className="size-5 text-icon-muted" />
+                        <span>
+                          {queueFilter === "attention"
                             ? "No missions need attention."
-                            : queueFilter === "all"
-                              ? "No missions yet."
-                              : "No active missions."}
-                      </span>
-                      {!queueSearch.trim() &&
-                      projectFilter === "all" &&
-                      queueFilter === "active" ? (
-                        <Button size="sm" variant="outline" onClick={() => setLauncherOpen(true)}>
-                          <PlayIcon /> Start a task
-                        </Button>
-                      ) : null}
-                    </div>
+                            : "No missions yet."}
+                        </span>
+                      </div>
+                    )
                   ) : (
                     activeThreads.map((thread) => {
                       const status = commandCenterThreadStatus(thread);
@@ -662,18 +679,29 @@ export function CommandCenterPage() {
                           <td className="truncate py-2.5 pr-3 text-muted-foreground">
                             {provider.auth.label ?? provider.auth.email ?? provider.auth.status}
                           </td>
-                          <td className="truncate py-2.5 pr-3 font-mono text-xs text-muted-foreground">
-                            {provider.models.find((model) => model.isDefault)?.shortName ??
-                              provider.models.find((model) => model.isDefault)?.name ??
-                              provider.models[0]?.shortName ??
-                              provider.models[0]?.name ??
-                              "—"}
+                          <td className="py-2.5 pr-3">
+                            <span className="block truncate">
+                              {provider.models.find((model) => model.isDefault)?.shortName ??
+                                provider.models.find((model) => model.isDefault)?.name ??
+                                provider.models[0]?.shortName ??
+                                provider.models[0]?.name ??
+                                "—"}
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {provider.models.length === 1
+                                ? "1 model"
+                                : `${provider.models.length} models`}
+                            </span>
                           </td>
                           <td className="py-2.5 pr-3 text-right text-xs tabular-nums text-muted-foreground">
                             <HarnessWeekUsage
                               driver={provider.driver}
                               usageByKind={usageByKind}
-                              pending={usage.isPending}
+                              status={environmentUsageStatus(
+                                usage.environments.find(
+                                  (entry) => entry.environmentId === environment.environmentId,
+                                ),
+                              )}
                             />
                           </td>
                           <td className="py-2.5 text-right">
@@ -775,12 +803,27 @@ export function CommandCenterPage() {
   );
 }
 
+type HarnessUsageStatus = "reading" | "answered" | "unavailable";
+
+/**
+ * A row reads "reading" only while its environment is still scanning. Once it
+ * answers, the cell shows totals; if it fails or never answers, the cell shows a
+ * dash rather than a word that claims something is still happening.
+ */
+function environmentUsageStatus(
+  environment: { readonly summary: unknown; readonly error: string | null } | undefined,
+): HarnessUsageStatus {
+  if (environment?.summary) return "answered";
+  if (environment && environment.error === null) return "reading";
+  return "unavailable";
+}
+
 function HarnessWeekUsage({
   driver,
   usageByKind,
-  pending,
+  status,
 }: {
-  readonly pending: boolean;
+  readonly status: HarnessUsageStatus;
   readonly driver: string;
   readonly usageByKind: ReadonlyMap<
     string,
@@ -788,8 +831,15 @@ function HarnessWeekUsage({
   >;
 }) {
   const kind = usageKindForDriver(driver);
-  if (kind === null) return <span>—</span>;
-  if (pending) return <span>Reading…</span>;
+  if (kind === null || status === "unavailable") return <span>—</span>;
+  if (status === "reading") {
+    return (
+      <>
+        <Skeleton className="ml-auto h-3 w-10" />
+        <span className="sr-only">Reading usage</span>
+      </>
+    );
+  }
   const totals = usageByKind.get(kind);
   if (totals === undefined || (totals.totalTokens === 0 && totals.costUsd === 0)) {
     return <span>No activity</span>;
