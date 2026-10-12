@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-11 */
 import type { KeybindingCommand } from "@t3tools/contracts";
 
 /** Dispatched on `window` to open the overlay from anywhere (palette, menus). */
@@ -46,7 +47,44 @@ export function shortcutGroupFor(command: string): string {
   return GROUPS.find((group) => group.prefixes.includes(prefix))?.id ?? "general";
 }
 
-/** `terminalFocus && !terminalOpen` → "in terminal" style phrasing; raw text when unknown. */
+type WhenNode =
+  | { kind: "id"; name: string }
+  | { kind: "not"; of: WhenNode }
+  | { kind: "and" | "or"; of: WhenNode[] };
+
+/** `a && !(b || c)` → a tree; null when the text is not a condition we can read. */
+function parseWhen(text: string): WhenNode | null {
+  const tokens = text.match(/&&|\|\||!|\(|\)|[A-Za-z_][\w.]*/g) ?? [];
+  if (tokens.join("") !== text.replace(/\s+/g, "")) return null;
+  let at = 0;
+  const list = (kind: "and" | "or", sep: string, next: () => WhenNode | null): WhenNode | null => {
+    const parts: WhenNode[] = [];
+    for (;;) {
+      const part = next();
+      if (!part) return null;
+      parts.push(part);
+      if (tokens[at] !== sep) break;
+      at += 1;
+    }
+    return parts.length === 1 ? parts[0]! : { kind, of: parts };
+  };
+  const unary = (): WhenNode | null => {
+    const token = tokens[at++];
+    if (token === "!") {
+      const of = unary();
+      return of ? { kind: "not", of } : null;
+    }
+    if (token === "(") {
+      const inner = list("or", "||", () => list("and", "&&", unary));
+      return tokens[at++] === ")" ? inner : null;
+    }
+    return token && /^[A-Za-z_]/.test(token) ? { kind: "id", name: token } : null;
+  };
+  const tree = list("or", "||", () => list("and", "&&", unary));
+  return tree && at === tokens.length ? tree : null;
+}
+
+/** `terminalFocus && !terminalOpen` → "in terminal, terminal closed"; raw text when unreadable. */
 export function describeWhen(when: string): string | null {
   const trimmed = when.trim();
   if (!trimmed || trimmed === "true") return null;
@@ -59,26 +97,28 @@ export function describeWhen(when: string): string | null {
     "!previewFocus": "outside preview",
     modelPickerOpen: "in model picker",
   };
-  const humanize = (part: string) => {
-    const negated = part.startsWith("!");
-    const words = part
-      .replace(/^!/, "")
-      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-      .toLowerCase();
-    return negated ? `not ${words}` : words;
+  const words = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+  // Precedence survives as parentheses wherever flattening would change the meaning.
+  const say = (node: WhenNode, parent: WhenNode["kind"] | null): string => {
+    switch (node.kind) {
+      case "id":
+        return phrases[node.name] ?? words(node.name);
+      case "not":
+        if (node.of.kind === "id")
+          return phrases[`!${node.of.name}`] ?? `not ${words(node.of.name)}`;
+        return `not (${say(node.of, null)})`;
+      case "and": {
+        const text = node.of.map((part) => say(part, "and")).join(", ");
+        return parent === "or" ? `(${text})` : text;
+      }
+      case "or": {
+        const text = node.of.map((part) => say(part, "or")).join(" or ");
+        return parent === "and" ? `(${text})` : text;
+      }
+    }
   };
-  const clause = (alt: string) =>
-    alt
-      .split(/\s*&&\s*/)
-      .map((part) => phrases[part.trim()] ?? humanize(part.trim()))
-      .join(", ");
-  // Parentheses carry precedence ("!(a && b)", "a && (b || c)"); flattening them would misread the rule.
-  // Shown as written until a real parse is worth it.
-  if (/[()]/.test(trimmed)) return trimmed;
-  return trimmed
-    .split(/\s*\|\|\s*/)
-    .map(clause)
-    .join(" or ");
+  const tree = parseWhen(trimmed);
+  return tree ? say(tree, null) : trimmed;
 }
 
 /** One resolved binding, already labelled and formatted for the current platform. */

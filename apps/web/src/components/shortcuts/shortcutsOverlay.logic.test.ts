@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-11 */
 import type { KeybindingCommand } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -62,7 +63,16 @@ describe("describeWhen", () => {
     expect(describeWhen("!browserFocus")).toBe("not browser focus");
     expect(describeWhen("terminalOpen || previewFocus")).toBe("terminal open or in preview");
     expect(describeWhen("!(terminalFocus && terminalOpen)")).toBe(
-      "!(terminalFocus && terminalOpen)",
+      "not (in terminal, terminal open)",
     );
+    expect(describeWhen("terminalFocus && (terminalOpen || previewFocus)")).toBe(
+      "in terminal, (terminal open or in preview)",
+    );
+    expect(describeWhen("(terminalFocus && !terminalOpen) || modelPickerOpen")).toBe(
+      "(in terminal, terminal closed) or in model picker",
+    );
+    // Not a condition we can read: shown as written rather than guessed at.
+    expect(describeWhen("terminalFocus && (terminalOpen")).toBe("terminalFocus && (terminalOpen");
+    expect(describeWhen("a == b")).toBe("a == b");
   });
 });
