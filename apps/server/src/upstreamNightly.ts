@@ -16,6 +16,9 @@ import {
 /** The installed upstream Nightly that scripts/nightly-sidecar.py manages. */
 export const NIGHTLY_APP_PATH = "/Applications/T3 Code (Nightly).app";
 const SIDECAR_SCRIPT = NodePath.join("scripts", "nightly-sidecar.py");
+/** The server bundle directory; the desktop build writes BUILD_SOURCE_RECORD here. */
+const NODE_BUILD_DIR = import.meta.dirname;
+const BUILD_SOURCE_RECORD = "build-source.json";
 const INSTALL_TIMEOUT_MS = 30 * 60 * 1000;
 const TAG_PATTERN = /^v?\d+\.\d+\.\d+-nightly\.\d{8}\.\d+$/;
 
@@ -71,21 +74,62 @@ export async function readInstalledNightly(
   );
 }
 
-/** The nearest ancestor that is a T3 Code checkout with the Nightly sidecar script, or null. */
+/** A T3 Code checkout that has the Nightly sidecar script this server can run. */
+export function isNightlySidecarCheckout(dir: string): boolean {
+  return (
+    NodeFS.existsSync(NodePath.join(dir, SIDECAR_SCRIPT)) &&
+    NodeFS.existsSync(NodePath.join(dir, "apps", "server", "package.json"))
+  );
+}
+
+/** The nearest ancestor of startDir that is a checkout, or null. */
 export function findNightlySidecarCheckout(startDir: string): string | null {
   let dir = NodePath.resolve(startDir);
   for (let depth = 0; depth < 12; depth += 1) {
-    if (
-      NodeFS.existsSync(NodePath.join(dir, SIDECAR_SCRIPT)) &&
-      NodeFS.existsSync(NodePath.join(dir, "apps", "server", "package.json"))
-    ) {
-      return dir;
-    }
+    if (isNightlySidecarCheckout(dir)) return dir;
     const parent = NodePath.dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
   return null;
+}
+
+/** The checkout the build recorded beside the bundled server, if it is still valid. */
+export function readBuildSourceCheckout(buildDir: string): string | null {
+  try {
+    const record = JSON.parse(
+      NodeFS.readFileSync(NodePath.join(buildDir, BUILD_SOURCE_RECORD), "utf8"),
+    ) as unknown;
+    const repoRoot =
+      typeof record === "object" && record !== null && "repoRoot" in record
+        ? record.repoRoot
+        : null;
+    if (typeof repoRoot !== "string" || !NodePath.isAbsolute(repoRoot)) return null;
+    return isNightlySidecarCheckout(repoRoot) ? repoRoot : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where the Nightly sidecar script lives, in this order:
+ *   1. walking up from the working directory (a dev run from a checkout),
+ *   2. T3CODE_SOURCE_CHECKOUT (an explicit override, for a packaged app),
+ *   3. the checkout the desktop build recorded beside the bundled server.
+ * Every candidate must still contain scripts/nightly-sidecar.py, or it is skipped.
+ */
+export function resolveNightlySidecarCheckout(input: {
+  readonly cwd: string;
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly buildDir: string;
+}): string | null {
+  const fromCwd = findNightlySidecarCheckout(input.cwd);
+  if (fromCwd !== null) return fromCwd;
+  const override = input.env.T3CODE_SOURCE_CHECKOUT?.trim();
+  if (override && NodePath.isAbsolute(override) && isNightlySidecarCheckout(override)) {
+    return NodePath.resolve(override);
+  }
+  return readBuildSourceCheckout(input.buildDir);
 }
 
 export function nightlyInstallBlockedReason(input: {
@@ -94,7 +138,7 @@ export function nightlyInstallBlockedReason(input: {
 }): string | null {
   if (input.platform !== "darwin") return "Installing Nightly needs macOS.";
   if (input.checkout === null) {
-    return "This server does not run from a T3 Code checkout that has scripts/nightly-sidecar.py, so it cannot install Nightly.";
+    return "No T3 Code checkout with scripts/nightly-sidecar.py was found from the working directory, T3CODE_SOURCE_CHECKOUT, or the desktop build record, so Nightly cannot be installed here.";
   }
   return null;
 }
@@ -103,9 +147,14 @@ export function nightlyInstallBlockedReason(input: {
 export async function readNightlyStatus(input: {
   readonly releases: ReadonlyArray<UpstreamRelease>;
   readonly platform: NodeJS.Platform;
+  readonly env: Readonly<Record<string, string | undefined>>;
 }): Promise<UpstreamNightlyStatus> {
   const installed = await readInstalledNightly(input.platform).catch(() => null);
-  const checkout = findNightlySidecarCheckout(process.cwd());
+  const checkout = resolveNightlySidecarCheckout({
+    cwd: process.cwd(),
+    env: input.env,
+    buildDir: NODE_BUILD_DIR,
+  });
   return buildUpstreamNightlyStatus({
     releases: input.releases,
     installed,
@@ -134,9 +183,14 @@ let installInProgress = false;
 export async function runNightlyInstall(input: {
   readonly request: NightlyInstallRequest;
   readonly platform: NodeJS.Platform;
+  readonly env: Readonly<Record<string, string | undefined>>;
 }): Promise<unknown> {
   const { request } = input;
-  const checkout = findNightlySidecarCheckout(process.cwd());
+  const checkout = resolveNightlySidecarCheckout({
+    cwd: process.cwd(),
+    env: input.env,
+    buildDir: NODE_BUILD_DIR,
+  });
   const blocked = nightlyInstallBlockedReason({ platform: input.platform, checkout });
   if (blocked !== null || checkout === null) {
     throw new NightlyInstallError(409, blocked ?? "No Nightly sidecar checkout was found.");

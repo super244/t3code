@@ -4,13 +4,15 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import {
   findNightlySidecarCheckout,
   nightlyInstallBlockedReason,
   nightlyInstallFromInfo,
   parseNightlyInstallRequest,
+  readBuildSourceCheckout,
+  resolveNightlySidecarCheckout,
 } from "./upstreamNightly.ts";
 
 const sharedHome = NodePath.join(NodeOS.homedir(), ".t3");
@@ -117,5 +119,104 @@ describe("parseNightlyInstallRequest", () => {
     expect(parseNightlyInstallRequest({ tag: "v0.0.45" })).toBeNull();
     expect(parseNightlyInstallRequest({ seed: "yes" })).toBeNull();
     expect(parseNightlyInstallRequest(["v0.0.46-nightly.20261012.3021"])).toBeNull();
+  });
+});
+
+describe("resolveNightlySidecarCheckout", () => {
+  const roots: string[] = [];
+  const tempDir = (prefix: string) => {
+    const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), prefix));
+    roots.push(dir);
+    return dir;
+  };
+  const makeCheckout = (prefix: string) => {
+    const root = tempDir(prefix);
+    NodeFS.mkdirSync(NodePath.join(root, "scripts"), { recursive: true });
+    NodeFS.writeFileSync(NodePath.join(root, "scripts", "nightly-sidecar.py"), "");
+    NodeFS.mkdirSync(NodePath.join(root, "apps", "server"), { recursive: true });
+    NodeFS.writeFileSync(NodePath.join(root, "apps", "server", "package.json"), "{}");
+    return root;
+  };
+  const recordBuild = (repoRoot: string) => {
+    const buildDir = tempDir("nightly-build-");
+    NodeFS.writeFileSync(
+      NodePath.join(buildDir, "build-source.json"),
+      JSON.stringify({ repoRoot }),
+    );
+    return buildDir;
+  };
+  const outside = () => tempDir("nightly-outside-");
+
+  afterEach(() => {
+    for (const root of roots.splice(0)) NodeFS.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("prefers the working-directory checkout over the env override and the build record", () => {
+    const fromCwd = makeCheckout("nightly-cwd-");
+    const fromEnv = makeCheckout("nightly-env-");
+    const fromBuild = makeCheckout("nightly-record-");
+    expect(
+      resolveNightlySidecarCheckout({
+        cwd: NodePath.join(fromCwd, "apps", "server"),
+        env: { T3CODE_SOURCE_CHECKOUT: fromEnv },
+        buildDir: recordBuild(fromBuild),
+      }),
+    ).toBe(fromCwd);
+  });
+
+  it("uses T3CODE_SOURCE_CHECKOUT when the working directory is not a checkout", () => {
+    const fromEnv = makeCheckout("nightly-env-");
+    const fromBuild = makeCheckout("nightly-record-");
+    expect(
+      resolveNightlySidecarCheckout({
+        cwd: outside(),
+        env: { T3CODE_SOURCE_CHECKOUT: fromEnv },
+        buildDir: recordBuild(fromBuild),
+      }),
+    ).toBe(fromEnv);
+  });
+
+  it("skips an env override that has no sidecar script and falls back to the build record", () => {
+    const fromBuild = makeCheckout("nightly-record-");
+    const notACheckout = outside();
+    expect(
+      resolveNightlySidecarCheckout({
+        cwd: outside(),
+        env: { T3CODE_SOURCE_CHECKOUT: notACheckout },
+        buildDir: recordBuild(fromBuild),
+      }),
+    ).toBe(fromBuild);
+    expect(
+      resolveNightlySidecarCheckout({
+        cwd: outside(),
+        env: { T3CODE_SOURCE_CHECKOUT: "relative/checkout" },
+        buildDir: recordBuild(fromBuild),
+      }),
+    ).toBe(fromBuild);
+  });
+
+  it("uses the build record for a packaged app, and refuses it once the script is gone", () => {
+    const fromBuild = makeCheckout("nightly-record-");
+    const buildDir = recordBuild(fromBuild);
+    expect(resolveNightlySidecarCheckout({ cwd: outside(), env: {}, buildDir })).toBe(fromBuild);
+    NodeFS.rmSync(NodePath.join(fromBuild, "scripts", "nightly-sidecar.py"));
+    expect(resolveNightlySidecarCheckout({ cwd: outside(), env: {}, buildDir })).toBeNull();
+  });
+
+  it("returns null when no candidate holds the sidecar", () => {
+    expect(
+      resolveNightlySidecarCheckout({ cwd: outside(), env: {}, buildDir: outside() }),
+    ).toBeNull();
+  });
+
+  it("ignores a malformed or relative build record", () => {
+    const buildDir = outside();
+    NodeFS.writeFileSync(NodePath.join(buildDir, "build-source.json"), "{not json");
+    expect(readBuildSourceCheckout(buildDir)).toBeNull();
+    NodeFS.writeFileSync(
+      NodePath.join(buildDir, "build-source.json"),
+      JSON.stringify({ repoRoot: "relative/path" }),
+    );
+    expect(readBuildSourceCheckout(buildDir)).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12
 // @effect-diagnostics nodeBuiltinImport:off - Node's typed junction API avoids Windows symlink privileges while keeping the probe isolated.
 
 import * as NodeFSP from "node:fs/promises";
@@ -3011,6 +3012,22 @@ export const packWindowsServerAsar = Effect.fn("packWindowsServerAsar")(function
   }
 });
 
+/**
+ * Records the checkout this build came from, beside the bundled server. The installed
+ * app does not run from the repo, but the Nightly installer lives in scripts/ there,
+ * so the server reads this path (apps/server/src/upstreamNightly.ts) and validates it.
+ */
+export const BUILD_SOURCE_RECORD = "build-source.json";
+export const writeBuildSourceRecord = (serverDistDir: string, repoRoot: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    yield* fs.writeFileString(
+      path.join(serverDistDir, BUILD_SOURCE_RECORD),
+      `${JSON.stringify({ repoRoot: path.resolve(repoRoot) }, null, 2)}\n`,
+    );
+  });
+
 export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(function* (input: {
   readonly stageRoot: string;
   readonly repoRoot: string;
@@ -3034,6 +3051,7 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
   const serverStageDir = path.join(input.stageRoot, "server");
   yield* fs.makeDirectory(path.join(serverStageDir, "apps/server"), { recursive: true });
   yield* fs.copy(input.serverDistDir, path.join(serverStageDir, "apps/server/dist"));
+  yield* writeBuildSourceRecord(path.join(serverStageDir, "apps/server/dist"), input.repoRoot);
 
   const sidecarDependencies = {
     ...input.runtimeExternalDependencies,
@@ -3690,6 +3708,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   // app.asar (see stageWindowsServerSidecar), so the app stage omits it.
   if (options.platform !== "win") {
     yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
+    yield* writeBuildSourceRecord(path.join(stageAppDir, "apps/server/dist"), repoRoot);
   }
   yield* stageResourceMonitor({
     repoRoot,

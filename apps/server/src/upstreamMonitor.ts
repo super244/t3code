@@ -6,7 +6,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import {
   emptyUpstreamStatus,
   fetchUpstreamStatus,
@@ -56,12 +56,13 @@ const make = Effect.gen(function* () {
     FileSystem.FileSystem | Path.Path | SqlClient.SqlClient
   >();
   const platform = yield* HostProcessPlatform;
+  const env = yield* HostProcessEnvironment;
   // Both responses carry the shared-state and Nightly facts, read at request time.
   const withLocalFacts = (status: UpstreamStatus) =>
     Effect.gen(function* () {
       const sharedState = yield* readUpstreamSharedState({ stateDir: config.stateDir });
       const nightly = yield* Effect.promise(() =>
-        readNightlyStatus({ releases: status.releases, platform }),
+        readNightlyStatus({ releases: status.releases, platform, env }),
       );
       return { ...status, sharedState, nightly };
     }).pipe(Effect.provide(localServices));

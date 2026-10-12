@@ -6,7 +6,7 @@ import {
   AuthOrchestrationReadScope,
   EnvironmentHttpApi,
 } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { isDevProxiedPath } from "@t3tools/shared/devProxy";
 import { decodeOtlpTraceRecords } from "@t3tools/shared/observability";
 import * as Data from "effect/Data";
@@ -709,8 +709,9 @@ export const upstreamRouteLayer = HttpRouter.add(
           ).pipe(Effect.orDie);
         }
         const platform = yield* HostProcessPlatform;
+        const env = yield* HostProcessEnvironment;
         const outcome = yield* Effect.promise(() =>
-          runNightlyInstall({ request: input, platform }).then(
+          runNightlyInstall({ request: input, platform, env }).then(
             (result) => ({ status: 200 as const, body: result }),
             (error: unknown) =>
               error instanceof NightlyInstallError
