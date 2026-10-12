@@ -137,6 +137,8 @@ export function notificationText(
   projectTitle: string | null,
 ): { title: string; body: string } {
   const where = projectTitle ? ` · ${projectTitle}` : "";
-  const detail = event.detail ? `\n${event.detail.slice(0, 160)}` : "";
+  // The settings copy promises the error's first line, not a wall of stack.
+  const firstLine = event.detail?.split("\n")[0]?.trim() ?? "";
+  const detail = firstLine ? `\n${firstLine.slice(0, 160)}` : "";
   return { title: `${HEADLINE[event.kind]}${where}`, body: `${event.title}${detail}` };
 }

@@ -67,10 +67,16 @@ export function describeWhen(when: string): string | null {
       .toLowerCase();
     return negated ? `not ${words}` : words;
   };
+  const clause = (alt: string) =>
+    alt
+      .split(/\s*&&\s*/)
+      .map((part) => phrases[part.trim()] ?? humanize(part.trim()))
+      .join(", ");
   return trimmed
-    .split(/\s*&&\s*/)
-    .map((part) => phrases[part] ?? humanize(part))
-    .join(", ");
+    .replace(/[()]/g, "")
+    .split(/\s*\|\|\s*/)
+    .map(clause)
+    .join(" or ");
 }
 
 /** One resolved binding, already labelled and formatted for the current platform. */

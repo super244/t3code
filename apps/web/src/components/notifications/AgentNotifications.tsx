@@ -84,12 +84,12 @@ export function AgentNotifications() {
         scopedProjectKey({ environmentId: shell.environmentId, projectId: shell.projectId }),
       );
       const { title, body } = notificationText(event, project ?? null);
-      const notification = new Notification(title, {
+      const notification = showNotice(title, {
         body,
         tag: `${event.key}:${event.kind}`,
         silent: event.kind === "finished",
       });
-      notification.addEventListener("click", () => {
+      notification?.addEventListener("click", () => {
         window.focus();
         void router.navigate({
           to: "/$environmentId/$threadId",
@@ -103,6 +103,21 @@ export function AgentNotifications() {
   return null;
 }
 
+/**
+ * `new Notification` throws "Illegal constructor" on Chromium for Android; there the service worker
+ * shows it instead (no click-through). Never lets the throw reach React.
+ */
+function showNotice(title: string, options: NotificationOptions): Notification | null {
+  try {
+    return new Notification(title, options);
+  } catch {
+    void navigator.serviceWorker?.ready
+      .then((registration) => registration.showNotification(title, options))
+      .catch(() => {});
+    return null;
+  }
+}
+
 /** Settings › General › Notifications. */
 export function AgentNotificationsSettingsSection() {
   const prefs = useAgentNotificationPrefs();
@@ -111,10 +126,17 @@ export function AgentNotificationsSettingsSection() {
   );
 
   async function setEnabled(enabled: boolean) {
-    if (enabled && supported() && Notification.permission === "default") {
-      setPermission(await Notification.requestPermission());
+    if (!enabled || !supported()) {
+      prefs.set({ enabled: false });
+      return;
     }
-    prefs.set({ enabled });
+    // A dismissed or denied prompt leaves the switch off, rather than ON with nothing ever shown.
+    const next =
+      Notification.permission === "default"
+        ? await Notification.requestPermission()
+        : Notification.permission;
+    setPermission(next);
+    prefs.set({ enabled: next === "granted" });
   }
 
   const blocked = permission === "denied" || permission === "unsupported";
@@ -184,7 +206,7 @@ export function AgentNotificationsSettingsSection() {
                 size="sm"
                 variant="outline"
                 onClick={() =>
-                  new Notification("Finished · T3 Code", {
+                  showNotice("Finished · T3 Code", {
                     body: "This is how a finished turn will look.",
                     tag: "t3code:test",
                   })

@@ -76,6 +76,9 @@ export function ShortcutsOverlay() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+      // Recording a binding in Settings → Keybindings must be able to capture ⌘/ itself.
+      if (event.target instanceof HTMLElement && event.target.closest("[data-keybinding-capture]"))
+        return;
       const mod = IS_MAC ? event.metaKey : event.ctrlKey;
       const slash =
         (event.key === "/" || event.code === "Slash") && mod && !event.altKey && !event.shiftKey;
