@@ -72,8 +72,10 @@ export function describeWhen(when: string): string | null {
       .split(/\s*&&\s*/)
       .map((part) => phrases[part.trim()] ?? humanize(part.trim()))
       .join(", ");
+  // Parentheses carry precedence ("!(a && b)", "a && (b || c)"); flattening them would misread the rule.
+  // Shown as written until a real parse is worth it.
+  if (/[()]/.test(trimmed)) return trimmed;
   return trimmed
-    .replace(/[()]/g, "")
     .split(/\s*\|\|\s*/)
     .map(clause)
     .join(" or ");

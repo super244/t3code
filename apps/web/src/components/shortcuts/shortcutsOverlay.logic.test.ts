@@ -60,6 +60,9 @@ describe("describeWhen", () => {
     expect(describeWhen("true")).toBeNull();
     expect(describeWhen("terminalFocus && terminalOpen")).toBe("in terminal, terminal open");
     expect(describeWhen("!browserFocus")).toBe("not browser focus");
-    expect(describeWhen("(terminalOpen || previewFocus)")).toBe("terminal open or in preview");
+    expect(describeWhen("terminalOpen || previewFocus")).toBe("terminal open or in preview");
+    expect(describeWhen("!(terminalFocus && terminalOpen)")).toBe(
+      "!(terminalFocus && terminalOpen)",
+    );
   });
 });
