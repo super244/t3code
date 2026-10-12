@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=7m; seat=codex; date=2026-10-03 */
 import { Volume2Icon, VolumeXIcon, MusicIcon, PlayIcon } from "lucide-react";
 import { useState } from "react";
@@ -6,6 +7,7 @@ import { Button } from "../ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "../../lib/utils";
+import { SIDEBAR_STATUS_PILL } from "../sidebar/statusPill";
 import type { SoundCue, SoundPack } from "@t3tools/shared/soundDesign";
 
 const SOUND_PACK_LABELS: Record<SoundPack, string> = {
@@ -38,19 +40,14 @@ export function SoundControlPill() {
                 <button
                   type="button"
                   aria-label="Sound and Audio Feedback"
-                  className={cn(
-                    "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-all",
-                    isMuted
-                      ? "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/70"
-                      : "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 shadow-sm",
-                  )}
+                  className={cn(SIDEBAR_STATUS_PILL, isMuted && "text-muted-foreground/70")}
                 >
                   {isMuted ? (
                     <VolumeXIcon className="size-3.5 opacity-60" />
                   ) : (
-                    <Volume2Icon className="size-3.5 text-primary" />
+                    <Volume2Icon className="size-3.5 text-foreground/80" />
                   )}
-                  <span className="hidden sm:inline font-mono text-[11px]">
+                  <span className="hidden font-mono tabular-nums sm:inline">
                     {isMuted ? "Muted" : settings.volume + "%"}
                   </span>
                 </button>

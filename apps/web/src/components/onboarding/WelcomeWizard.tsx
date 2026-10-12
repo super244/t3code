@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=4m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 import { useAuth } from "@clerk/react";
 import { useAtomValue } from "@effect/atom-react";
@@ -1332,21 +1333,7 @@ function ImportStep({
         </div>
       </ScrollArea>
       {importError ? <p className="mt-3 text-sm text-destructive">{importError}</p> : null}
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          {hasDesktopPicker ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isImporting}
-              onClick={() => void handlePickFolder()}
-              className="gap-2"
-            >
-              <FolderOpenIcon className="size-4" />
-              Choose folder in Finder…
-            </Button>
-          ) : null}
-        </div>
+      <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost-muted"

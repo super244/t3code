@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-11 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-10 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
@@ -57,6 +58,8 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { Input } from "../ui/input";
 import {
   AlertDialog,
@@ -298,15 +301,22 @@ export function RoutinesPage() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <WorkspacePageHeader electron={isElectron} className="h-auto">
           <div className="flex w-full items-center gap-3 py-2">
-            <CalendarClockIcon className="size-4" />
-            <h1 className="font-medium">Routines</h1>
-            <select
-              aria-label="Routine environment"
-              className="ml-auto h-8 rounded-md border border-input bg-background px-2 text-sm"
-              value={selectedEnvironmentId ?? ""}
+            <WorkspaceBreadcrumb ariaLabel="Routines breadcrumb" className="min-w-0">
+              <WorkspaceBreadcrumbItem>
+                <CalendarClockIcon className="size-3.5" />
+                <h1>Routines</h1>
+              </WorkspaceBreadcrumbItem>
+            </WorkspaceBreadcrumb>
+            <Select
+              items={environments.map((environment) => ({
+                value: environment.environmentId,
+                label: environment.label,
+              }))}
+              value={selectedEnvironmentId ?? null}
               disabled={saving || routineAction !== null}
-              onChange={(event) => {
-                const id = EnvironmentId.make(event.currentTarget.value);
+              onValueChange={(value) => {
+                if (value === null) return;
+                const id = EnvironmentId.make(value);
                 leaveDraft(() => {
                   setRequestedEnvironmentId(id);
                   setEditingId(null);
@@ -315,13 +325,21 @@ export function RoutinesPage() {
                 });
               }}
             >
-              {!selectedEnvironment ? <option value="">Choose a computer</option> : null}
-              {environments.map((environment) => (
-                <option key={environment.environmentId} value={environment.environmentId}>
-                  {environment.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                size="sm"
+                className="ml-auto w-auto min-w-44"
+                aria-label="Routine environment"
+              >
+                <SelectValue placeholder="Choose a computer" />
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {environments.map((environment) => (
+                  <SelectItem key={environment.environmentId} value={environment.environmentId}>
+                    {environment.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
           </div>
         </WorkspacePageHeader>
         <ScrollArea className="min-h-0 flex-1">
@@ -331,38 +349,40 @@ export function RoutinesPage() {
                 Connect an environment to manage routines.
               </p>
             ) : (
-              <div className="grid overflow-hidden border-y border-border lg:min-h-[28rem] lg:grid-cols-[18rem_minmax(0,1fr)]">
+              <div className="grid overflow-hidden rounded-xl border border-border bg-card lg:min-h-[28rem] lg:grid-cols-[18rem_minmax(0,1fr)]">
                 <aside className="border-b border-border lg:border-r lg:border-b-0">
                   <div className="flex flex-col gap-2 p-2">
-                    <Button
-                      className="w-full justify-start"
-                      variant="outline"
-                      disabled={
-                        saving || routineAction !== null || !connected || freshDraft === null
-                      }
-                      onClick={() =>
-                        leaveDraft(() => {
-                          setEditingId(null);
-                          setBaseline(null);
-                          setDraft(freshDraft);
-                        })
-                      }
-                    >
-                      <PlusIcon /> New routine
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start"
-                      disabled={
-                        saving || routineAction !== null || !connected || freshDraft === null
-                      }
-                      onClick={() => {
-                        setTemplateInput("");
-                        setTemplateError(null);
-                      }}
-                    >
-                      Import template
-                    </Button>
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        className="min-w-0 flex-1 justify-start"
+                        variant="outline"
+                        disabled={
+                          saving || routineAction !== null || !connected || freshDraft === null
+                        }
+                        onClick={() =>
+                          leaveDraft(() => {
+                            setEditingId(null);
+                            setBaseline(null);
+                            setDraft(freshDraft);
+                          })
+                        }
+                      >
+                        <PlusIcon /> New routine
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        className="shrink-0 text-muted-foreground"
+                        disabled={
+                          saving || routineAction !== null || !connected || freshDraft === null
+                        }
+                        onClick={() => {
+                          setTemplateInput("");
+                          setTemplateError(null);
+                        }}
+                      >
+                        Import
+                      </Button>
+                    </div>
                     {templateInput !== null ? (
                       <div className="space-y-2 border-y border-border py-3">
                         <p className="text-xs text-muted-foreground">

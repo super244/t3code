@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=4m; seat=claude-code; date=2026-10-10 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
 import { useState, useEffect, useTransition, useRef } from "react";
@@ -7,6 +8,7 @@ import { Button } from "../ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { cn } from "../../lib/utils";
+import { SIDEBAR_STATUS_PILL } from "../sidebar/statusPill";
 import { Check, RefreshCw } from "lucide-react";
 import { playSound } from "../../lib/soundEffects";
 
@@ -100,18 +102,13 @@ export function PrismThemeSwitcher({ className }: { className?: string }) {
           render={
             <PopoverTrigger
               data-slot="prism-theme-pill"
-              className={cn(
-                "group inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-surface/80 px-2 py-0.5 text-xs font-medium text-foreground backdrop-blur shadow-sm transition-all hover:border-primary/50 hover:bg-surface active:scale-[0.98]",
-                className,
-              )}
+              className={cn("group max-w-full", SIDEBAR_STATUS_PILL, className)}
             >
               <span
-                className="size-2 rounded-full ring-2 ring-primary/20 transition-transform group-hover:scale-110"
+                className="size-2 shrink-0 rounded-full"
                 style={{ backgroundColor: activePrismTheme.colors.accent }}
               />
-              <span className="min-w-0 truncate text-foreground/85">
-                {activePrismTheme.label}
-              </span>
+              <span className="min-w-0 truncate">{activePrismTheme.label}</span>
             </PopoverTrigger>
           }
         />

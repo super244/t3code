@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=4m; seat=claude-code; date=2026-10-10 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-10-10 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-04 */
@@ -247,12 +248,10 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   return (
     <SidebarFooter className="p-[var(--sidebar-content-inset)]">
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-1.5 pb-1">
+      <div className="flex min-w-0 items-center gap-1 pb-1">
         <UpstreamUpdatePill />
-        <div className="ml-auto flex min-w-0 items-center gap-1.5">
-          <SoundControlPill />
-          <PrismThemeSwitcher />
-        </div>
+        <SoundControlPill />
+        <PrismThemeSwitcher className="ml-auto" />
       </div>
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />

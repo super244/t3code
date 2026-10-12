@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-10 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=6m; seat=codex; date=2026-10-01 */
@@ -19,7 +20,6 @@ import {
   LayoutDashboardIcon,
   PlayIcon,
   SparklesIcon,
-  ActivityIcon,
 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
@@ -39,6 +39,8 @@ import { Input } from "../ui/input";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
+import { Skeleton } from "../ui/skeleton";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { SidebarInset } from "../ui/sidebar";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
@@ -322,88 +324,37 @@ export function CommandCenterPage() {
 
         <ScrollArea className="min-h-0 flex-1">
           <WorkspacePageContainer width="wide">
-            <section className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
-              <div className="flex min-w-0 flex-col gap-5">
-                <div className="flex flex-col gap-1">
-                  <span className="text-4xl font-semibold tabular-nums">
-                    {summary.activeMissions}
-                  </span>
-                  <span className="text-xs text-muted-foreground">active missions</span>
-                </div>
-                <div className="grid grid-cols-2 gap-x-5 gap-y-4">
-                  <Metric label="Needs attention" value={String(attentionTotal)} to="/" />
-                  <Metric
-                    label="Harnesses ready"
-                    value={formatHarnessReadiness(summary.readyProviders, summary.totalProviders)}
-                    to="/settings/providers"
-                  />
-                  <Metric
-                    label="Scheduled routines"
-                    value={String(summary.enabledRoutines)}
-                    to="/routines"
-                  />
-                  <Metric
-                    label="Available skills"
-                    value={String(enabledSkills)}
-                    to="/settings/skills"
-                  />
-                  <Metric label="Active races" value={String(activeRaces.length)} to="/race" />
-                </div>
-                <Link
-                  to="/usage"
-                  className="flex flex-col gap-1 border-t border-border pt-4 hover:text-foreground"
-                >
-                  <span className="text-lg font-medium tabular-nums">
-                    {usage.isPending ? "…" : formatUsd(usage.merged.costUsd)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatTokens(usage.merged.totalTokens)} · API-equivalent · past 7 days · not
-                    billed
-                  </span>
-                  {harnessUsage.length > 0 ? (
-                    <span className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                      {harnessUsage.map((provider) => {
-                        const totals = usage.merged.providers.find(
-                          (entry) => entry.provider === provider,
-                        );
-                        const quiet =
-                          (totals?.totalTokens ?? 0) === 0 && (totals?.costUsd ?? 0) === 0;
-                        return (
-                          <span key={provider} className="text-[11px] text-muted-foreground">
-                            {PROVIDER_PRESENTATION[provider].label}
-                            {quiet
-                              ? " · no activity"
-                              : ` · ${formatTokens(totals?.totalTokens ?? 0)}`}
-                          </span>
-                        );
-                      })}
-                    </span>
-                  ) : null}
-                </Link>
-                {topProjects.length > 0 ? (
-                  <Link
-                    to="/usage"
-                    className="flex flex-col gap-1.5 border-t border-border pt-4 hover:text-foreground"
-                  >
-                    <span className="text-xs font-medium text-foreground">
-                      Top projects · 7 days
-                    </span>
-                    {topProjects.map((project) => (
-                      <span
-                        key={project.key}
-                        className="flex items-baseline gap-2 text-xs"
-                        title={project.projectPath ?? undefined}
-                      >
-                        <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                        <span className="tabular-nums text-muted-foreground">
-                          {formatUsd(project.costUsd)}
-                        </span>
-                      </span>
-                    ))}
-                  </Link>
-                ) : null}
-              </div>
+            <section
+              aria-label="At a glance"
+              className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3 xl:grid-cols-6"
+            >
+              <Metric label="Active missions" value={String(summary.activeMissions)} to="/" />
+              <Metric
+                label="Needs attention"
+                value={String(attentionTotal)}
+                to="/"
+                tone={attentionTotal > 0 ? "warning" : undefined}
+              />
+              <Metric
+                label="Harnesses ready"
+                value={formatHarnessReadiness(summary.readyProviders, summary.totalProviders)}
+                to="/settings/providers"
+                tone={summary.readyProviders < summary.totalProviders ? "warning" : undefined}
+              />
+              <Metric
+                label="Scheduled routines"
+                value={String(summary.enabledRoutines)}
+                to="/routines"
+              />
+              <Metric
+                label="Available skills"
+                value={String(enabledSkills)}
+                to="/settings/skills"
+              />
+              <Metric label="Active races" value={String(activeRaces.length)} to="/race" />
+            </section>
 
+            <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,19rem)]">
               <section className="flex min-w-0 flex-col gap-3">
                 <div className="flex items-center justify-between gap-3">
                   <h2 className="text-sm font-medium">Mission queue</h2>
@@ -424,19 +375,21 @@ export function CommandCenterPage() {
                       setQueueLimit(10);
                     }}
                   />
-                  <select
+                  <ToggleGroup
                     aria-label="Mission queue filter"
-                    className="h-7 rounded-md border border-input bg-background px-2 text-xs"
-                    value={queueFilter}
-                    onChange={(event) => {
-                      setQueueFilter(event.currentTarget.value as MissionQueueFilter);
+                    className="shrink-0"
+                    value={[queueFilter]}
+                    onValueChange={(value) => {
+                      const next = value[0];
+                      if (next !== "active" && next !== "attention" && next !== "all") return;
+                      setQueueFilter(next);
                       setQueueLimit(10);
                     }}
                   >
-                    <option value="active">Active</option>
-                    <option value="attention">Needs attention</option>
-                    <option value="all">All missions</option>
-                  </select>
+                    <Toggle value="active">Active</Toggle>
+                    <Toggle value="attention">Needs attention</Toggle>
+                    <Toggle value="all">All</Toggle>
+                  </ToggleGroup>
                   {queueSearch.trim() || queueFilter !== "active" || projectFilter !== "all" ? (
                     <Button
                       size="sm"
@@ -496,7 +449,8 @@ export function CommandCenterPage() {
                 ) : null}
                 <div className="min-w-0 border-y border-border">
                   {activeThreads.length === 0 ? (
-                    <div className="flex flex-wrap items-center justify-center gap-1.5 px-2 py-6 text-sm text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center gap-2 px-2 py-12 text-sm text-muted-foreground">
+                      <LayoutDashboardIcon className="size-5 text-icon-muted" />
                       <span>
                         {queueSearch.trim() || projectFilter !== "all"
                           ? "No matching missions."
@@ -509,12 +463,9 @@ export function CommandCenterPage() {
                       {!queueSearch.trim() &&
                       projectFilter === "all" &&
                       queueFilter === "active" ? (
-                        <button
-                          className="text-foreground hover:underline"
-                          onClick={() => setLauncherOpen(true)}
-                        >
-                          Start a task
-                        </button>
+                        <Button size="sm" variant="outline" onClick={() => setLauncherOpen(true)}>
+                          <PlayIcon /> Start a task
+                        </Button>
                       ) : null}
                     </div>
                   ) : (
@@ -570,6 +521,82 @@ export function CommandCenterPage() {
                   </div>
                 ) : null}
               </section>
+
+              <aside className="flex min-w-0 flex-col gap-4">
+                <Link
+                  to="/usage"
+                  className="group flex flex-col gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:border-foreground/20"
+                >
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm font-medium">Usage · 7 days</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      API-equivalent, not billed
+                    </span>
+                  </span>
+                  <span className="flex items-baseline gap-2">
+                    {usage.isPending ? (
+                      <Skeleton className="h-7 w-24" />
+                    ) : (
+                      <span className="text-2xl font-semibold tabular-nums">
+                        {formatUsd(usage.merged.costUsd)}
+                      </span>
+                    )}
+                    {usage.isPending ? null : (
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {formatTokens(usage.merged.totalTokens)} tokens
+                      </span>
+                    )}
+                  </span>
+                  {harnessUsage.length > 0 ? (
+                    <span className="flex flex-col border-t border-border pt-2">
+                      {harnessUsage.map((provider) => {
+                        const totals = usage.merged.providers.find(
+                          (entry) => entry.provider === provider,
+                        );
+                        const quiet =
+                          (totals?.totalTokens ?? 0) === 0 && (totals?.costUsd ?? 0) === 0;
+                        return (
+                          <span
+                            key={provider}
+                            className="flex items-baseline justify-between gap-3 py-1 text-xs"
+                          >
+                            <span className={quiet ? "text-muted-foreground" : undefined}>
+                              {PROVIDER_PRESENTATION[provider].label}
+                            </span>
+                            <span
+                              className={cn(
+                                "tabular-nums",
+                                quiet ? "text-muted-foreground/60" : "text-muted-foreground",
+                              )}
+                            >
+                              {quiet ? "No activity" : formatTokens(totals?.totalTokens ?? 0)}
+                            </span>
+                          </span>
+                        );
+                      })}
+                    </span>
+                  ) : null}
+                </Link>
+                {topProjects.length > 0 ? (
+                  <Link
+                    to="/usage"
+                    className="flex flex-col gap-1.5 rounded-xl border border-border bg-card p-4 transition-colors hover:border-foreground/20"
+                  >
+                    <span className="mb-1 text-sm font-medium">Top projects · 7 days</span>
+                    {topProjects.map((project) => (
+                      <span
+                        key={project.key}
+                        className="flex items-baseline gap-2 text-xs"
+                      >
+                        <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                        <span className="tabular-nums text-muted-foreground">
+                          {formatUsd(project.costUsd)}
+                        </span>
+                      </span>
+                    ))}
+                  </Link>
+                ) : null}
+              </aside>
             </section>
 
             <section className="flex min-w-0 flex-col gap-3">
@@ -765,14 +792,26 @@ function Metric({
   label,
   value,
   to,
+  tone,
 }: {
   readonly label: string;
   readonly value: string;
   readonly to: CommandCenterDestination;
+  readonly tone?: "warning" | undefined;
 }) {
   return (
-    <Link to={to} className="group flex min-w-0 flex-col gap-0.5">
-      <span className="text-lg font-medium tabular-nums">{value}</span>
+    <Link
+      to={to}
+      className="group flex min-w-0 flex-col gap-1 bg-card px-4 py-3.5 transition-colors hover:bg-muted/30"
+    >
+      <span
+        className={cn(
+          "text-2xl font-semibold tabular-nums leading-none",
+          tone === "warning" ? "text-warning" : "text-foreground",
+        )}
+      >
+        {value}
+      </span>
       <span className="truncate text-xs text-muted-foreground group-hover:text-foreground">
         {label}
       </span>

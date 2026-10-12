@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-10 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=85m; seat=claude-code; date=2026-10-04 */
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -342,7 +343,9 @@ export function RaceComposer() {
         />
         {prompt.trim().length > 0 ? (
           <div className="flex justify-end text-[11px] font-mono text-muted-foreground">
-            <span>~{Math.ceil(prompt.length / 4)} tokens · {prompt.trim().split(/\s+/).length} words</span>
+            <span>
+              ~{Math.ceil(prompt.length / 4)} tokens · {prompt.trim().split(/\s+/).length} words
+            </span>
           </div>
         ) : null}
       </div>
@@ -401,15 +404,17 @@ export function RaceComposer() {
         ) : null}
         {entrants.map((entrant, index) => {
           const provider = providers.find((item) => item.instanceId === entrant.instanceId);
-          const ProviderIcon = provider ? PROVIDER_ICON_BY_PROVIDER[provider.driver] : undefined;
           return (
             <div
               // Rows are positional: slot N becomes entrant N on the board.
               key={`slot-${index + 1}`}
               className="grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)_minmax(0,1fr)_2rem] items-center gap-2"
             >
-              <span className="flex size-6 items-center justify-center rounded-md bg-muted text-[11px] font-medium text-muted-foreground tabular-nums">
-                {ProviderIcon ? <ProviderIcon className="size-3.5" /> : index + 1}
+              <span
+                aria-hidden
+                className="flex size-6 items-center justify-center rounded-md border border-border/70 text-[11px] font-medium text-muted-foreground tabular-nums"
+              >
+                {index + 1}
               </span>
               <RaceSelect
                 ariaLabel={`Entrant ${index + 1} provider`}
