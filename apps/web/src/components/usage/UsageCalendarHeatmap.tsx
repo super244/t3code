@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-10 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-11 */
 import type { DailyTotals } from "@t3tools/shared/usageMerge";
@@ -139,86 +140,113 @@ export function UsageCalendarHeatmap({
 
   return (
     <section className="flex flex-col gap-3" aria-label="Daily usage calendar">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-medium text-foreground">Activity calendar</h2>
-        <p className="text-xs text-muted-foreground">
-          {heat.activeDays} of {heat.totalDays} days active
-          {heat.streak > 1 ? ` · ${heat.streak}-day streak` : ""}
-          {heat.busiestWeekday ? ` · busiest on ${heat.busiestWeekday}` : ""}
-          {heat.peakDay
-            ? ` · peak ${formatValue(heat.peak, metric)} on ${formatCellDay(heat.peakDay)}`
-            : ""}
-        </p>
-      </div>
-      {/* One grid: weekday labels, then a column per week that grows to fill the card up to
+      <h2 className="text-sm font-medium text-foreground">Activity calendar</h2>
+      {/* The heatmap and what it adds up to sit side by side; the figures used to trail the
+          heading as one run-on line at the far edge of an otherwise empty row. */}
+      <div className="grid items-start gap-x-10 gap-y-5 lg:grid-cols-[auto_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-col gap-3">
+          {/* One grid: weekday labels, then a column per week that grows to fill the card up to
           a cap, so a 30-day window does not balloon and a year still fits without scrolling. */}
-      <div className="overflow-x-auto pb-1">
-        <div
-          className="grid gap-[3px] text-[10px] leading-none text-muted-foreground"
-          style={{
-            gridTemplateColumns: `auto repeat(${heat.weeks.length}, minmax(9px, 1fr))`,
-            maxWidth: `calc(2.25rem + ${heat.weeks.length} * 21px)`,
-          }}
-          role="grid"
-          aria-readonly="true"
-          onMouseLeave={() => setHovered(undefined)}
-        >
-          <span aria-hidden="true" />
-          {heat.months.map((month, w) => (
-            <span
-              key={`m-${heat.weeks[w]?.[0]?.day}`}
-              aria-hidden="true"
-              className="h-3 overflow-visible whitespace-nowrap"
+          <div className="overflow-x-auto pb-1">
+            <div
+              className="grid gap-[3px] text-[10px] leading-none text-muted-foreground"
+              style={{
+                gridTemplateColumns: `auto repeat(${heat.weeks.length}, minmax(9px, 1fr))`,
+                maxWidth: `calc(2.25rem + ${heat.weeks.length} * 26px)`,
+              }}
+              role="grid"
+              aria-readonly="true"
+              onMouseLeave={() => setHovered(undefined)}
             >
-              {month ?? ""}
-            </span>
-          ))}
-          {WEEKDAYS.map((label, row) => (
-            <div key={label} role="row" className="contents">
-              <span
-                aria-hidden="true"
-                className={cn("self-center pr-1.5", row % 2 === 1 ? "opacity-0" : "")}
-              >
-                {label}
-              </span>
-              {heat.weeks.map((week) => {
-                const cell = week[row];
-                if (!cell) return null;
-                return (
+              <span aria-hidden="true" />
+              {heat.months.map((month, w) => (
+                <span
+                  key={`m-${heat.weeks[w]?.[0]?.day}`}
+                  aria-hidden="true"
+                  className="h-3 overflow-visible whitespace-nowrap"
+                >
+                  {month ?? ""}
+                </span>
+              ))}
+              {WEEKDAYS.map((label, row) => (
+                <div key={label} role="row" className="contents">
                   <span
-                    key={cell.day}
-                    role="gridcell"
-                    onMouseEnter={cell.inRange ? () => setHovered(cell) : undefined}
-                    aria-label={
-                      cell.inRange
-                        ? `${formatCellDay(cell.day)}, ${cell.value > 0 ? formatValue(cell.value, metric) : "no usage"}`
-                        : undefined
-                    }
-                    className={cn(
-                      "aspect-square w-full rounded-[3px] transition-[box-shadow] duration-100",
-                      cell.inRange ? LEVEL_CLASS[cell.level] : "bg-transparent",
-                      cell.inRange && "hover:ring-1 hover:ring-foreground/50",
-                      cell.day === heat.lastDay && "ring-1 ring-foreground/40",
-                    )}
-                  />
-                );
-              })}
+                    aria-hidden="true"
+                    className={cn("self-center pr-1.5", row % 2 === 1 ? "opacity-0" : "")}
+                  >
+                    {label}
+                  </span>
+                  {heat.weeks.map((week) => {
+                    const cell = week[row];
+                    if (!cell) return null;
+                    return (
+                      <span
+                        key={cell.day}
+                        role="gridcell"
+                        onMouseEnter={cell.inRange ? () => setHovered(cell) : undefined}
+                        aria-label={
+                          cell.inRange
+                            ? `${formatCellDay(cell.day)}, ${cell.value > 0 ? formatValue(cell.value, metric) : "no usage"}`
+                            : undefined
+                        }
+                        className={cn(
+                          "aspect-square w-full rounded-[3px] transition-[box-shadow] duration-100",
+                          cell.inRange ? LEVEL_CLASS[cell.level] : "bg-transparent",
+                          cell.inRange && "hover:ring-1 hover:ring-foreground/50",
+                          cell.day === heat.lastDay && "ring-1 ring-foreground/40",
+                        )}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <span>Less</span>
+            {LEVEL_CLASS.map((cls) => (
+              <span key={cls} className={cn("size-[11px] rounded-[3px]", cls)} aria-hidden="true" />
+            ))}
+            <span>More</span>
+            <span className="ml-3 text-foreground/80 tabular-nums" aria-live="polite">
+              {hovered
+                ? `${formatCellDay(hovered.day)} · ${hovered.value > 0 ? formatValue(hovered.value, metric) : "no usage"}`
+                : ""}
+            </span>
+          </div>
         </div>
-      </div>
-      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-        <span>Less</span>
-        {LEVEL_CLASS.map((cls) => (
-          <span key={cls} className={cn("size-[11px] rounded-[3px]", cls)} aria-hidden="true" />
-        ))}
-        <span>More</span>
-        <span className="ml-3 text-foreground/80 tabular-nums" aria-live="polite">
-          {hovered
-            ? `${formatCellDay(hovered.day)} · ${hovered.value > 0 ? formatValue(hovered.value, metric) : "no usage"}`
-            : ""}
-        </span>
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
+          <CalendarFigure label="Active days" value={`${heat.activeDays} of ${heat.totalDays}`} />
+          <CalendarFigure
+            label="Current streak"
+            value={heat.streak > 0 ? `${heat.streak} ${heat.streak === 1 ? "day" : "days"}` : "—"}
+          />
+          <CalendarFigure label="Busiest weekday" value={heat.busiestWeekday ?? "—"} />
+          <CalendarFigure
+            label="Peak day"
+            value={heat.peakDay ? formatValue(heat.peak, metric) : "—"}
+            detail={heat.peakDay ? formatCellDay(heat.peakDay) : undefined}
+          />
+        </dl>
       </div>
     </section>
+  );
+}
+
+function CalendarFigure({
+  label,
+  value,
+  detail,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly detail?: string | undefined;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="text-lg font-medium text-foreground tabular-nums">{value}</dd>
+      {detail ? <dd className="text-xs text-muted-foreground">{detail}</dd> : null}
+    </div>
   );
 }

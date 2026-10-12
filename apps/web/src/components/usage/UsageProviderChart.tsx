@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-09-30 */
 import type { UsageProviderKind } from "@t3tools/contracts";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -319,7 +320,7 @@ export function UsageProviderChart({
     <div className="flex flex-col gap-1">
       <div className="flex gap-2">
         {/* Axis labels sit outside the plot so they stay aligned to gridlines. */}
-        <div className="relative h-56 w-14 shrink-0">
+        <div className="relative h-56 w-14 shrink-0 lg:h-80">
           {ticks.map((tick) => (
             <span
               key={tick}
@@ -333,7 +334,7 @@ export function UsageProviderChart({
 
         <div
           ref={plotRef}
-          className="relative h-56 flex-1"
+          className="relative h-56 flex-1 lg:h-80"
           onMouseMove={handleMove}
           onMouseLeave={() => {
             hoverPositionRef.current = null;
