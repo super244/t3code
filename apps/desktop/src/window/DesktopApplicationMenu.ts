@@ -1,3 +1,5 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-04 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-10-01 */
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -135,6 +137,21 @@ export const make = Effect.gen(function* () {
     const settingsClick = () => {
       runMenuEffect("open-settings", dispatchMenuAction("open-settings"));
     };
+    const commandCenterClick = () => {
+      runMenuEffect("open-command-center", dispatchMenuAction("open-command-center"));
+    };
+    const usageClick = () => {
+      runMenuEffect("open-usage", dispatchMenuAction("open-usage"));
+    };
+    const routinesClick = () => {
+      runMenuEffect("open-routines", dispatchMenuAction("open-routines"));
+    };
+    const raceClick = () => {
+      runMenuEffect("open-race", dispatchMenuAction("open-race"));
+    };
+    const skillsClick = () => {
+      runMenuEffect("open-skills", dispatchMenuAction("open-skills"));
+    };
     const zoomClick = (direction: DesktopWindow.MainWindowZoomDirection) => () => {
       runMenuEffect(`zoom-${direction}`, zoomMainWindow(direction));
     };
@@ -209,6 +226,36 @@ export const make = Effect.gen(function* () {
           { label: "Zoom Out", accelerator: "CmdOrCtrl+-", click: zoomClick("out") },
           { type: "separator" },
           { role: "togglefullscreen" },
+        ],
+      },
+      {
+        label: "Go",
+        submenu: [
+          {
+            label: "Command Center",
+            accelerator: "CmdOrCtrl+Shift+C",
+            click: commandCenterClick,
+          },
+          {
+            label: "Usage & Costs",
+            accelerator: "CmdOrCtrl+Shift+U",
+            click: usageClick,
+          },
+          {
+            label: "Automated Routines",
+            accelerator: "CmdOrCtrl+Shift+R",
+            click: routinesClick,
+          },
+          {
+            label: "Race",
+            accelerator: "CmdOrCtrl+Shift+B",
+            click: raceClick,
+          },
+          {
+            label: "Skills & Rules",
+            accelerator: "CmdOrCtrl+Shift+K",
+            click: skillsClick,
+          },
         ],
       },
       { role: "windowMenu" },

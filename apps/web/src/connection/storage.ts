@@ -1,3 +1,5 @@
+/* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=34m; seat=codex; date=2026-10-04 */
 import {
   ConnectionCatalogDocument,
   type ConnectionCatalogDocument as ConnectionCatalogDocumentType,
@@ -156,7 +158,8 @@ const openDatabase = Effect.fn("web.connectionStorage.openDatabase")(function* (
   });
 });
 
-function readDatabaseValue(database: IDBDatabase, storeName: string, key: IDBValidKey) {
+function readDatabaseValue(database: IDBDatabase | null, storeName: string, key: IDBValidKey) {
+  if (database === null) return Effect.succeed(undefined);
   return Effect.callback<unknown, ConnectionTransientError>((resume) => {
     const request = database.transaction(storeName, "readonly").objectStore(storeName).get(key);
     request.addEventListener("error", () => {
@@ -169,11 +172,12 @@ function readDatabaseValue(database: IDBDatabase, storeName: string, key: IDBVal
 }
 
 function writeDatabaseValue(
-  database: IDBDatabase,
+  database: IDBDatabase | null,
   storeName: string,
   key: IDBValidKey,
   value: unknown,
 ) {
+  if (database === null) return Effect.void;
   return Effect.callback<void, ConnectionTransientError>((resume) => {
     const transaction = database.transaction(storeName, "readwrite");
     transaction.addEventListener("error", () => {
@@ -188,7 +192,8 @@ function writeDatabaseValue(
   }).pipe(Effect.withSpan("web.connectionStorage.writeDatabaseValue"));
 }
 
-function removeDatabaseValue(database: IDBDatabase, storeName: string, key: IDBValidKey) {
+function removeDatabaseValue(database: IDBDatabase | null, storeName: string, key: IDBValidKey) {
+  if (database === null) return Effect.void;
   return Effect.callback<void, ConnectionTransientError>((resume) => {
     const transaction = database.transaction(storeName, "readwrite");
     transaction.addEventListener("error", () => {
@@ -203,7 +208,12 @@ function removeDatabaseValue(database: IDBDatabase, storeName: string, key: IDBV
   }).pipe(Effect.withSpan("web.connectionStorage.removeDatabaseValue"));
 }
 
-function removeDatabaseValuesInRange(database: IDBDatabase, storeName: string, range: IDBKeyRange) {
+function removeDatabaseValuesInRange(
+  database: IDBDatabase | null,
+  storeName: string,
+  range: IDBKeyRange,
+) {
+  if (database === null) return Effect.void;
   return Effect.callback<void, ConnectionTransientError>((resume) => {
     const transaction = database.transaction(storeName, "readwrite");
     transaction.addEventListener("error", () => {
@@ -259,7 +269,7 @@ export interface CatalogBackend {
   readonly quarantine?: (raw: string) => Effect.Effect<void, ConnectionTransientError>;
 }
 
-export function makeCatalogBackend(database: IDBDatabase): CatalogBackend {
+export function makeCatalogBackend(database: IDBDatabase | null): CatalogBackend {
   const bridge = window.desktopBridge;
   if (bridge?.getConnectionCatalog !== undefined && bridge.setConnectionCatalog !== undefined) {
     return {
@@ -284,6 +294,11 @@ export function makeCatalogBackend(database: IDBDatabase): CatalogBackend {
           ),
         ),
     };
+  }
+
+  if (database === null) {
+    const failure = catalogError("open", "Durable connection storage is unavailable.");
+    return { read: Effect.fail(failure), write: () => Effect.fail(failure) };
   }
 
   return {
@@ -365,10 +380,30 @@ export const makeCatalogStore = Effect.fn("web.connectionStorage.makeCatalogStor
   return { read, update } satisfies CatalogStore;
 });
 
+/** Native credentials remain durable even when Chromium's disposable cache is locked. */
+export const openConnectionCacheDatabase = Effect.fn("web.connectionStorage.openCacheDatabase")(
+  function* () {
+    return yield* openDatabase().pipe(
+      Effect.catch((error) => {
+        const bridge = typeof window === "undefined" ? undefined : window.desktopBridge;
+        if (
+          bridge?.getConnectionCatalog === undefined ||
+          bridge.setConnectionCatalog === undefined
+        ) {
+          return Effect.fail(error);
+        }
+        return Effect.logWarning(
+          "Local cache is unavailable; using desktop connection storage.",
+        ).pipe(Effect.as(null));
+      }),
+    );
+  },
+);
+
 export const connectionStorageLayer = Layer.effectContext(
   Effect.gen(function* () {
-    const database = yield* Effect.acquireRelease(openDatabase(), (database) =>
-      Effect.sync(() => database.close()),
+    const database = yield* Effect.acquireRelease(openConnectionCacheDatabase(), (database) =>
+      Effect.sync(() => database?.close()),
     );
     const catalog = yield* makeCatalogStore(makeCatalogBackend(database));
 

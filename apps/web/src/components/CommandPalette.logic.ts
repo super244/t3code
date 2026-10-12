@@ -526,3 +526,106 @@ export function getCommandPaletteInputPlaceholder(mode: CommandPaletteMode): str
       return "Enter path (e.g. ~/projects/my-app)";
   }
 }
+
+/* agent-watermark: model=muse-spark; effort=high; duration=35m; seat=opencode; date=2026-10-10 */
+// --- Go-anywhere destinations + recent history ---
+// Pure helpers only (no navigation side effects): the .tsx wires `run`.
+
+export interface GoAnywhereDestination {
+  readonly value: string;
+  readonly title: string;
+  readonly searchTerms: ReadonlyArray<string>;
+  readonly description: string;
+}
+
+/** First-class "go to" targets: every main route + every settings panel. */
+export const GO_ANYWHERE_DESTINATIONS: ReadonlyArray<GoAnywhereDestination> = [
+  { value: "go:command-center", title: "Go to Command Center", searchTerms: ["go to", "command center", "dashboard"], description: "Command Center" },
+  { value: "go:usage", title: "Go to Usage", searchTerms: ["go to", "usage", "costs", "tokens"], description: "Usage" },
+  { value: "go:routines", title: "Go to Routines", searchTerms: ["go to", "routines", "automation"], description: "Routines" },
+  { value: "go:shortcuts", title: "Show keyboard shortcuts", searchTerms: ["keyboard", "shortcuts", "keybindings", "hotkeys", "cheat sheet", "help"], description: "⌘/" },
+  { value: "go:race", title: "Go to Race", searchTerms: ["go to", "race", "compare"], description: "Race" },
+  { value: "go:settings:general", title: "Go to Settings — General", searchTerms: ["go to", "settings", "general", "preferences"], description: "Settings · General" },
+  { value: "go:settings:appearance", title: "Go to Settings — Appearance", searchTerms: ["go to", "settings", "appearance", "theme", "palette"], description: "Settings · Appearance" },
+  { value: "go:settings:projects", title: "Go to Settings — Projects", searchTerms: ["go to", "settings", "projects"], description: "Settings · Projects" },
+  { value: "go:settings:keybindings", title: "Go to Settings — Keybindings", searchTerms: ["go to", "settings", "keybindings", "shortcuts"], description: "Settings · Keybindings" },
+  { value: "go:settings:providers", title: "Go to Settings — Providers", searchTerms: ["go to", "settings", "providers", "models"], description: "Settings · Providers" },
+  { value: "go:settings:integrations", title: "Go to Settings — Integrations", searchTerms: ["go to", "settings", "integrations"], description: "Settings · Integrations" },
+  { value: "go:settings:skills", title: "Go to Settings — Skills", searchTerms: ["go to", "settings", "skills", "rules"], description: "Settings · Skills" },
+  { value: "go:settings:source-control", title: "Go to Settings — Source Control", searchTerms: ["go to", "settings", "source control", "git"], description: "Settings · Source Control" },
+  { value: "go:settings:connections", title: "Go to Settings — Connections", searchTerms: ["go to", "settings", "connections", "devices"], description: "Settings · Connections" },
+  { value: "go:settings:diagnostics", title: "Go to Settings — Diagnostics", searchTerms: ["go to", "settings", "diagnostics", "debug"], description: "Settings · Diagnostics" },
+];
+
+export function buildGoAnywhereItems(input: {
+  icon: ReactNode;
+  runDestination: (destination: GoAnywhereDestination) => Promise<void>;
+}): CommandPaletteActionItem[] {
+  return GO_ANYWHERE_DESTINATIONS.map((destination) => ({
+    kind: "action" as const,
+    value: destination.value,
+    searchTerms: [...destination.searchTerms, destination.title],
+    title: destination.title,
+    description: destination.description,
+    icon: input.icon,
+    run: async () => {
+      await input.runDestination(destination);
+    },
+  }));
+}
+
+export const RECENT_DESTINATIONS_STORAGE_KEY = "t3code:palette-recent-destinations:v1";
+export const RECENT_PROJECTS_STORAGE_KEY = "t3code:palette-recent-projects:v1";
+const RECENT_HISTORY_LIMIT = 8;
+
+function readRecentKeys(storageKey: string): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string").slice(0, RECENT_HISTORY_LIMIT) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentKeys(storageKey: string, keys: ReadonlyArray<string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(keys.slice(0, RECENT_HISTORY_LIMIT)));
+  } catch {
+    // Blocked storage must never break the palette.
+  }
+}
+
+export function readRecentDestinationKeys(): string[] {
+  return readRecentKeys(RECENT_DESTINATIONS_STORAGE_KEY);
+}
+
+export function recordRecentDestinationKey(value: string): string[] {
+  const next = [value, ...readRecentKeys(RECENT_DESTINATIONS_STORAGE_KEY).filter((key) => key !== value)].slice(0, RECENT_HISTORY_LIMIT);
+  writeRecentKeys(RECENT_DESTINATIONS_STORAGE_KEY, next);
+  return next;
+}
+
+export function readRecentProjectKeys(): string[] {
+  return readRecentKeys(RECENT_PROJECTS_STORAGE_KEY);
+}
+
+export function recordRecentProjectKey(value: string): string[] {
+  const next = [value, ...readRecentKeys(RECENT_PROJECTS_STORAGE_KEY).filter((key) => key !== value)].slice(0, RECENT_HISTORY_LIMIT);
+  writeRecentKeys(RECENT_PROJECTS_STORAGE_KEY, next);
+  return next;
+}
+
+/** Recent-first stable ordering: recent keys float up, everything else keeps order. */
+export function orderByRecentKeys<TItem>(items: ReadonlyArray<TItem>, recentKeys: ReadonlyArray<string>, keyOf: (item: TItem) => string): TItem[] {
+  if (recentKeys.length === 0) return [...items];
+  const rank = new Map(recentKeys.map((key, index) => [key, index] as const));
+  return [...items].toSorted((left, right) => {
+    const leftRank = rank.get(keyOf(left)) ?? Number.MAX_SAFE_INTEGER;
+    const rightRank = rank.get(keyOf(right)) ?? Number.MAX_SAFE_INTEGER;
+    return leftRank - rightRank;
+  });
+}

@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=56m; seat=codex; date=2026-10-07 */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
@@ -1255,6 +1256,25 @@ it.layer(layer)("AntigravityAdapter", (it) => {
         content: "created",
       });
       expect(yield* fs.readFileString(path.join(cwd, "nested", "new.txt"))).toBe("created");
+
+      if (process.platform !== "win32") {
+        yield* fs.writeFileString(path.join(outside, "secret.txt"), "outside workspace");
+        yield* fs.symlink(path.join(outside, "secret.txt"), path.join(cwd, "linked.txt"));
+        const linkedRead = yield* read({
+          sessionId: nativeSessionId,
+          path: path.join(cwd, "linked.txt"),
+        }).pipe(Effect.flip);
+        expect(linkedRead._tag).toBe("AcpRequestError");
+        const linkedWrite = yield* write({
+          sessionId: nativeSessionId,
+          path: path.join(cwd, "linked.txt"),
+          content: "must not replace outside data",
+        }).pipe(Effect.flip);
+        expect(linkedWrite._tag).toBe("AcpRequestError");
+        expect(yield* fs.readFileString(path.join(outside, "secret.txt"))).toBe(
+          "outside workspace",
+        );
+      }
 
       const escape = yield* write({
         sessionId: nativeSessionId,

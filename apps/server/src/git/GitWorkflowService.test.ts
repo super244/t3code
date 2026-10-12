@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
 import { assert, describe, expect, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -160,6 +161,49 @@ describe("GitWorkflowService", () => {
         }),
       ),
     );
+  });
+
+  it.effect("refuses to integrate a worktree when the VCS driver cannot be resolved", () => {
+    // Routing builds the driver effect eagerly, so the proof that it never ran
+    // is a driver that would kill the fiber if it did.
+    const integrateWorktree = vi.fn(() =>
+      Effect.die("the Git driver must not run once routing refused the repository"),
+    );
+    const cause = new VcsRepositoryDetectionError({
+      operation: "VcsDriverRegistry.resolve",
+      cwd: "/repo",
+      detail: "upstream resolve detail must stay in the cause chain",
+    });
+
+    const testLayer = GitWorkflowService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          resolve: () => Effect.fail(cause),
+        }),
+      ),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ integrateWorktree })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+    );
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const error = yield* workflow
+        .integrateWorktree({
+          cwd: "/repo",
+          worktreePath: "/worktrees/entrant",
+          branch: "t3code/race-k3f9a2-2of3",
+          commitMessage: "race: keep this one",
+        })
+        .pipe(Effect.flip);
+
+      expect(error).toMatchObject({
+        _tag: "GitCommandError",
+        operation: "GitWorkflowService.integrateWorktree",
+        command: "vcs-route",
+        cwd: "/repo",
+      });
+      expect(error.message).not.toContain(cause.detail);
+    }).pipe(Effect.provide(testLayer));
   });
 
   it.effect("structures command detection failures without exposing upstream details", () => {

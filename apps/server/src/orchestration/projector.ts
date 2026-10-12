@@ -48,6 +48,7 @@ import {
   ThreadUnpinnedPayload,
   ThreadUnarchivedPayload,
   ThreadUnsettledPayload,
+  ThreadAutoSettleSetPayload,
   ThreadUnsnoozedPayload,
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
@@ -542,6 +543,22 @@ export function projectEvent(
           threads: updateThread(nextBase.threads, payload.threadId, {
             snoozedUntil: null,
             snoozedAt: null,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "thread.auto-settle-set":
+      return decodeForEvent(
+        ThreadAutoSettleSetPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            autoSettleDisabledAt: payload.autoSettleDisabledAt,
             updatedAt: payload.updatedAt,
           }),
         })),

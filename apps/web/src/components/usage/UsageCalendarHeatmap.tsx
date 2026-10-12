@@ -1,4 +1,5 @@
 /* agent-watermark: model=opus-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-10 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-11 */
 import type { DailyTotals } from "@t3tools/shared/usageMerge";
 import { formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import { useMemo, useState } from "react";
@@ -86,10 +87,22 @@ export function buildHeatmap(
   const activeDays = values.length;
   const peakDay = sorted.find((day) => (valueOf.get(day) ?? 0) === peak && peak > 0);
 
+  // A month's name sits above the first week that holds its 1st (and above the first week shown).
+  const months = weeks.map((week, w) => {
+    const opener = week.find((cell) => cell.inRange && (w === 0 || cell.day.endsWith("-01")));
+    if (!opener) return undefined;
+    return dayToUtc(opener.day).toLocaleDateString(undefined, { month: "short", timeZone: "UTC" });
+  });
+  // The first week's label is only a partial month; drop it when the next month's name lands
+  // within two columns, or the two print over each other ("Mar Apr").
+  if (months[0] && months.slice(1, 3).some(Boolean)) months[0] = undefined;
+
   return {
     weeks,
+    months,
     activeDays,
     totalDays: sorted.length,
+    lastDay: last,
     streak,
     busiestWeekday: (byWeekday[busiestIndex] ?? 0) > 0 ? WEEKDAYS[busiestIndex] : undefined,
     peak,
@@ -137,38 +150,59 @@ export function UsageCalendarHeatmap({
             : ""}
         </p>
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        <div className="grid shrink-0 grid-rows-7 gap-[3px] pt-px text-[10px] leading-[11px] text-muted-foreground">
-          {WEEKDAYS.map((label, i) => (
-            <span key={label} className={cn("h-[11px]", i % 2 === 1 ? "opacity-0" : "")}>
-              {label}
-            </span>
-          ))}
-        </div>
+      {/* One grid: weekday labels, then a column per week that grows to fill the card up to
+          a cap, so a 30-day window does not balloon and a year still fits without scrolling. */}
+      <div className="overflow-x-auto pb-1">
         <div
-          className="flex gap-[3px]"
+          className="grid gap-[3px] text-[10px] leading-none text-muted-foreground"
+          style={{
+            gridTemplateColumns: `auto repeat(${heat.weeks.length}, minmax(9px, 1fr))`,
+            maxWidth: `calc(2.25rem + ${heat.weeks.length} * 21px)`,
+          }}
           role="grid"
           aria-readonly="true"
           onMouseLeave={() => setHovered(undefined)}
         >
-          {heat.weeks.map((week) => (
-            <div key={week[0]?.day} className="grid grid-rows-7 gap-[3px]" role="row">
-              {week.map((cell) => (
-                <span
-                  key={cell.day}
-                  role="gridcell"
-                  onMouseEnter={cell.inRange ? () => setHovered(cell) : undefined}
-                  aria-label={
-                    cell.inRange
-                      ? `${formatCellDay(cell.day)}, ${cell.value > 0 ? formatValue(cell.value, metric) : "no usage"}`
-                      : undefined
-                  }
-                  className={cn(
-                    "size-[11px] rounded-[2px]",
-                    cell.inRange ? LEVEL_CLASS[cell.level] : "bg-transparent",
-                  )}
-                />
-              ))}
+          <span aria-hidden="true" />
+          {heat.months.map((month, w) => (
+            <span
+              key={`m-${heat.weeks[w]?.[0]?.day}`}
+              aria-hidden="true"
+              className="h-3 overflow-visible whitespace-nowrap"
+            >
+              {month ?? ""}
+            </span>
+          ))}
+          {WEEKDAYS.map((label, row) => (
+            <div key={label} role="row" className="contents">
+              <span
+                aria-hidden="true"
+                className={cn("self-center pr-1.5", row % 2 === 1 ? "opacity-0" : "")}
+              >
+                {label}
+              </span>
+              {heat.weeks.map((week) => {
+                const cell = week[row];
+                if (!cell) return null;
+                return (
+                  <span
+                    key={cell.day}
+                    role="gridcell"
+                    onMouseEnter={cell.inRange ? () => setHovered(cell) : undefined}
+                    aria-label={
+                      cell.inRange
+                        ? `${formatCellDay(cell.day)}, ${cell.value > 0 ? formatValue(cell.value, metric) : "no usage"}`
+                        : undefined
+                    }
+                    className={cn(
+                      "aspect-square w-full rounded-[3px] transition-[box-shadow] duration-100",
+                      cell.inRange ? LEVEL_CLASS[cell.level] : "bg-transparent",
+                      cell.inRange && "hover:ring-1 hover:ring-foreground/50",
+                      cell.day === heat.lastDay && "ring-1 ring-foreground/40",
+                    )}
+                  />
+                );
+              })}
             </div>
           ))}
         </div>
@@ -176,7 +210,7 @@ export function UsageCalendarHeatmap({
       <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
         <span>Less</span>
         {LEVEL_CLASS.map((cls) => (
-          <span key={cls} className={cn("size-[11px] rounded-[2px]", cls)} aria-hidden="true" />
+          <span key={cls} className={cn("size-[11px] rounded-[3px]", cls)} aria-hidden="true" />
         ))}
         <span>More</span>
         <span className="ml-3 text-foreground/80 tabular-nums" aria-live="polite">

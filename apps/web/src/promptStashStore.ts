@@ -1,3 +1,4 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=5m; seat=antigravity; date=2026-09-30 */
 import * as Schema from "effect/Schema";
 import { create } from "zustand";
 
@@ -130,9 +131,16 @@ export function partitionStashAttachments(
  * vanish on reload, and callers clear the composer on the strength of a
  * successful stash, so they must be told the difference.
  */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=5m; seat=antigravity; date=2026-09-30 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=5m; seat=antigravity; date=2026-10-03 */
 function resolveBaseStorage(): { storage: StateStorage; durable: boolean } {
   try {
-    if (typeof localStorage !== "undefined") {
+    if (
+      typeof localStorage !== "undefined" &&
+      typeof localStorage.getItem === "function" &&
+      typeof localStorage.setItem === "function" &&
+      typeof localStorage.removeItem === "function"
+    ) {
       return { storage: localStorage, durable: true };
     }
   } catch {

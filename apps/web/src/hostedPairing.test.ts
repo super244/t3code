@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=19m; seat=codex; date=2026-10-04 */
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
@@ -11,6 +12,7 @@ import {
 describe("hostedPairing", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it("reads hosted pairing host and query token parameters", () => {
@@ -80,6 +82,14 @@ describe("hostedPairing", () => {
     expect(isHostedStaticApp(new URL("https://preview.t3.codes/"))).toBe(false);
   });
 
+  it("keeps the installed desktop app on its local startup path despite hosted build settings", () => {
+    vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "nightly");
+    vi.stubEnv("VITE_HTTP_URL", "");
+    vi.stubEnv("VITE_WS_URL", "");
+    vi.stubGlobal("window", { location: new URL("t3code://app/"), desktopBridge: {} });
+    expect(isHostedStaticApp()).toBe(false);
+    expect(isHostedStaticApp(new URL("https://app.t3.codes/"))).toBe(false);
+  });
   it("detects hosted channel aliases as static apps", () => {
     vi.stubEnv("VITE_HOSTED_APP_URL", "https://app.t3.codes");
     vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "nightly");

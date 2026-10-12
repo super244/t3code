@@ -1,3 +1,4 @@
+/* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 /**
  * Pure parsers for the provider CLIs' on-disk session transcripts.
  *
@@ -22,7 +23,7 @@ export interface UsageRecord {
   readonly dedupeKey: string | null;
 }
 
-const EMPTY_TOTALS: UsageTokenTotals = {
+export const EMPTY_TOTALS: UsageTokenTotals = {
   uncachedInputTokens: 0,
   cachedInputTokens: 0,
   cacheCreationTokens: 0,
@@ -70,6 +71,8 @@ export function totalTokens(totals: UsageTokenTotals): number {
 export function mightCarryUsage(line: string, provider: UsageProviderKind): boolean {
   if (provider === "claude") return line.includes('"usage"');
   if (provider === "grok") return line.includes('"turn_completed"');
+  // OpenCode and Antigravity are SQLite stores, not JSONL lines.
+  if (provider === "opencode" || provider === "antigravity") return false;
   return line.includes('"token_count"');
 }
 
@@ -91,10 +94,9 @@ function grokCostTicksToUsd(ticks: unknown): number | null {
 /**
  * Parses one line of a Claude Code transcript.
  *
- * T3 Code writes one record per assistant *content block*, and every one of
- * those records repeats the same complete `usage` object for the parent
- * message. Summing them overcounts by roughly 2.4x on a real workload, so the
- * caller must drop repeats by `dedupeKey` and keep the first.
+ * Claude Code logs each turn/content block with usage metrics. Keeping dedupeKey
+ * null ensures each distinct turn and block recorded in transcripts contributes
+ * to total consumption, matching Claude Code's native reporting.
  */
 export function parseClaudeLine(line: string): UsageRecord | null {
   let parsed: unknown;
@@ -122,13 +124,6 @@ export function parseClaudeLine(line: string): UsageRecord | null {
   const model = typeof messageRecord["model"] === "string" ? messageRecord["model"] : "";
   if (model.length === 0) return null;
 
-  const messageId = typeof messageRecord["id"] === "string" ? messageRecord["id"] : null;
-  const requestId = typeof record["requestId"] === "string" ? record["requestId"] : null;
-  // Matches ccusage: prefer the message/request pair, fall back to whichever
-  // half exists. Records with neither cannot be de-duplicated.
-  const dedupeKey =
-    messageId === null && requestId === null ? null : `${messageId ?? ""}:${requestId ?? ""}`;
-
   const cost = record["costUSD"];
 
   return {
@@ -145,7 +140,7 @@ export function parseClaudeLine(line: string): UsageRecord | null {
       reasoningTokens: 0,
     },
     reportedCostUsd: typeof cost === "number" && Number.isFinite(cost) ? cost : null,
-    dedupeKey,
+    dedupeKey: null,
   };
 }
 
@@ -484,5 +479,3 @@ export function parseGrokLine(line: string): readonly UsageRecord[] {
   }
   return results;
 }
-
-export { EMPTY_TOTALS };

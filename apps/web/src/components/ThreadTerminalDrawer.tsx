@@ -1,3 +1,5 @@
+/* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=5m; seat=antigravity; date=2026-10-03 */
 import { useAtomValue } from "@effect/atom-react";
 import {
   isAtomCommandInterrupted,
@@ -11,13 +13,17 @@ import {
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
 import {
+  Eraser,
   Plus,
   Square,
   SquareSplitHorizontal,
   SquareSplitVertical,
   TerminalSquare,
   Trash2,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
+import { MIN_TERMINAL_FONT_SIZE, MAX_TERMINAL_FONT_SIZE } from "@t3tools/contracts/settings";
 import {
   type ContextMenuItem,
   type ProviderInstanceId,
@@ -75,7 +81,7 @@ import {
 } from "../types";
 import { readLocalApi } from "~/localApi";
 import { confirmTerminalClose } from "~/lib/terminalCloseConfirm";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useAttachedTerminalSession } from "../state/terminalSessions";
 import { serverEnvironment } from "../state/server";
@@ -1287,6 +1293,38 @@ export default function ThreadTerminalDrawer({
     [onCloseTerminal, terminalLabelById],
   );
 
+  const runTerminalWrite = useAtomCommand(terminalEnvironment.write, {
+    reportFailure: false,
+  });
+  const terminalFontSize = useClientSettings((settings) => settings.fontSizeTerminal);
+  const updateClientSettings = useUpdateClientSettings();
+
+  const handleZoomInTerminal = useCallback(() => {
+    const nextSize = Math.min(MAX_TERMINAL_FONT_SIZE, terminalFontSize + 1);
+    if (nextSize !== terminalFontSize) {
+      updateClientSettings({ fontSizeTerminal: nextSize });
+    }
+  }, [terminalFontSize, updateClientSettings]);
+
+  const handleZoomOutTerminal = useCallback(() => {
+    const nextSize = Math.max(MIN_TERMINAL_FONT_SIZE, terminalFontSize - 1);
+    if (nextSize !== terminalFontSize) {
+      updateClientSettings({ fontSizeTerminal: nextSize });
+    }
+  }, [terminalFontSize, updateClientSettings]);
+
+  const handleClearActiveTerminal = useCallback(() => {
+    if (!resolvedActiveTerminalId) return;
+    void runTerminalWrite({
+      environmentId: threadRef.environmentId,
+      input: {
+        threadId,
+        terminalId: resolvedActiveTerminalId,
+        data: "\u000c",
+      },
+    });
+  }, [resolvedActiveTerminalId, runTerminalWrite, threadRef.environmentId, threadId]);
+
   useEffect(() => {
     onHeightChangeRef.current = onHeightChange;
   }, [onHeightChange]);
@@ -1441,7 +1479,31 @@ export default function ThreadTerminalDrawer({
 
       {!hasTerminalSidebar && (
         <div className="pointer-events-none absolute right-2 top-2 z-20">
-          <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background shadow-xs">
+          <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/70 bg-background/80 backdrop-blur-md shadow-sm transition-colors hover:bg-background/95 hover:border-border">
+            <TerminalActionButton
+              className="p-1 text-foreground/90 transition-colors hover:bg-accent"
+              onClick={handleZoomOutTerminal}
+              label={`Decrease font size (${terminalFontSize}px)`}
+            >
+              <ZoomOut className="size-3.25" />
+            </TerminalActionButton>
+            <div className="h-4 w-px bg-border/80" />
+            <TerminalActionButton
+              className="p-1 text-foreground/90 transition-colors hover:bg-accent"
+              onClick={handleZoomInTerminal}
+              label={`Increase font size (${terminalFontSize}px)`}
+            >
+              <ZoomIn className="size-3.25" />
+            </TerminalActionButton>
+            <div className="h-4 w-px bg-border/80" />
+            <TerminalActionButton
+              className="p-1 text-foreground/90 transition-colors hover:bg-accent"
+              onClick={handleClearActiveTerminal}
+              label="Clear terminal"
+            >
+              <Eraser className="size-3.25" />
+            </TerminalActionButton>
+            <div className="h-4 w-px bg-border/80" />
             <TerminalActionButton
               className={`p-1 text-foreground/90 transition-colors ${
                 hasReachedSplitLimit
@@ -1588,7 +1650,28 @@ export default function ThreadTerminalDrawer({
               <div className="flex h-[22px] items-stretch justify-end border-b border-border/70">
                 <div className="inline-flex h-full items-stretch">
                   <TerminalActionButton
-                    className={`inline-flex h-full items-center px-1 text-foreground/90 transition-colors ${
+                    className="inline-flex h-full items-center px-1 text-foreground/90 transition-colors hover:bg-accent/70"
+                    onClick={handleZoomOutTerminal}
+                    label={`Decrease font size (${terminalFontSize}px)`}
+                  >
+                    <ZoomOut className="size-3.25" />
+                  </TerminalActionButton>
+                  <TerminalActionButton
+                    className="inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
+                    onClick={handleZoomInTerminal}
+                    label={`Increase font size (${terminalFontSize}px)`}
+                  >
+                    <ZoomIn className="size-3.25" />
+                  </TerminalActionButton>
+                  <TerminalActionButton
+                    className="inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
+                    onClick={handleClearActiveTerminal}
+                    label="Clear terminal"
+                  >
+                    <Eraser className="size-3.25" />
+                  </TerminalActionButton>
+                  <TerminalActionButton
+                    className={`inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors ${
                       hasReachedSplitLimit
                         ? "cursor-not-allowed opacity-45 hover:bg-transparent"
                         : "hover:bg-accent/70"

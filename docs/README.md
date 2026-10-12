@@ -1,3 +1,5 @@
+<!-- agent-watermark: model=opus-5.5; effort=high; duration=72m; seat=claude-code; date=2026-10-04 -->
+
 # T3 Code docs
 
 ## Using T3 Code
@@ -16,6 +18,7 @@
 - [Usage and limits](./user/usage.md)
 - [Scheduled routines](./user/routines.md)
 - [Command Center](./user/command-center.md)
+- [Race](./user/race.md)
 - [Skills](./user/skills.md)
 - [Product usage data](./user/telemetry.md)
 - [Remote access](./user/remote-access.md)

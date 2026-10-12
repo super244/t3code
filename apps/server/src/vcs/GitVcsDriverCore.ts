@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
 import * as Arr from "effect/Array";
 import * as Cache from "effect/Cache";
 import * as Data from "effect/Data";
@@ -44,6 +45,9 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 // machine). Give it generous headroom while still bounding a genuinely hung git.
 const WORKTREE_ADD_TIMEOUT_MS = 300_000;
 const WORKTREE_REMOVE_TIMEOUT_MS = Duration.toMillis(Duration.minutes(5));
+// Staging, committing and squash-merging a worktree walk the whole tree, so
+// they get the same headroom as creating and removing one.
+const WORKTREE_INTEGRATE_TIMEOUT_MS = Duration.toMillis(Duration.minutes(5));
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
 const OUTPUT_TRUNCATED_MARKER = "\n\n[truncated]";
 const PREPARED_COMMIT_PATCH_MAX_OUTPUT_BYTES = 49_000;
@@ -435,6 +439,34 @@ function isUnbornHeadStderr(stderr: string): boolean {
     normalized.includes("bad revision 'head'") ||
     (normalized.includes("unknown revision") && normalized.includes("path not in the working tree"))
   );
+}
+
+// A refused commit is the one place raw git output crosses the wire: a hook's
+// message is the whole reason the user needs, and it is their own machine's
+// output. Capped so a chatty linter cannot push megabytes through a WS reply.
+const COMMIT_REJECTION_REASON_MAX_LENGTH = 2_000;
+function formatCommitRejectionReason(result: {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number | null;
+}): string {
+  const output = [result.stderr.trim(), result.stdout.trim()].filter(Boolean).join("\n").trim();
+  const capped = output.slice(0, COMMIT_REJECTION_REASON_MAX_LENGTH).trim();
+  return capped.length > 0
+    ? capped
+    : `git commit exited with code ${result.exitCode ?? "unknown"} without any output.`;
+}
+
+/** The one `git config` failure worth waiting out rather than reporting. */
+const CONFIG_LOCK_DETAIL = "Could not take the Git config lock.";
+function isConfigLockStderr(stderr: string): boolean {
+  return stderr.toLowerCase().includes("could not lock config file");
+}
+
+// `git branch -D` on a branch that is already gone: the entrant's cleanup ran
+// twice, or the user deleted it by hand.
+function isMissingBranchStderr(stderr: string): boolean {
+  return stderr.toLowerCase().includes("not found");
 }
 
 // Matches `git worktree remove` on a path git no longer tracks: "is not a
@@ -2867,6 +2899,65 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     },
   );
 
+  // `git config` takes `.git/config.lock` and gives up the moment it is held,
+  // with no retry of its own. Several worktrees get bootstrapped in one
+  // repository at the same time (best-of-N attempts fan out 2-4 at once) and
+  // each one writes its new branch's merge base, so unserialized roughly one
+  // call in three died on a lock it only had to wait for. Keyed per repository
+  // so unrelated repositories still write in parallel.
+  const configWriteMutexByRepository = new Map<string, Semaphore.Semaphore>();
+  const resolveConfigWriteMutex = Effect.fn("resolveConfigWriteMutex")(function* (cwd: string) {
+    const repositoryPaths = yield* resolveRepositoryPaths(cwd).pipe(
+      Effect.catchTags({ GitCommandError: () => Effect.succeed(null) }),
+    );
+    const key = repositoryPaths?.gitCommonDir ?? normalizeRepositoryPathsCacheKey(cwd);
+    const existing = configWriteMutexByRepository.get(key);
+    if (existing) {
+      return existing;
+    }
+    // Created synchronously on purpose: awaiting a constructor here would let a
+    // second fiber install a second mutex for the same repository.
+    const created = Semaphore.makeUnsafe(1);
+    configWriteMutexByRepository.set(key, created);
+    return created;
+  });
+
+  const writeConfigValue = Effect.fn("writeConfigValue")(function* (
+    operation: string,
+    cwd: string,
+    key: string,
+    value: string,
+  ) {
+    const mutex = yield* resolveConfigWriteMutex(cwd);
+    const args = ["config", key, value];
+    yield* mutex.withPermit(
+      executeGitWithStableDiagnostics(operation, cwd, args, {
+        timeoutMs: 10_000,
+        allowNonZeroExit: true,
+      }).pipe(
+        Effect.flatMap((result) =>
+          result.exitCode === 0
+            ? Effect.void
+            : Effect.fail(
+                new GitCommandError({
+                  ...gitCommandContext({ operation, cwd, args }),
+                  detail: isConfigLockStderr(result.stderr)
+                    ? CONFIG_LOCK_DETAIL
+                    : "git config failed.",
+                  ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
+                  stdoutLength: result.stdout.length,
+                  stderrLength: result.stderr.length,
+                }),
+              ),
+        ),
+        // The mutex only covers this server's writes; the user's own shell or
+        // another tool can hold the lock too. Each retry pays a process spawn,
+        // which is the spacing a backoff would otherwise have to add.
+        Effect.retry({ while: (error) => error.detail === CONFIG_LOCK_DETAIL, times: 4 }),
+      ),
+    );
+  });
+
   const createWorktree: GitVcsDriver.GitVcsDriver["Service"]["createWorktree"] = Effect.fn(
     "createWorktree",
   )(function* (input) {
@@ -2914,11 +3005,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         remoteNames.toSorted((left, right) => right.length - left.length),
       );
       const baseBranch = parsedBaseRef?.branchName ?? input.baseRefName;
-      yield* runGit("GitVcsDriver.createWorktree.configureBaseRef", input.cwd, [
-        "config",
+      yield* writeConfigValue(
+        "GitVcsDriver.createWorktree.configureBaseRef",
+        input.cwd,
         `branch.${input.newRefName}.gh-merge-base`,
         baseBranch,
-      ]);
+      );
     }
 
     return {
@@ -3110,6 +3202,56 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       input.branch,
     ]);
 
+  /**
+   * Deletes the branch a removed worktree leaves behind. Never fails the
+   * removal that asked for it: the worktree is already gone by this point, and
+   * a leftover branch is a tidiness problem rather than a broken checkout.
+   */
+  const deleteBranchAfterWorktreeRemoval = Effect.fn("deleteBranchAfterWorktreeRemoval")(function* (
+    cwd: string,
+    branch: string,
+  ) {
+    const currentBranch = yield* executeGitWithStableDiagnostics(
+      "GitVcsDriver.removeWorktree.currentBranch",
+      cwd,
+      ["symbolic-ref", "--quiet", "--short", "HEAD"],
+      { timeoutMs: 5_000, allowNonZeroExit: true },
+    ).pipe(Effect.map((result) => (result.exitCode === 0 ? result.stdout.trim() : null)));
+    if (currentBranch === branch) {
+      yield* Effect.logWarning(
+        `GitVcsDriver.removeWorktree: kept ${branch}, which is checked out in ${cwd}.`,
+      );
+      return;
+    }
+
+    const args = ["branch", "-D", "--", branch];
+    const deleted = yield* executeGitWithStableDiagnostics(
+      "GitVcsDriver.removeWorktree.deleteBranch",
+      cwd,
+      args,
+      { timeoutMs: 15_000, allowNonZeroExit: true },
+    );
+    if (deleted.exitCode === 0 || isMissingBranchStderr(deleted.stderr)) {
+      return;
+    }
+    // Raw stderr stays out of the log; a branch still checked out in another
+    // worktree is the usual reason git refuses.
+    yield* Effect.logWarning(
+      `GitVcsDriver.removeWorktree: git branch -D exited with code ${deleted.exitCode} for ${branch} in ${cwd} (stderr length ${deleted.stderr.length}).`,
+    );
+  });
+
+  /** Same, with a git that could not even run folded into the warning. */
+  const deleteBranchQuietly = (cwd: string, branch: string) =>
+    deleteBranchAfterWorktreeRemoval(cwd, branch).pipe(
+      Effect.catchTags({
+        GitCommandError: (error) =>
+          Effect.logWarning(
+            `GitVcsDriver.removeWorktree: could not delete ${branch} in ${cwd} (${error.detail}).`,
+          ),
+      }),
+    );
+
   const removeWorktree: GitVcsDriver.GitVcsDriver["Service"]["removeWorktree"] = Effect.fn(
     "removeWorktree",
   )(function* (input) {
@@ -3131,6 +3273,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       },
     );
     if (result.exitCode === 0) {
+      if (input.deleteBranch) {
+        yield* deleteBranchQuietly(input.cwd, input.deleteBranch);
+      }
       return;
     }
     // Threads can share a worktree path, and worktrees get removed or pruned
@@ -3142,6 +3287,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       !(yield* fileSystem.exists(input.path).pipe(Effect.orElseSucceed(() => false)));
     if (alreadyGone) {
       yield* pruneWorktrees({ cwd: input.cwd });
+      if (input.deleteBranch) {
+        yield* deleteBranchQuietly(input.cwd, input.deleteBranch);
+      }
       return;
     }
     // Raw stderr stays out of both the wire error and the log (it can carry
@@ -3166,6 +3314,294 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       timeoutMs: 15_000,
       fallbackErrorDetail: "git worktree prune failed",
     });
+  });
+
+  const listGitPaths = (operation: string, cwd: string, args: readonly string[]) =>
+    executeGitWithStableDiagnostics(operation, cwd, args, {
+      timeoutMs: WORKTREE_INTEGRATE_TIMEOUT_MS,
+      fallbackErrorDetail: "git diff failed.",
+    }).pipe(Effect.map(splitNullSeparatedGitStdoutPaths));
+
+  const clearSquashMergeMessages = Effect.fn("clearSquashMergeMessages")(function* (cwd: string) {
+    for (const stateFile of ["SQUASH_MSG", "MERGE_MSG"] as const) {
+      const resolved = yield* executeGitWithStableDiagnostics(
+        "GitVcsDriver.integrateWorktree.gitPath",
+        cwd,
+        ["rev-parse", "--git-path", stateFile],
+        { timeoutMs: 5_000, allowNonZeroExit: true },
+      );
+      if (resolved.exitCode !== 0) continue;
+      const statePath = resolved.stdout.trim();
+      if (statePath.length === 0) continue;
+      yield* fileSystem.remove(path.resolve(cwd, statePath), { force: true }).pipe(Effect.ignore);
+    }
+  });
+
+  const restoreCheckoutAfterSquashMerge = Effect.fn("restoreCheckoutAfterSquashMerge")(function* (
+    cwd: string,
+  ) {
+    // A squashed merge records no MERGE_HEAD, so `git merge --abort` only has
+    // something to abort when a real merge got as far as starting.
+    // `git reset --merge` is what unwinds a conflicted squash, and it drops
+    // the SQUASH_MSG and MERGE_MSG git wrote on the way in.
+    const mergeHead = yield* executeGitWithStableDiagnostics(
+      "GitVcsDriver.integrateWorktree.mergeHead",
+      cwd,
+      ["rev-parse", "--verify", "--quiet", "MERGE_HEAD"],
+      { timeoutMs: 10_000, allowNonZeroExit: true },
+    );
+    const args = mergeHead.exitCode === 0 ? ["merge", "--abort"] : ["reset", "--merge"];
+    const restored = yield* executeGitWithStableDiagnostics(
+      "GitVcsDriver.integrateWorktree.restore",
+      cwd,
+      args,
+      { timeoutMs: WORKTREE_INTEGRATE_TIMEOUT_MS, allowNonZeroExit: true },
+    );
+    if (restored.exitCode === 0) {
+      // `git reset` drops SQUASH_MSG and MERGE_MSG itself, but the promise that
+      // the checkout is untouched is worth more than one stat each.
+      yield* clearSquashMergeMessages(cwd);
+      return;
+    }
+    yield* Effect.logWarning(
+      `GitVcsDriver.integrateWorktree: git ${args.join(" ")} exited with code ${restored.exitCode} for ${cwd} (stderr length ${restored.stderr.length}).`,
+    );
+    // Reporting a clean refusal while the checkout still holds merge state
+    // would be a lie, so a failed restore fails the whole operation.
+    return yield* new GitCommandError({
+      ...gitCommandContext({
+        operation: "GitVcsDriver.integrateWorktree.restore",
+        cwd,
+        args,
+      }),
+      detail: "Could not restore the project checkout after a failed squash merge.",
+      ...(restored.exitCode === null ? {} : { exitCode: restored.exitCode }),
+      stdoutLength: restored.stdout.length,
+      stderrLength: restored.stderr.length,
+    });
+  });
+
+  const readCurrentBranch = (operation: string, cwd: string) =>
+    executeGitWithStableDiagnostics(
+      operation,
+      cwd,
+      ["symbolic-ref", "--quiet", "--short", "HEAD"],
+      { timeoutMs: 10_000, allowNonZeroExit: true },
+    ).pipe(
+      Effect.map((result) => {
+        if (result.exitCode !== 0) return null;
+        const branch = result.stdout.trim();
+        return branch.length > 0 ? branch : null;
+      }),
+    );
+
+  /**
+   * Folds a worktree's branch back into the checkout it was cut from: the last
+   * step of keeping one of several parallel attempts.
+   *
+   * Every refusal is a result rather than a failure, and the order of the
+   * checks is part of the contract: everything that can refuse is settled
+   * before the attempt's uncommitted work is turned into a commit, and anything
+   * that fails after the squash merge is staged restores the checkout before it
+   * returns. Both checkouts come out exactly as they went in unless the status
+   * is `merged`.
+   */
+  const integrateWorktree: GitVcsDriver.GitVcsDriver["Service"]["integrateWorktree"] = Effect.fn(
+    "integrateWorktree",
+  )(function* (input) {
+    const operation = "GitVcsDriver.integrateWorktree";
+
+    // 1. The worktree must still be on the branch being integrated. Anything
+    //    else and the attempt is no longer where the caller thinks it is.
+    const worktreeBranch = yield* readCurrentBranch(
+      `${operation}.worktreeBranch`,
+      input.worktreePath,
+    );
+    if (worktreeBranch !== input.branch) {
+      return { status: "branch_mismatch", current: worktreeBranch } as const;
+    }
+
+    // 2. The checkout must still be on the branch this attempt was cut from.
+    //    `createWorktree` records that base, so a checkout that has since moved
+    //    on (or detached) is refused rather than merged into by accident.
+    const baseBranch = yield* readCurrentBranch(`${operation}.baseBranch`, input.cwd);
+    const recordedBase = yield* readConfigValue(
+      input.cwd,
+      `branch.${input.branch}.gh-merge-base`,
+    ).pipe(Effect.map((value) => value?.trim() || null));
+    if (baseBranch === null || (recordedBase !== null && recordedBase !== baseBranch)) {
+      return { status: "base_moved", expected: recordedBase, current: baseBranch } as const;
+    }
+
+    // 3. Untracked files deliberately do not count as dirty: build output and
+    //    local scratch files sit in a checkout all day and a merge does not
+    //    rewrite them.
+    const baseChangedPaths = yield* listGitPaths(`${operation}.baseChangedPaths`, input.cwd, [
+      "diff",
+      "--name-only",
+      "-z",
+      "HEAD",
+    ]);
+    if (baseChangedPaths.length > 0) {
+      return { status: "base_dirty", files: baseChangedPaths } as const;
+    }
+
+    // 4. Only now is it safe to turn the attempt's work into a commit.
+    const worktreeIsDirty = yield* executeGitWithStableDiagnostics(
+      `${operation}.worktreeStatus`,
+      input.worktreePath,
+      ["status", "--porcelain"],
+      { timeoutMs: WORKTREE_INTEGRATE_TIMEOUT_MS, fallbackErrorDetail: "git status failed." },
+    ).pipe(Effect.map((result) => result.stdout.trim().length > 0));
+    if (worktreeIsDirty) {
+      yield* runGit(`${operation}.stage`, input.worktreePath, ["add", "-A"], {
+        timeoutMs: WORKTREE_INTEGRATE_TIMEOUT_MS,
+        fallbackErrorDetail: "git add -A failed.",
+      });
+      const stagedPaths = yield* listGitPaths(`${operation}.stagedPaths`, input.worktreePath, [
+        "diff",
+        "--cached",
+        "--name-only",
+        "-z",
+        "HEAD",
+      ]);
+      if (stagedPaths.length > 0) {
+        // Hooks are skipped inside the worktree on purpose: a pre-commit hook
+        // would rewrite or reject work the user is only trying to preserve, and
+        // this commit is squashed into one of theirs straight afterwards. The
+        // commit on their own branch does run them.
+        yield* runGit(
+          `${operation}.commitWorktree`,
+          input.worktreePath,
+          ["commit", "--no-verify", "-m", input.commitMessage],
+          {
+            timeoutMs: WORKTREE_INTEGRATE_TIMEOUT_MS,
+            fallbackErrorDetail: "git commit failed in the worktree.",
+          },
+        );
+      }
+    }
+
+    // Every later argument is the resolved commit, so a branch name that looks
+    // like an option cannot reach git's argument parsing.
+    const resolveBranchArgs = [
+      "rev-parse",
+      "--verify",
+      "--end-of-options",
+      `refs/heads/${input.branch}^{commit}`,
+    ];
+    const resolvedBranch = yield* executeGitWithStableDiagnostics(
+      `${operation}.resolveBranch`,
+      input.cwd,
+      resolveBranchArgs,
+      { timeoutMs: 10_000, allowNonZeroExit: true },
+    );
+    if (resolvedBranch.exitCode !== 0) {
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: `${operation}.resolveBranch`,
+          cwd: input.cwd,
+          args: resolveBranchArgs,
+        }),
+        detail: "The branch being integrated does not exist in this repository.",
+        ...(resolvedBranch.exitCode === null ? {} : { exitCode: resolvedBranch.exitCode }),
+        stdoutLength: resolvedBranch.stdout.length,
+        stderrLength: resolvedBranch.stderr.length,
+      });
+    }
+    const branchCommit = resolvedBranch.stdout.trim();
+
+    const aheadArgs = ["rev-list", "--count", `HEAD..${branchCommit}`];
+    const aheadCount = yield* executeGitWithStableDiagnostics(
+      `${operation}.aheadCount`,
+      input.cwd,
+      aheadArgs,
+      { timeoutMs: WORKTREE_INTEGRATE_TIMEOUT_MS, fallbackErrorDetail: "git rev-list failed." },
+    ).pipe(Effect.map((result) => Number.parseInt(result.stdout.trim(), 10)));
+    if (Number.isNaN(aheadCount)) {
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: `${operation}.aheadCount`,
+          cwd: input.cwd,
+          args: aheadArgs,
+        }),
+        detail: "Could not count the commits the branch is ahead by.",
+      });
+    }
+    if (aheadCount === 0) {
+      return { status: "nothing_to_merge" } as const;
+    }
+
+    const mergeArgs = ["merge", "--squash", branchCommit];
+    const mergeResult = yield* executeGitWithStableDiagnostics(
+      `${operation}.merge`,
+      input.cwd,
+      mergeArgs,
+      { timeoutMs: WORKTREE_INTEGRATE_TIMEOUT_MS, allowNonZeroExit: true },
+    );
+    if (mergeResult.exitCode !== 0) {
+      const conflictedPaths = yield* listGitPaths(`${operation}.conflictedPaths`, input.cwd, [
+        "diff",
+        "--name-only",
+        "--diff-filter=U",
+        "-z",
+      ]);
+      yield* restoreCheckoutAfterSquashMerge(input.cwd);
+      if (conflictedPaths.length > 0) {
+        return { status: "conflict", files: conflictedPaths } as const;
+      }
+      // A merge that fails without leaving a conflicted path is something else
+      // entirely, most often an untracked file it refuses to overwrite. Raw
+      // stderr stays out of the wire error, so log bounded diagnostics.
+      yield* Effect.logWarning(
+        `${operation}: git merge --squash exited with code ${mergeResult.exitCode} for ${input.cwd} with no conflicted paths (stderr length ${mergeResult.stderr.length}).`,
+      );
+      return yield* new GitCommandError({
+        ...gitCommandContext({ operation: `${operation}.merge`, cwd: input.cwd, args: mergeArgs }),
+        detail: "git merge --squash failed; the project checkout was left as it was.",
+        ...(mergeResult.exitCode === null ? {} : { exitCode: mergeResult.exitCode }),
+        stdoutLength: mergeResult.stdout.length,
+        stderrLength: mergeResult.stderr.length,
+      });
+    }
+
+    const mergedPaths = yield* listGitPaths(`${operation}.mergedPaths`, input.cwd, [
+      "diff",
+      "--cached",
+      "--name-only",
+      "-z",
+      "HEAD",
+    ]);
+    if (mergedPaths.length === 0) {
+      // The branch is ahead, but its commits cancel out against the base tree.
+      yield* restoreCheckoutAfterSquashMerge(input.cwd);
+      return { status: "nothing_to_merge" } as const;
+    }
+
+    // The commit on the user's own branch runs their hooks. Anything that
+    // refuses it — a hook, unavailable commit signing, a missing identity —
+    // unwinds the staged merge first, so a rejection costs them nothing.
+    const commitArgs = ["commit", "-m", input.commitMessage];
+    const commitResult = yield* executeGitWithStableDiagnostics(
+      `${operation}.commitBase`,
+      input.cwd,
+      commitArgs,
+      { timeoutMs: WORKTREE_INTEGRATE_TIMEOUT_MS, allowNonZeroExit: true },
+    );
+    if (commitResult.exitCode !== 0) {
+      yield* restoreCheckoutAfterSquashMerge(input.cwd);
+      return {
+        status: "rejected",
+        reason: formatCommitRejectionReason(commitResult),
+      } as const;
+    }
+
+    const commitSha = yield* runGitStdout(`${operation}.revParseHead`, input.cwd, [
+      "rev-parse",
+      "HEAD",
+    ]).pipe(Effect.map((stdout) => stdout.trim()));
+
+    return { status: "merged", commitSha, filesChanged: mergedPaths.length } as const;
   });
 
   const renameBranch: GitVcsDriver.GitVcsDriver["Service"]["renameBranch"] = Effect.fn(
@@ -3374,6 +3810,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       withListRefsInvalidation(input.cwd, fetchRemoteTrackingBranch(input)),
     setBranchUpstream: (input) => withListRefsInvalidation(input.cwd, setBranchUpstream(input)),
     removeWorktree: (input) => withListRefsInvalidation(input.cwd, removeWorktree(input)),
+    integrateWorktree: (input) => withListRefsInvalidation(input.cwd, integrateWorktree(input)),
     pruneWorktrees: (input) => withListRefsInvalidation(input.cwd, pruneWorktrees(input)),
     renameBranch: (input) => withListRefsInvalidation(input.cwd, renameBranch(input)),
     createRef: (input) => withListRefsInvalidation(input.cwd, createRef(input)),

@@ -1,8 +1,12 @@
 import { Button } from "../ui/button";
 import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
-import { formatContextWindowCompactionMessage } from "./ContextWindowMeter.logic";
-import { Minimize2Icon } from "lucide-react";
+import {
+  deriveCacheEfficiency,
+  deriveDetailedTokenBreakdown,
+  formatContextWindowCompactionMessage,
+} from "./ContextWindowMeter.logic";
+import { Minimize2Icon, ZapIcon } from "lucide-react";
 import { composerFloatingLayerProps } from "./composerEventScope";
 
 function formatPercentage(value: number | null): string | null {
@@ -34,6 +38,13 @@ export function ContextWindowMeter(props: {
   const usageColor = isOverloaded
     ? "var(--color-error)"
     : "color-mix(in oklab, var(--color-muted-foreground) 72%, transparent)";
+
+  const cacheEfficiency = deriveCacheEfficiency({
+    inputTokens: usage.inputTokens,
+    cachedInputTokens: usage.cachedInputTokens,
+  });
+
+  const detailedBreakdown = deriveDetailedTokenBreakdown(usage);
 
   return (
     <Popover>
@@ -89,9 +100,9 @@ export function ContextWindowMeter(props: {
         side="top"
         align="end"
         viewportClassName="p-0"
-        className="w-64 max-w-none text-left whitespace-normal"
+        className="w-72 max-w-none text-left whitespace-normal"
       >
-        <div className="flex flex-col gap-2 p-[var(--floating-content-inset)]">
+        <div className="flex flex-col gap-2.5 p-[var(--floating-content-inset)]">
           <div className="flex items-center justify-between gap-3">
             <div className="font-medium text-muted-foreground text-xs">Context Window</div>
             {usage.maxTokens !== null && usedPercentage ? (
@@ -124,6 +135,56 @@ export function ContextWindowMeter(props: {
               />
             </div>
           ) : null}
+
+          {cacheEfficiency ? (
+            <div className="flex items-center justify-between rounded-md bg-emerald-500/10 px-2 py-1 text-emerald-600 text-[11px] font-medium dark:bg-emerald-500/15 dark:text-emerald-400">
+              <span className="flex items-center gap-1.5">
+                <ZapIcon className="size-3 shrink-0" />
+                <span>Prompt Cache Hit</span>
+              </span>
+              <span className="font-semibold tabular-nums">{cacheEfficiency.label}</span>
+            </div>
+          ) : null}
+
+          {(detailedBreakdown.inputTokens !== null || detailedBreakdown.outputTokens !== null) && (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded border border-border/50 bg-muted/20 px-2.5 py-1.5 text-[11px]">
+              {detailedBreakdown.uncachedInputTokens !== null && (
+                <div className="flex items-center justify-between">
+                  <span className="text-secondary-label">Prompt:</span>
+                  <span className="font-mono tabular-nums text-foreground">
+                    {formatContextWindowTokens(detailedBreakdown.uncachedInputTokens)}
+                  </span>
+                </div>
+              )}
+              {detailedBreakdown.cachedInputTokens !== null &&
+                detailedBreakdown.cachedInputTokens > 0 && (
+                  <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400">
+                    <span>Cached:</span>
+                    <span className="font-mono tabular-nums">
+                      {formatContextWindowTokens(detailedBreakdown.cachedInputTokens)}
+                    </span>
+                  </div>
+                )}
+              {detailedBreakdown.outputTokens !== null && (
+                <div className="flex items-center justify-between">
+                  <span className="text-secondary-label">Output:</span>
+                  <span className="font-mono tabular-nums text-foreground">
+                    {formatContextWindowTokens(detailedBreakdown.outputTokens)}
+                  </span>
+                </div>
+              )}
+              {detailedBreakdown.reasoningTokens !== null &&
+                detailedBreakdown.reasoningTokens > 0 && (
+                  <div className="flex items-center justify-between text-indigo-500 dark:text-indigo-400">
+                    <span>Reasoning:</span>
+                    <span className="font-mono tabular-nums">
+                      {formatContextWindowTokens(detailedBreakdown.reasoningTokens)}
+                    </span>
+                  </div>
+                )}
+            </div>
+          )}
+
           {showTotalProcessed ? (
             <div className="flex items-center justify-between gap-3 text-[11px] leading-4">
               <span className="text-secondary-label">Total processed</span>

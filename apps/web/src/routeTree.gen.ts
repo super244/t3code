@@ -13,6 +13,7 @@ import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as UsageRouteImport } from './routes/usage'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as RoutinesRouteImport } from './routes/routines'
+import { Route as RaceRouteImport } from './routes/race'
 import { Route as PairRouteImport } from './routes/pair'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as CommandCenterRouteImport } from './routes/command-center'
@@ -54,6 +55,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const RoutinesRoute = RoutinesRouteImport.update({
   id: '/routines',
   path: '/routines',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RaceRoute = RaceRouteImport.update({
+  id: '/race',
+  path: '/race',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PairRoute = PairRouteImport.update({
@@ -172,6 +178,7 @@ export interface FileRoutesByFullPath {
   '/command-center': typeof CommandCenterRoute
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
+  '/race': typeof RaceRoute
   '/routines': typeof RoutinesRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
@@ -198,6 +205,7 @@ export interface FileRoutesByTo {
   '/command-center': typeof CommandCenterRoute
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
+  '/race': typeof RaceRoute
   '/routines': typeof RoutinesRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
@@ -227,6 +235,7 @@ export interface FileRoutesById {
   '/command-center': typeof CommandCenterRoute
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
+  '/race': typeof RaceRoute
   '/routines': typeof RoutinesRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
@@ -257,6 +266,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/connect'
     | '/pair'
+    | '/race'
     | '/routines'
     | '/settings'
     | '/usage'
@@ -283,6 +293,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/connect'
     | '/pair'
+    | '/race'
     | '/routines'
     | '/settings'
     | '/usage'
@@ -311,6 +322,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/connect'
     | '/pair'
+    | '/race'
     | '/routines'
     | '/settings'
     | '/usage'
@@ -340,6 +352,7 @@ export interface RootRouteChildren {
   CommandCenterRoute: typeof CommandCenterRoute
   ConnectRoute: typeof ConnectRoute
   PairRoute: typeof PairRoute
+  RaceRoute: typeof RaceRoute
   RoutinesRoute: typeof RoutinesRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   UsageRoute: typeof UsageRoute
@@ -376,6 +389,13 @@ declare module '@tanstack/react-router' {
       path: '/routines'
       fullPath: '/routines'
       preLoaderRoute: typeof RoutinesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/race': {
+      id: '/race'
+      path: '/race'
+      fullPath: '/race'
+      preLoaderRoute: typeof RaceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pair': {
@@ -590,6 +610,7 @@ const rootRouteChildren: RootRouteChildren = {
   CommandCenterRoute: CommandCenterRoute,
   ConnectRoute: ConnectRoute,
   PairRoute: PairRoute,
+  RaceRoute: RaceRoute,
   RoutinesRoute: RoutinesRoute,
   SettingsRoute: SettingsRouteWithChildren,
   UsageRoute: UsageRoute,

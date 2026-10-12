@@ -1,3 +1,7 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-10 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=30m; seat=codex; date=2026-10-08 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=25m; seat=codex; date=2026-10-02 */
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
@@ -6,6 +10,8 @@ import {
   ForwardCompatibleNullable,
   IsoDateTime,
   ProjectId,
+  TurnId,
+  NonNegativeInt,
   ThreadId,
   TrimmedNonEmptyString,
   TrimmedString,
@@ -932,12 +938,26 @@ export type BackgroundActivitySettings = typeof BackgroundActivitySettings.Type;
 export const RoutineRunStatus = Schema.Literals(["never", "running", "launched", "failed"]);
 export type RoutineRunStatus = typeof RoutineRunStatus.Type;
 
-/** A persisted, server-owned recurring agent turn. The provider instance is the subscription. */
-export const RoutineDefinition = Schema.Struct({
+export const RoutineDailyLaunchUsage = Schema.Struct({
+  day: TrimmedNonEmptyString,
+  timeZone: TrimmedNonEmptyString,
+  attempts: NonNegativeInt,
+});
+
+/** Editable configuration; run history belongs to the server. */
+export const RoutineConfiguration = Schema.Struct({
   name: TrimmedNonEmptyString,
   enabled: Schema.Boolean,
   cron: TrimmedNonEmptyString,
   timeZone: TrimmedNonEmptyString,
+  /** Absent preserves the original catch-up behavior. False skips occurrences over five minutes late. */
+  catchUp: Schema.optionalKey(Schema.Boolean),
+  /** Absent keeps legacy concurrent launches; new clients default to skipping active tasks. */
+  overlapPolicy: Schema.optionalKey(Schema.Literals(["allow", "skip"])),
+  /** Null or absent is unlimited; counts atomically claimed launch attempts in the routine time zone. */
+  dailyLaunchLimit: Schema.optionalKey(
+    Schema.NullOr(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 1000 }))),
+  ),
   projectId: ProjectId,
   prompt: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
@@ -945,10 +965,77 @@ export const RoutineDefinition = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("default" as const)),
   ),
+});
+export type RoutineConfiguration = typeof RoutineConfiguration.Type;
+
+/** Portable configuration only; bindings and execution state stay on their computer. */
+export const RoutineTemplate = Schema.Struct({
+  format: Schema.Literal("t3.routine-template/1"),
+  name: RoutineConfiguration.fields.name,
+  prompt: RoutineConfiguration.fields.prompt,
+  cron: RoutineConfiguration.fields.cron,
+  timeZone: RoutineConfiguration.fields.timeZone,
+  catchUp: RoutineConfiguration.fields.catchUp,
+  overlapPolicy: RoutineConfiguration.fields.overlapPolicy,
+  dailyLaunchLimit: RoutineConfiguration.fields.dailyLaunchLimit,
+  runtimeMode: RoutineConfiguration.fields.runtimeMode,
+  interactionMode: RoutineConfiguration.fields.interactionMode,
+  suggestedModel: Schema.optionalKey(TrimmedNonEmptyString),
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
+export type RoutineTemplate = typeof RoutineTemplate.Type;
+
+export const MAX_ROUTINE_RUN_HISTORY = 50;
+export const RoutineTurnOutcome = Schema.Struct({
+  status: Schema.Literals(["completed", "interrupted", "failed", "unknown"]),
+  turnId: Schema.NullOr(TurnId),
+  recordedAt: IsoDateTime,
+  eventSequence: NonNegativeInt,
+  reason: Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_000))),
+});
+export type RoutineTurnOutcome = typeof RoutineTurnOutcome.Type;
+
+export const RoutineRunReceipt = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  scheduledAt: IsoDateTime,
+  startedAt: Schema.NullOr(IsoDateTime),
+  updatedAt: IsoDateTime,
+  status: Schema.Literals(["running", "launched", "failed", "skipped"]),
+  threadId: Schema.NullOr(ThreadId),
+  projectId: ProjectId,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode,
+  error: Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_000))),
+  skipReason: Schema.optionalKey(
+    Schema.Literals(["missed", "overlap", "activity-unavailable", "daily-limit"]),
+  ),
+  blockingThreadId: Schema.optionalKey(ThreadId),
+  dailyLaunchBudget: Schema.optionalKey(
+    Schema.Struct({
+      ...RoutineDailyLaunchUsage.fields,
+      limit: Schema.NullOr(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 1000 }))),
+    }),
+  ),
+  /** Start-command receipt cursor; absent on launch-only history from older environments. */
+  launchSequence: Schema.optionalKey(NonNegativeInt),
+  observedSequence: Schema.optionalKey(NonNegativeInt),
+  turnId: Schema.optionalKey(TurnId),
+  outcome: Schema.optionalKey(RoutineTurnOutcome),
+});
+export type RoutineRunReceipt = typeof RoutineRunReceipt.Type;
+
+/** A persisted, server-owned recurring agent turn. The provider instance is the subscription. */
+export const RoutineDefinition = Schema.Struct({
+  ...RoutineConfiguration.fields,
+  dailyLaunchUsage: Schema.optionalKey(RoutineDailyLaunchUsage),
   nextRunAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   lastRunAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   lastRunStatus: RoutineRunStatus.pipe(Schema.withDecodingDefault(Effect.succeed("never"))),
   lastThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  lastSkippedAt: Schema.optionalKey(IsoDateTime),
+  runHistory: Schema.optionalKey(
+    Schema.Array(RoutineRunReceipt).check(Schema.isMaxLength(MAX_ROUTINE_RUN_HISTORY)),
+  ),
   lastError: Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_000))).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -1169,10 +1256,12 @@ export class ServerSettingsError extends Schema.TaggedError<ServerSettingsError>
     operation: ServerSettingsOperation,
     providerInstanceId: Schema.optional(Schema.String),
     environmentVariable: Schema.optional(Schema.String),
+    routineIssue: Schema.optional(Schema.String),
     cause: Schema.Defect(),
   },
 ) {
   override get message(): string {
+    if (this.routineIssue !== undefined) return this.routineIssue;
     const provider =
       this.providerInstanceId === undefined ? "" : ` for provider ${this.providerInstanceId}`;
     const variable =
@@ -1333,6 +1422,29 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
+
+/** Actions resolve against current server state; edits fail if another client removed the routine. */
+export const RoutineClientMutation = Schema.Union([
+  RoutineDefinition,
+  Schema.Struct({
+    _tag: Schema.Literal("RoutineAction"),
+    action: Schema.Literals(["run-now", "pause", "resume"]),
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal("RoutineEdit"),
+    routine: RoutineDefinition,
+    expected: RoutineConfiguration,
+  }),
+]);
+export type RoutineClientMutation = typeof RoutineClientMutation.Type;
+
+export const ServerSettingsClientPatch = Schema.Struct({
+  ...ServerSettingsPatch.fields,
+  routines: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, Schema.NullOr(RoutineClientMutation)),
+  ),
+});
+export type ServerSettingsClientPatch = typeof ServerSettingsClientPatch.Type;
 
 export const ClientSettingsPatch = Schema.Struct({
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),

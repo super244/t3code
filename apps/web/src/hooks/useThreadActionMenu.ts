@@ -1,4 +1,6 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
+/* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
 import { scopeProjectRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
   type AtomCommandResult,
@@ -41,6 +43,7 @@ import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { useThreadActions } from "./useThreadActions";
+import { copyThreadReport, exportThreadReport } from "../threadReportActions";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -140,14 +143,20 @@ export function useThreadActionMenu(input: {
         const isRegeneratingTitle = thread.titleRegeneration != null;
         const snoozePresets = resolveSnoozePresets(now, timestampFormat);
         const items = buildThreadActionMenuItems({
+          // v1 servers have no scope or auto-settle contracts: every local
+          // connection operates, and the auto-settle submenu stays hidden.
+          canOperate: true,
           branch: thread.branch ?? null,
+          // The chat header has no scoped thread list behind the menu.
+          projectFilter: null,
           isPinned: thread.pinnedAt != null,
           isSettled: supports.settlement && thread.settledOverride === "settled",
+          autoSettleEnabled: true,
           isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
           canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
           isRegeneratingTitle,
           isRunning: thread.session?.status === "running" && thread.session.activeTurnId != null,
-          supports,
+          supports: { ...supports, autoSettleOptOut: false },
           snoozePresets,
         });
         const clicked = await settlePromise(() => api.contextMenu.show(items, position));
@@ -283,6 +292,15 @@ export function useThreadActionMenu(input: {
             return;
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+            return;
+          case "copy-report":
+            void copyThreadReport(threadRef, "report");
+            return;
+          case "copy-pr":
+            void copyThreadReport(threadRef, "pr");
+            return;
+          case "export-report":
+            void exportThreadReport(threadRef);
             return;
           case "archive": {
             if (confirmThreadArchive) {

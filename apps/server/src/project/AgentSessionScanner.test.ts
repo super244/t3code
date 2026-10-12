@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=56m; seat=codex; date=2026-10-07 */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeOS from "node:os";
 import { describe, expect, it } from "@effect/vitest";
@@ -1018,7 +1019,13 @@ it.layer(NodeServices.layer)("AgentSessionScanner", (it) => {
           mtimeMs: Date.parse("2026-01-01T00:00:00.000Z"),
         });
 
-        const result = yield* runScan({ claudeHomePath, codexHomePath, configBaseDir });
+        const configAlias = path.join(linkParent, "config-alias");
+        yield* fileSystem.symlink(configBaseDir, configAlias);
+        const result = yield* runScan({
+          claudeHomePath,
+          codexHomePath,
+          configBaseDir: configAlias,
+        });
 
         expect(result.candidates).toEqual([]);
       }),

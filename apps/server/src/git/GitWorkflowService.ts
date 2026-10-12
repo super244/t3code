@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -17,6 +18,8 @@ import {
   type GitPreparePullRequestThreadInput,
   type GitPreparePullRequestThreadResult,
   type GitPullRequestRefInput,
+  type VcsIntegrateWorktreeInput,
+  type VcsIntegrateWorktreeResult,
   type VcsPullResult,
   type VcsRemoveWorktreeInput,
   type GitResolvePullRequestResult,
@@ -89,6 +92,9 @@ export class GitWorkflowService extends Context.Service<
     readonly removeWorktree: (
       input: VcsRemoveWorktreeInput,
     ) => Effect.Effect<void, GitCommandError>;
+    readonly integrateWorktree: (
+      input: VcsIntegrateWorktreeInput,
+    ) => Effect.Effect<VcsIntegrateWorktreeResult, GitCommandError>;
     readonly pruneWorktrees: (input: {
       readonly cwd: string;
     }) => Effect.Effect<void, GitCommandError>;
@@ -331,6 +337,10 @@ export const make = Effect.gen(function* () {
     removeWorktree: (input) =>
       ensureGitCommand("GitWorkflowService.removeWorktree", input.cwd).pipe(
         Effect.andThen(git.removeWorktree(input)),
+      ),
+    integrateWorktree: (input) =>
+      ensureGitCommand("GitWorkflowService.integrateWorktree", input.cwd).pipe(
+        Effect.andThen(git.integrateWorktree(input)),
       ),
     pruneWorktrees: (input) =>
       ensureGitCommand("GitWorkflowService.pruneWorktrees", input.cwd).pipe(

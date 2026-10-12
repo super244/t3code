@@ -1,7 +1,8 @@
+/* agent-watermark: model=grok-4.7; effort=default; duration=58m; seat=cursor; date=2026-09-30 */
 import { describe, expect, it } from "vite-plus/test";
 
 import { buildPeriodColumns, niceScale } from "./UsageProviderChart";
-import { providersWithUsage } from "./usageProviders";
+import { providersOnUsageScreen, providersWithUsage, usageKindForDriver } from "./usageProviders";
 
 describe("niceScale", () => {
   it("never puts the peak above the top of the scale", () => {
@@ -89,6 +90,8 @@ describe("buildPeriodColumns", () => {
       { provider: "codex", value: 10 },
       { provider: "claude", value: 20 },
       { provider: "grok", value: 0 },
+      { provider: "opencode", value: 0 },
+      { provider: "antigravity", value: 0 },
     ]);
   });
 
@@ -100,6 +103,14 @@ describe("buildPeriodColumns", () => {
   });
 });
 
+describe("usageKindForDriver", () => {
+  it("maps scanned harnesses and leaves the others unmarked", () => {
+    expect(usageKindForDriver("opencode")).toBe("opencode");
+    expect(usageKindForDriver("claudeAgent")).toBe("claude");
+    expect(usageKindForDriver("cursor")).toBeNull();
+  });
+});
+
 describe("providersWithUsage", () => {
   it("omits providers with no cost or tokens", () => {
     expect(
@@ -108,6 +119,22 @@ describe("providersWithUsage", () => {
         { provider: "claude", costUsd: 0, totalTokens: 200 },
       ]),
     ).toEqual(["claude"]);
+  });
+
+  it("keeps a connected store visible when the window has no tokens", () => {
+    expect(
+      providersOnUsageScreen(
+        [
+          { provider: "codex", costUsd: 1, totalTokens: 10 },
+          { provider: "opencode", costUsd: 0, totalTokens: 0 },
+        ],
+        [
+          { provider: "opencode", status: "ok" },
+          { provider: "antigravity", status: "ok" },
+          { provider: "grok", status: "missing" },
+        ],
+      ),
+    ).toEqual(["codex", "opencode", "antigravity"]);
   });
 });
 

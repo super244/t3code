@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-04T19:10:48Z",
+  "updatedAt": "2026-10-03T20:19:58.516Z",
   "currentModels": {
     "codex": [
       "gpt-6-astra",
@@ -10,8 +10,36 @@
       "gpt-daybreak-blue-latest",
       "gpt-daybreak-red-latest"
     ],
-    "claudeAgent": ["claude-fable-5-1", "claude-opus-5", "claude-sonnet-5"],
-    "antigravity": ["gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low"]
+    "claudeAgent": [
+      "claude-fable-5-1",
+      "claude-opus-5",
+      "claude-sonnet-5"
+    ],
+    "antigravity": [
+      "gemini-3.8-pro",
+      "gemini-3.8-flash-high",
+      "gemini-3.8-flash-medium",
+      "gemini-3.8-flash-low",
+      "gemini-2.5-pro",
+      "gemini-2.5-flash"
+    ],
+    "grok": [
+      "grok-build",
+      "grok-4.7",
+      "grok-4-reasoning",
+      "grok-code"
+    ],
+    "opencode": [
+      "claude-3-7-sonnet",
+      "gpt-4o",
+      "o3-mini",
+      "claude-3-7-sonnet-thinking",
+      "claude-3-5-sonnet",
+      "gpt-4.5-preview",
+      "o1",
+      "gemini-2.5-pro",
+      "gemini-2.5-flash"
+    ]
   },
   "providers": {
     "claudeAgent": {
@@ -58,7 +86,9 @@
                     "label": "Ultrathink"
                   }
                 ],
-                "promptInjectedValues": ["ultrathink"]
+                "promptInjectedValues": [
+                  "ultrathink"
+                ]
               },
               {
                 "id": "contextWindow",
@@ -135,7 +165,9 @@
                     "label": "Ultrathink"
                   }
                 ],
-                "promptInjectedValues": ["ultrathink"]
+                "promptInjectedValues": [
+                  "ultrathink"
+                ]
               },
               {
                 "id": "fastMode",
@@ -217,7 +249,9 @@
                     "label": "Ultrathink"
                   }
                 ],
-                "promptInjectedValues": ["ultrathink"]
+                "promptInjectedValues": [
+                  "ultrathink"
+                ]
               },
               {
                 "id": "fastMode",
@@ -270,7 +304,9 @@
                     "label": "Ultrathink"
                   }
                 ],
-                "promptInjectedValues": ["ultrathink"]
+                "promptInjectedValues": [
+                  "ultrathink"
+                ]
               },
               {
                 "id": "fastMode",
@@ -319,7 +355,9 @@
                     "label": "Ultrathink"
                   }
                 ],
-                "promptInjectedValues": ["ultrathink"]
+                "promptInjectedValues": [
+                  "ultrathink"
+                ]
               },
               {
                 "id": "fastMode",
@@ -433,7 +471,9 @@
                     "label": "Ultrathink"
                   }
                 ],
-                "promptInjectedValues": ["ultrathink"]
+                "promptInjectedValues": [
+                  "ultrathink"
+                ]
               },
               {
                 "id": "contextWindow",
@@ -500,7 +540,9 @@
                     "label": "Ultrathink"
                   }
                 ],
-                "promptInjectedValues": ["ultrathink"]
+                "promptInjectedValues": [
+                  "ultrathink"
+                ]
               },
               {
                 "id": "contextWindow",
@@ -557,7 +599,11 @@
         {
           "slug": "claude-fable-5-1",
           "name": "Claude Fable 5.1",
-          "aliases": ["fable", "fable-5.1", "claude-fable-5.1"],
+          "aliases": [
+            "fable",
+            "fable-5.1",
+            "claude-fable-5.1"
+          ],
           "status": "current",
           "badge": "new",
           "profile": "fable-5",
@@ -581,7 +627,12 @@
         {
           "slug": "claude-opus-5",
           "name": "Claude Opus 5",
-          "aliases": ["opus", "opus-5", "claude-opus-5.0", "claude-opus-5-0"],
+          "aliases": [
+            "opus",
+            "opus-5",
+            "claude-opus-5.0",
+            "claude-opus-5-0"
+          ],
           "status": "current",
           "profile": "opus-5",
           "adapter": {
@@ -593,7 +644,10 @@
         {
           "slug": "claude-opus-4-8",
           "name": "Claude Opus 4.8",
-          "aliases": ["opus-4.8", "claude-opus-4.8"],
+          "aliases": [
+            "opus-4.8",
+            "claude-opus-4.8"
+          ],
           "status": "legacy",
           "profile": "opus-4-8",
           "adapter": {
@@ -605,7 +659,10 @@
         {
           "slug": "claude-opus-4-7",
           "name": "Claude Opus 4.7",
-          "aliases": ["opus-4.7", "claude-opus-4.7"],
+          "aliases": [
+            "opus-4.7",
+            "claude-opus-4.7"
+          ],
           "status": "legacy",
           "profile": "opus-4-7",
           "adapter": {
@@ -617,7 +674,11 @@
         {
           "slug": "claude-opus-4-6",
           "name": "Claude Opus 4.6",
-          "aliases": ["opus-4.6", "claude-opus-4.6", "claude-opus-4-6-20251117"],
+          "aliases": [
+            "opus-4.6",
+            "claude-opus-4.6",
+            "claude-opus-4-6-20251117"
+          ],
           "status": "legacy",
           "profile": "opus-4-6"
         },
@@ -630,21 +691,35 @@
         {
           "slug": "claude-sonnet-5",
           "name": "Claude Sonnet 5",
-          "aliases": ["sonnet", "sonnet-5", "claude-sonnet-5.0", "claude-sonnet-5-0"],
+          "aliases": [
+            "sonnet",
+            "sonnet-5",
+            "claude-sonnet-5.0",
+            "claude-sonnet-5-0"
+          ],
           "status": "current",
           "profile": "sonnet-5"
         },
         {
           "slug": "claude-sonnet-4-6",
           "name": "Claude Sonnet 4.6",
-          "aliases": ["sonnet-4.6", "claude-sonnet-4.6", "claude-sonnet-4-6-20251117"],
+          "aliases": [
+            "sonnet-4.6",
+            "claude-sonnet-4.6",
+            "claude-sonnet-4-6-20251117"
+          ],
           "status": "legacy",
           "profile": "sonnet-4-6"
         },
         {
           "slug": "claude-haiku-4-5",
           "name": "Claude Haiku 4.5",
-          "aliases": ["haiku", "haiku-4.5", "claude-haiku-4.5", "claude-haiku-4-5-20251001"],
+          "aliases": [
+            "haiku",
+            "haiku-4.5",
+            "claude-haiku-4.5",
+            "claude-haiku-4-5-20251001"
+          ],
           "status": "legacy",
           "profile": "haiku-4-5"
         }
@@ -652,10 +727,44 @@
     },
     "antigravity": {
       "defaults": {
-        "chat": "gemini-3.8-flash-high"
+        "chat": "gemini-3.8-pro"
       },
-      "profiles": {},
+      "profiles": {
+        "gemini-thinking": {
+          "capabilities": {
+            "optionDescriptors": [
+              {
+                "id": "effort",
+                "label": "Reasoning",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "low",
+                    "label": "Low"
+                  },
+                  {
+                    "id": "medium",
+                    "label": "Medium"
+                  },
+                  {
+                    "id": "high",
+                    "label": "High",
+                    "isDefault": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
       "models": [
+        {
+          "slug": "gemini-3.8-pro",
+          "name": "Gemini 3.8 Pro",
+          "badge": "new",
+          "status": "current",
+          "profile": "gemini-thinking"
+        },
         {
           "slug": "gemini-3.8-flash-high",
           "name": "Gemini 3.8 Flash (High)",
@@ -670,6 +779,171 @@
           "slug": "gemini-3.8-flash-low",
           "name": "Gemini 3.8 Flash (Low)",
           "status": "current"
+        },
+        {
+          "slug": "gemini-2.5-pro",
+          "name": "Gemini 2.5 Pro",
+          "status": "current",
+          "profile": "gemini-thinking"
+        },
+        {
+          "slug": "gemini-2.5-flash",
+          "name": "Gemini 2.5 Flash",
+          "status": "current"
+        }
+      ]
+    },
+    "grok": {
+      "defaults": {
+        "chat": "grok-build"
+      },
+      "profiles": {
+        "grok-reasoning": {
+          "capabilities": {
+            "optionDescriptors": [
+              {
+                "id": "effort",
+                "label": "Reasoning Effort",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "low",
+                    "label": "Low"
+                  },
+                  {
+                    "id": "medium",
+                    "label": "Medium"
+                  },
+                  {
+                    "id": "high",
+                    "label": "High",
+                    "isDefault": true
+                  },
+                  {
+                    "id": "xhigh",
+                    "label": "Extra High"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "models": [
+        {
+          "slug": "grok-build",
+          "name": "Grok Build",
+          "status": "current",
+          "profile": "grok-reasoning"
+        },
+        {
+          "slug": "grok-4.7",
+          "name": "Grok 4.7",
+          "badge": "new",
+          "status": "current",
+          "profile": "grok-reasoning"
+        },
+        {
+          "slug": "grok-4-reasoning",
+          "name": "Grok 4 Reasoning",
+          "status": "current",
+          "profile": "grok-reasoning"
+        },
+        {
+          "slug": "grok-code",
+          "name": "Grok Code",
+          "status": "current"
+        }
+      ]
+    },
+    "opencode": {
+      "defaults": {
+        "chat": "claude-3-7-sonnet"
+      },
+      "profiles": {
+        "thinking-standard": {
+          "capabilities": {
+            "optionDescriptors": [
+              {
+                "id": "effort",
+                "label": "Thinking",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "low",
+                    "label": "Low"
+                  },
+                  {
+                    "id": "medium",
+                    "label": "Medium"
+                  },
+                  {
+                    "id": "high",
+                    "label": "High",
+                    "isDefault": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "models": [
+        {
+          "slug": "claude-3-7-sonnet",
+          "name": "Claude 3.7 Sonnet",
+          "badge": "new",
+          "status": "current",
+          "profile": "thinking-standard"
+        },
+        {
+          "slug": "gpt-4o",
+          "name": "GPT-4o",
+          "status": "current"
+        },
+        {
+          "slug": "o3-mini",
+          "name": "o3-mini",
+          "status": "current",
+          "profile": "thinking-standard"
+        },
+        {
+          "slug": "claude-3-7-sonnet-thinking",
+          "name": "Claude 3.7 Sonnet (Extended Thinking)",
+          "badge": "new",
+          "status": "current",
+          "profile": "thinking-standard"
+        },
+        {
+          "slug": "claude-3-5-sonnet",
+          "name": "Claude 3.5 Sonnet",
+          "status": "current",
+          "profile": "thinking-standard"
+        },
+        {
+          "slug": "gpt-4.5-preview",
+          "name": "GPT-4.5 Preview",
+          "badge": "new",
+          "status": "current"
+        },
+        {
+          "slug": "o1",
+          "name": "o1",
+          "status": "current",
+          "profile": "thinking-standard"
+        },
+        {
+          "slug": "gemini-2.5-pro",
+          "name": "Gemini 2.5 Pro",
+          "badge": "new",
+          "status": "current",
+          "profile": "thinking-standard"
+        },
+        {
+          "slug": "gemini-2.5-flash",
+          "name": "Gemini 2.5 Flash",
+          "status": "current",
+          "profile": "thinking-standard"
         }
       ]
     }

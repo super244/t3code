@@ -1,3 +1,4 @@
+/* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 import { useAuth } from "@clerk/react";
 import { useAtomValue } from "@effect/atom-react";
 import type {
@@ -24,6 +25,7 @@ import {
   LinkIcon,
   MonitorIcon,
   TerminalIcon,
+  FolderOpenIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -48,6 +50,8 @@ import {
 } from "../../onboarding/providerReadiness.logic";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { newProjectId, randomUUID } from "../../lib/utils";
+import { inferProjectTitleFromPath } from "../../lib/projectPaths";
+import { readLocalApi } from "../../localApi";
 import { agentSessionImport } from "../../state/agentSessions";
 import { readProjects, useProjects } from "../../state/entities";
 import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
@@ -975,6 +979,41 @@ function ImportStep({
     new Map<string, { readonly projectId: ProjectId; readonly commandId: CommandId }>(),
   );
   const importGenerationRef = useRef(0);
+  const hasDesktopPicker = Boolean(readLocalApi()?.dialogs?.pickFolder);
+
+  const handlePickFolder = async () => {
+    if (isImporting) return;
+    const api = readLocalApi();
+    if (!api?.dialogs?.pickFolder) return;
+    try {
+      const picked = await api.dialogs.pickFolder();
+      if (!picked) return;
+      const primaryEnv = environments[0];
+      if (!primaryEnv) return;
+      setIsImporting(true);
+      setImportError("");
+      const projectId = newProjectId();
+      const result = await createProject({
+        environmentId: primaryEnv.environmentId,
+        input: {
+          projectId,
+          title: inferProjectTitleFromPath(picked),
+          workspaceRoot: picked,
+          createWorkspaceRootIfMissing: true,
+          defaultModelSelection: null,
+        },
+      });
+      if (result._tag === "Failure") {
+        setImportError("Could not create project from selected folder.");
+        setIsImporting(false);
+        return;
+      }
+      await onDone(scopeProjectRef(primaryEnv.environmentId, projectId));
+    } catch (cause) {
+      setImportError(cause instanceof Error ? cause.message : "Failed to open folder");
+      setIsImporting(false);
+    }
+  };
 
   // Ignore command completions after leaving the import step.
   useEffect(() => {
@@ -1181,31 +1220,47 @@ function ImportStep({
       title="Choose your projects"
       description="Import projects and conversations from your selected computers."
     >
-      {candidates.length > 0 ? (
-        <div className="mt-5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span role="status">
-            {selected.length} of {candidates.length} selected
-          </span>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="xs"
-              disabled={isImporting || selected.length === candidates.length}
-              onClick={() => setSelectedPaths(new Set(candidates.map((item) => item.key)))}
-            >
-              Select all
-            </Button>
-            <Button
-              variant="ghost"
-              size="xs"
-              disabled={isImporting || selected.length === 0}
-              onClick={() => setSelectedPaths(new Set())}
-            >
-              Select none
-            </Button>
+      <div className="mt-5 flex items-center justify-between gap-3">
+        {candidates.length > 0 ? (
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span role="status">
+              {selected.length} of {candidates.length} selected
+            </span>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="xs"
+                disabled={isImporting || selected.length === candidates.length}
+                onClick={() => setSelectedPaths(new Set(candidates.map((item) => item.key)))}
+              >
+                Select all
+              </Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                disabled={isImporting || selected.length === 0}
+                onClick={() => setSelectedPaths(new Set())}
+              >
+                Select none
+              </Button>
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : (
+          <div />
+        )}
+        {hasDesktopPicker ? (
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={isImporting}
+            onClick={() => void handlePickFolder()}
+            className="gap-1.5"
+          >
+            <FolderOpenIcon className="size-3.5" />
+            Choose folder in Finder…
+          </Button>
+        ) : null}
+      </div>
       <ScrollArea
         scrollFade
         className="mt-2 h-auto max-h-80 [&_[data-slot=scroll-area-scrollbar]]:opacity-100"
@@ -1243,9 +1298,23 @@ function ImportStep({
                     </Button>
                   </div>
                 ) : scanCandidates.length === 0 ? (
-                  <p className="py-2 text-sm text-muted-foreground">
-                    No existing Claude Code or Codex projects found.
-                  </p>
+                  <div className="py-4 text-center">
+                    <p className="mb-3 text-sm text-muted-foreground">
+                      No existing Claude Code or Codex projects found.
+                    </p>
+                    {hasDesktopPicker ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={isImporting}
+                        onClick={() => void handlePickFolder()}
+                        className="gap-2"
+                      >
+                        <FolderOpenIcon className="size-4" />
+                        Choose folder in Finder…
+                      </Button>
+                    ) : null}
+                  </div>
                 ) : null}
                 {scan.data?.truncated ? (
                   <p className="text-xs text-muted-foreground" role="status">
@@ -1263,23 +1332,39 @@ function ImportStep({
         </div>
       </ScrollArea>
       {importError ? <p className="mt-3 text-sm text-destructive">{importError}</p> : null}
-      <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
-        <Button
-          variant="ghost-muted"
-          disabled={isImporting}
-          onClick={importError ? finishAfterImport : () => void onDone()}
-        >
-          {importError ? "Continue without the rest" : "Do not import projects"}
-        </Button>
-        <Button
-          autoFocus
-          disabled={isImporting || selected.length === 0}
-          onClick={() => void runImport(selected)}
-        >
-          {isImporting
-            ? "Importing…"
-            : `Import ${selected.length} ${selected.length === 1 ? "project" : "projects"}`}
-        </Button>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          {hasDesktopPicker ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isImporting}
+              onClick={() => void handlePickFolder()}
+              className="gap-2"
+            >
+              <FolderOpenIcon className="size-4" />
+              Choose folder in Finder…
+            </Button>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost-muted"
+            disabled={isImporting}
+            onClick={importError ? finishAfterImport : () => void onDone()}
+          >
+            {importError ? "Continue without the rest" : "Do not import projects"}
+          </Button>
+          <Button
+            autoFocus
+            disabled={isImporting || selected.length === 0}
+            onClick={() => void runImport(selected)}
+          >
+            {isImporting
+              ? "Importing…"
+              : `Import ${selected.length} ${selected.length === 1 ? "project" : "projects"}`}
+          </Button>
+        </div>
       </div>
     </StepShell>
   );

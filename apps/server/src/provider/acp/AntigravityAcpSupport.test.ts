@@ -1,3 +1,4 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=medium; duration=20m; seat=antigravity; date=2026-10-08 */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import {
@@ -154,6 +155,27 @@ describe("applyAntigravityAcpModelSelection", () => {
 
       expect(model).toBe("gemini-saved");
       expect(selections).toEqual(["gemini-saved"]);
+    }),
+  );
+
+  it.effect("resolves human-friendly model aliases when matching native option is available", () =>
+    Effect.gen(function* () {
+      const aliasConfig = {
+        ...modelConfig,
+        options: [
+          { value: "gemini-default", name: "Gemini default" },
+          { value: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash" },
+        ],
+      } satisfies EffectAcpSchema.SessionConfigOption;
+      const { runtime, selections } = makeModelRuntime([aliasConfig]);
+      const model = yield* applyAntigravityAcpModelSelection({
+        runtime,
+        model: "gemini-3.8-flash",
+        mapError: (cause) => cause,
+      });
+
+      expect(model).toBe("gemini-3.8-flash-medium");
+      expect(selections).toEqual(["gemini-3.8-flash-medium"]);
     }),
   );
 

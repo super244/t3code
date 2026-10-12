@@ -1,4 +1,6 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
+/* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
@@ -11,11 +13,15 @@ export type ThreadActionMenuId =
   | "new-thread-on-branch"
   | "handoff"
   | "review"
+  | "filter-by-project"
   | "project-settings"
   | "pin"
   | "unpin"
   | "settle"
   | "unsettle"
+  | "auto-settle"
+  | "auto-settle:enabled"
+  | "auto-settle:disabled"
   | "snooze"
   | `snooze:${string}`
   | "unsnooze"
@@ -29,20 +35,76 @@ export type ThreadActionMenuId =
   | "copy-path"
   | "copy-branch"
   | "copy-thread-id"
+  | "copy-report"
+  | "copy-pr"
+  | "export-report"
   | "archive"
   | "delete";
 
+export type DraftActionMenuId =
+  | "copy"
+  | "copy-path"
+  | "copy-branch"
+  | "project-settings"
+  | "discard";
+
+/** Right-click menu for an unsent draft row in the sidebar. */
+export function buildDraftActionMenuItems(options: {
+  readonly hasPath: boolean;
+  readonly hasBranch: boolean;
+  readonly hasProject: boolean;
+}): ReadonlyArray<ContextMenuItem<DraftActionMenuId>> {
+  return [
+    {
+      id: "copy",
+      label: "Copy",
+      icon: "copy",
+      disabled: !options.hasPath && !options.hasBranch,
+      children: [
+        ...(options.hasPath ? [{ id: "copy-path" as const, label: "Path", icon: "folder" }] : []),
+        ...(options.hasBranch
+          ? [{ id: "copy-branch" as const, label: "Branch", icon: "git-branch" }]
+          : []),
+      ],
+    },
+    ...(options.hasProject
+      ? [{ id: "project-settings" as const, label: "Project settings", icon: "settings" }]
+      : []),
+    {
+      id: "discard",
+      label: "Discard draft",
+      icon: "trash",
+      destructive: true,
+      separatorBefore: true,
+    },
+  ];
+}
+
 export interface ThreadActionMenuState {
+  readonly canOperate: boolean;
   readonly branch: string | null;
+  /**
+   * Project scoping for the thread list. Null on surfaces with no scoped
+   * list behind the menu (the chat header), where the item must not show.
+   */
+  readonly projectFilter: {
+    readonly label: string;
+    /** True when the list is already scoped to this thread's project. */
+    readonly isActive: boolean;
+  } | null;
   readonly isPinned: boolean;
   readonly isSettled: boolean;
+  /** False while the user has turned automatic settlement off for this thread. */
+  readonly autoSettleEnabled: boolean;
   readonly isSnoozed: boolean;
   readonly canSnoozeNow: boolean;
   readonly isRegeneratingTitle: boolean;
-  /** Archive rejects a thread with an active turn, so disable it here rather than let the action fail. */
+  /** Archive rejects a thread with an attached provider, so disable it here rather than let the action fail. */
   readonly isRunning: boolean;
   readonly supports: {
     readonly settlement: boolean;
+    /** Server understands thread.auto-settle.set. */
+    readonly autoSettleOptOut: boolean;
     readonly snooze: boolean;
     readonly pinning: boolean;
     readonly titleRegeneration: boolean;
@@ -52,15 +114,28 @@ export interface ThreadActionMenuState {
   readonly currentChatFolderId?: string | null;
 }
 
+/** Local navigation, read markers, and copying remain available to read-only clients. */
+export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
+  return ![
+    "new-thread-on-branch",
+    "project-settings",
+    "mark-unread",
+    "copy",
+    "copy-path",
+    "copy-branch",
+    "copy-thread-id",
+  ].includes(action);
+}
+
 /**
  * Single source for the per-thread action menu: the sidebar row's right-click
- * menu and the chat header menu both render exactly this list, so labels,
- * ordering, and capability gating cannot drift between the two surfaces.
+ * menu and the chat header menu share labels, ordering, and capability gating.
+ * Each surface supplies state for the actions it supports.
  */
 export function buildThreadActionMenuItems(
   state: ThreadActionMenuState,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
-  return [
+  const items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> = [
     ...(state.branch
       ? [
           {
@@ -96,10 +171,13 @@ export function buildThreadActionMenuItems(
                 label: "Snooze",
                 icon: "clock",
                 disabled: !state.canSnoozeNow,
-                children: state.snoozePresets.map((preset) => ({
-                  id: `snooze:${preset.id}` as const,
-                  label: `${preset.label} (${preset.whenLabel})`,
-                })),
+                children: [
+                  ...state.snoozePresets.map((preset) => ({
+                    id: `snooze:${preset.id}` as const,
+                    label: `${preset.label} (${preset.whenLabel})`,
+                  })),
+                  { id: "snooze:custom" as const, label: "Custom…", separatorBefore: true },
+                ],
               },
         ]
       : []),
@@ -124,6 +202,42 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
+    ...(state.projectFilter
+      ? [
+          {
+            id: "filter-by-project" as const,
+            label: state.projectFilter.isActive
+              ? "Show all projects"
+              : `Filter by ${state.projectFilter.label}`,
+            icon: "folder-tree",
+          },
+        ]
+      : []),
+    // A submenu with the current option checked, not a one-shot action:
+    // this is a setting, and it sits with the other per-thread settings
+    // rather than the lifecycle verbs above. Disabled keeps long-running
+    // threads out of the settled shelf no matter how quiet they get.
+    ...(state.supports.autoSettleOptOut
+      ? [
+          {
+            id: "auto-settle" as const,
+            label: "Auto-settle behavior",
+            icon: "timer",
+            children: [
+              {
+                id: "auto-settle:enabled" as const,
+                label: "Enabled",
+                checked: state.autoSettleEnabled,
+              },
+              {
+                id: "auto-settle:disabled" as const,
+                label: "Disabled",
+                checked: !state.autoSettleEnabled,
+              },
+            ],
+          },
+        ]
+      : []),
     ...(state.chatFolders && state.chatFolders.length > 0
       ? [
           {
@@ -153,8 +267,13 @@ export function buildThreadActionMenuItems(
           ? [{ id: "copy-branch" as const, label: "Branch", icon: "git-branch" }]
           : []),
         { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
+        { id: "copy-report", label: "Thread as Markdown", icon: "copy", separatorBefore: true },
+        { id: "copy-pr", label: "PR description", icon: "git-branch" },
       ],
     },
+    // The whole record — prompts, tool calls, files changed, answers — as a
+    // Markdown file someone else can read without T3 Code.
+    { id: "export-report", label: "Export as Markdown…", icon: "file-down" },
     { id: "project-settings", label: "Project settings", icon: "settings" },
     // Archive removes the thread from the sidebar while keeping its
     // conversation under Settings > Archived threads — distinct from Settle
@@ -175,4 +294,17 @@ export function buildThreadActionMenuItems(
       icon: "trash",
     },
   ];
+  return state.canOperate
+    ? items
+    : items.map((item) =>
+        threadActionRequiresOperate(item.id)
+          ? {
+              ...item,
+              disabled: true,
+              ...(item.children
+                ? { children: item.children.map((child) => ({ ...child, disabled: true })) }
+                : {}),
+            }
+          : item,
+      );
 }

@@ -1,8 +1,11 @@
+/* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=2m; seat=antigravity; date=2026-10-02 */
 // @effect-diagnostics nodeBuiltinImport:off - the suite seeds and grows real
 // transcript trees on disk, outside the service's Effect FileSystem.
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeSqlite from "node:sqlite";
 
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -89,7 +92,10 @@ const serviceLayers = (input: {
       ),
     ),
     Layer.provideMerge(
-      Layer.succeed(HostProcessEnvironment, { GROK_HOME: NodePath.join(input.home, "grok") }),
+      Layer.succeed(HostProcessEnvironment, {
+        HOME: input.home,
+        GROK_HOME: NodePath.join(input.home, "grok"),
+      }),
     ),
   );
 
@@ -371,6 +377,87 @@ describe("UsageService", () => {
         orphanedAt,
         `interruption left the next matching request pending at scheduler check ${orphanedAt}`,
       );
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("counts OpenCode and Antigravity stores beside Claude transcripts", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      const opencodeDir = NodePath.join(home, ".local", "share", "opencode");
+      const antigravityDir = NodePath.join(home, ".gemini", "antigravity", "conversations");
+      yield* Effect.promise(() => NodeFSP.mkdir(opencodeDir, { recursive: true }));
+      yield* Effect.promise(() => NodeFSP.mkdir(antigravityDir, { recursive: true }));
+      yield* Effect.promise(async () => {
+        const opencode = new NodeSqlite.DatabaseSync(NodePath.join(opencodeDir, "opencode.db"));
+        opencode.exec(`
+          CREATE TABLE part (id TEXT, message_id TEXT, session_id TEXT, time_created INTEGER, data TEXT);
+          CREATE TABLE message (id TEXT, data TEXT);
+        `);
+        opencode
+          .prepare(
+            "INSERT INTO part (id, message_id, session_id, time_created, data) VALUES (?, ?, ?, ?, ?)",
+          )
+          .run(
+            "part-1",
+            "msg-1",
+            "ses_1",
+            Date.parse("2026-08-01T10:00:00.000Z"),
+            '{"type":"step-finish","tokens":{"input":10,"output":4,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0}',
+          );
+        opencode
+          .prepare("INSERT INTO message (id, data) VALUES (?, ?)")
+          .run("msg-1", '{"modelID":"opencode-test"}');
+        opencode.close();
+
+        const conversation = new NodeSqlite.DatabaseSync(
+          NodePath.join(antigravityDir, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.db"),
+        );
+        conversation.exec("CREATE TABLE steps (idx INTEGER, step_type INTEGER, metadata BLOB)");
+        const seconds = Math.floor(Date.parse("2026-08-01T10:00:00.000Z") / 1000);
+        const varint = (value: number) => {
+          const bytes: number[] = [];
+          let rest = value;
+          while (rest > 127) {
+            bytes.push((rest & 0x7f) | 0x80);
+            rest = Math.floor(rest / 128);
+          }
+          bytes.push(rest & 0x7f);
+          return Buffer.from(bytes);
+        };
+        const fieldVarint = (field: number, value: number) =>
+          Buffer.concat([varint((field << 3) | 0), varint(value)]);
+        const fieldBytes = (field: number, value: Buffer) =>
+          Buffer.concat([varint((field << 3) | 2), varint(value.length), value]);
+        conversation
+          .prepare("INSERT INTO steps (idx, step_type, metadata) VALUES (?, ?, ?)")
+          .run(
+            1,
+            15,
+            Buffer.concat([
+              fieldBytes(1, fieldVarint(1, seconds)),
+              fieldBytes(9, Buffer.concat([fieldVarint(2, 12), fieldVarint(3, 3)])),
+              fieldBytes(24, fieldBytes(8, Buffer.from("gemini-test"))),
+            ]),
+          );
+        conversation.close();
+      });
+
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(serviceLayers({ prefix: "usage-service-sqlite-test", home, settings })),
+      );
+      const summary = yield* service.readSummary(WINDOW);
+      const outputFor = (provider: string) =>
+        summary.buckets
+          .filter((bucket) => bucket.provider === provider)
+          .reduce((sum, bucket) => sum + bucket.totals.outputTokens, 0);
+
+      assert.strictEqual(outputFor("opencode"), 4);
+      assert.strictEqual(outputFor("antigravity"), 3);
+      const opencodeSource = summary.sources.find(
+        (source) => source.fingerprint.provider === "opencode",
+      );
+      assert.strictEqual(opencodeSource?.status, "ok");
+      assert.strictEqual(opencodeSource?.distinctSessions, 1);
     }).pipe(Effect.scoped),
   );
 });

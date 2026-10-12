@@ -1,3 +1,6 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=56m; seat=codex; date=2026-10-07 */
+import "@t3tools/shared/testing/longTempDir";
+
 // Pins git behaviour for every repository the suite creates, ahead of the
 // host's ~/.gitconfig. Git for Windows installs with core.autocrlf=true,
 // which checks committed LF files out as CRLF and breaks every byte-exact

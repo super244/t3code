@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=13m; seat=codex; date=2026-10-01 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-10-02 */
 import type { ThreadMoveDestination } from "../threads/threadOrder";
 import { createThreadMovePlanner } from "../threads/threadOrder";
 import {
@@ -21,7 +23,7 @@ import {
 } from "@t3tools/contracts";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Platform, Pressable, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
@@ -212,23 +214,97 @@ function MobileCommandCenterStrip({
 }: {
   readonly summary: ReturnType<typeof buildMobileCommandCenterSummary>;
 }) {
+  const navigation = useNavigation();
   const metrics = [
-    { label: "Active", value: summary.active },
-    { label: "Attention", value: summary.attention },
-    { label: "Harnesses", value: `${summary.readyProviders}/${summary.totalProviders}` },
-    { label: "Routines", value: summary.routines },
+    {
+      label: "Active",
+      value: summary.active,
+      accessibilityLabel: `${summary.active} active agent threads`,
+      interactive: false,
+      onPress: () => {},
+    },
+    {
+      label: "Attention",
+      value: summary.attention,
+      accessibilityLabel: `${summary.attention} threads requiring attention`,
+      interactive: false,
+      onPress: () => {},
+    },
+    {
+      label: "Harnesses",
+      value: `${summary.readyProviders}/${summary.totalProviders}`,
+      accessibilityLabel: `Inspect ${summary.readyProviders} of ${summary.totalProviders} ready harnesses`,
+      interactive: true,
+      onPress: () =>
+        navigation.navigate("SettingsSheet", {
+          screen: "SettingsContent",
+          params: { screen: "SettingsSkills" },
+        }),
+    },
+    {
+      label: "Routines",
+      value: summary.routines,
+      accessibilityLabel: `Manage ${summary.routines} enabled routines`,
+      interactive: true,
+      onPress: () =>
+        navigation.navigate("SettingsSheet", {
+          screen: "SettingsContent",
+          params: { screen: "SettingsRoutines" },
+        }),
+    },
+    {
+      label: "Usage",
+      value: "Costs ›",
+      accessibilityLabel: "Open usage and costs overview",
+      interactive: true,
+      onPress: () =>
+        navigation.navigate("SettingsSheet", {
+          screen: "SettingsContent",
+          params: { screen: "SettingsUsage" },
+        }),
+    },
   ];
+
   return (
     <View className="mb-2 mt-2 border-y border-border px-4 py-3">
-      <Text className="mb-2 text-xs font-t3-medium text-foreground-muted">Command center</Text>
+      <View className="mb-2 flex-row items-center justify-between">
+        <Text className="text-xs font-t3-medium text-foreground-muted">Command center</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open usage and limits"
+          onPress={() =>
+            navigation.navigate("SettingsSheet", {
+              screen: "SettingsContent",
+              params: { screen: "SettingsUsage" },
+            })
+          }
+          className="active:opacity-60"
+        >
+          <Text className="text-xs font-t3-medium text-primary">Usage & Limits ›</Text>
+        </Pressable>
+      </View>
       <View className="flex-row">
         {metrics.map((metric) => (
-          <View key={metric.label} className="min-w-0 flex-1">
-            <Text className="text-base font-t3-bold tabular-nums text-foreground">
+          <Pressable
+            key={metric.label}
+            accessibilityRole={metric.interactive ? "button" : undefined}
+            accessibilityLabel={metric.accessibilityLabel}
+            disabled={!metric.interactive}
+            onPress={metric.onPress}
+            className={cn("min-w-0 flex-1", metric.interactive && "active:opacity-60")}
+          >
+            <Text
+              className={cn(
+                "tabular-nums text-foreground",
+                metric.label === "Usage"
+                  ? "text-sm font-t3-medium text-primary"
+                  : "text-base font-t3-bold",
+              )}
+            >
               {metric.value}
             </Text>
             <Text className="text-[11px] text-foreground-muted">{metric.label}</Text>
-          </View>
+          </Pressable>
         ))}
       </View>
     </View>

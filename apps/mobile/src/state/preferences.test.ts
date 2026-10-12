@@ -1,4 +1,6 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=10m; seat=codex; date=2026-10-03 */
 import { describe, expect, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -267,6 +269,91 @@ describe("mobile preferences state", () => {
       unmountUpdate();
       unmountPreferences();
       registry.dispose();
+    }),
+  );
+  it.effect("serializes storage transforms and gives each caller its own durable receipt", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      let stored: Preferences = { baseFontSize: 18, stashedPrompts: [] };
+      let writes = 0;
+      const state = makePreferencesState({
+        load: Effect.sync(() => stored),
+        savePatch: () => Effect.die("Transform must use the store's atomic update."),
+        update: (transform) =>
+          Effect.gen(function* () {
+            writes += 1;
+            if (writes === 1) {
+              yield* Deferred.succeed(started, undefined);
+              yield* Deferred.await(release);
+            }
+            stored = { ...stored, ...transform(stored) };
+            return stored;
+          }),
+      });
+      const registry = AtomRegistry.make();
+      const unmount = registry.mount(state.preferencesAtom);
+      try {
+        yield* AtomRegistry.getResult(registry, state.preferencesAtom, { suspendOnWaiting: true });
+        const add = (id: string) => (current: Preferences) => ({
+          stashedPrompts: [
+            { id, prompt: id, createdAt: "2026-10-03T00:00:00Z" },
+            ...(current.stashedPrompts ?? []),
+          ],
+        });
+        const first = state.transformPreferencesCommand.run(registry, add("first"));
+        yield* Deferred.await(started);
+        const second = state.transformPreferencesCommand.run(registry, add("second"));
+        expect(writes).toBe(1);
+        yield* Deferred.succeed(release, undefined);
+        const firstResult = yield* Effect.promise(() => first);
+        const secondResult = yield* Effect.promise(() => second);
+        expect(firstResult._tag).toBe("Success");
+        expect(secondResult._tag).toBe("Success");
+        if (firstResult._tag === "Success" && secondResult._tag === "Success") {
+          expect(firstResult.value.stashedPrompts?.map((entry) => entry.id)).toEqual(["first"]);
+          expect(secondResult.value.stashedPrompts?.map((entry) => entry.id)).toEqual([
+            "second",
+            "first",
+          ]);
+        }
+        expect(stored.baseFontSize).toBe(18);
+        expect(Option.getOrThrow(AsyncResult.value(registry.get(state.preferencesAtom)))).toEqual(
+          stored,
+        );
+      } finally {
+        unmount();
+        registry.dispose();
+      }
+    }),
+  );
+
+  it.effect("does not publish a transformed preference when its write fails", () =>
+    Effect.gen(function* () {
+      const initial: Preferences = {
+        stashedPrompts: [{ id: "old", prompt: "keep", createdAt: "2026-10-03T00:00:00Z" }],
+      };
+      const state = makePreferencesState({
+        load: Effect.succeed(initial),
+        savePatch: () => Effect.die("unused"),
+        update: () =>
+          Effect.fail(new MobilePreferencesSaveError({ cause: new Error("disk unavailable") })),
+      });
+      const registry = AtomRegistry.make();
+      const unmount = registry.mount(state.preferencesAtom);
+      try {
+        yield* AtomRegistry.getResult(registry, state.preferencesAtom, { suspendOnWaiting: true });
+        const result = yield* Effect.promise(() =>
+          state.transformPreferencesCommand.run(registry, () => ({ stashedPrompts: [] })),
+        );
+        expect(result._tag).toBe("Failure");
+        expect(Option.getOrThrow(AsyncResult.value(registry.get(state.preferencesAtom)))).toEqual(
+          initial,
+        );
+      } finally {
+        unmount();
+        registry.dispose();
+      }
     }),
   );
 });

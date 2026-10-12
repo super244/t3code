@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-01 */
 /**
  * ModelManifest — remote provider-model metadata with a bundled offline
  * fallback.
@@ -263,10 +264,10 @@ export function applyManifestDefault(
   const slug = manifestDefaultModel(manifest, driverKind);
   if (slug === undefined || !models.some((model) => model.slug === slug)) return models;
   const previous = models.find((model) => model.isDefault && model.slug !== slug);
-  if (!previous) return models;
-  const movedAliases = previous.aliases ?? [];
+  if (!previous && models.some((model) => model.slug === slug && model.isDefault)) return models;
+  const movedAliases = previous?.aliases ?? [];
   return models.map((model) => {
-    if (model.slug === previous.slug) {
+    if (previous && model.slug === previous.slug) {
       const { isDefault: _isDefault, aliases: _aliases, ...rest } = model;
       return rest;
     }

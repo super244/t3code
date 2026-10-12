@@ -1,4 +1,6 @@
+/* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
+import { playSound } from "../lib/soundEffects";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import {
@@ -4235,6 +4237,18 @@ export default function ChatView(props: ChatViewProps) {
     })
       ? settledTurnId
       : null;
+
+    if (newlyCompletedTurnId !== null) {
+      playSound("turn-completed");
+    } else if (previousRunningTurnId === null && activeRunningTurnId !== null) {
+      playSound("turn-started");
+    } else if (
+      previousRunningTurnId !== null &&
+      activeRunningTurnId === null &&
+      activeLatestTurn?.state === "interrupted"
+    ) {
+      playSound("action-error");
+    }
     const proactivePanelsEnabled = settings.proactivePanelsEnabled && !shouldUseRightPanelSheet;
     const eligibleCompletion = proactivePanelsEnabled && newlyCompletedTurnId !== null;
     const completedCheckpoint = eligibleCompletion

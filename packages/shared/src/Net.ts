@@ -1,3 +1,4 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=1m; seat=antigravity; date=2026-10-02 */
 import * as NodeNet from "node:net";
 
 import * as Data from "effect/Data";
@@ -144,11 +145,16 @@ export const make = () => {
         return false;
       }
 
-      return yield* Effect.zipWith(
+      const loopbackAvailable = yield* Effect.zipWith(
         canListenOnHost(port, "127.0.0.1"),
         canListenOnHost(port, "::1"),
         (ipv4, ipv6) => ipv4 && ipv6,
       );
+      if (!loopbackAvailable) {
+        return false;
+      }
+
+      return yield* canListenOnHost(port, "0.0.0.0");
     });
 
   /**

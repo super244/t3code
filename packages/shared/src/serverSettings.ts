@@ -1,3 +1,7 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-10 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=30m; seat=codex; date=2026-10-08 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=35m; seat=codex; date=2026-10-02 */
 import {
   isProviderDriverKind,
   isProviderAvailable,
@@ -8,12 +12,16 @@ import {
   type ServerProvider,
   ServerSettings,
   type ServerSettingsPatch,
+  type ServerSettingsClientPatch,
+  type RoutineDefinition,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
+import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import { deepMerge } from "./Struct.ts";
 import { fromLenientJson } from "./schemaJson.ts";
 import { createModelSelection } from "./model.ts";
+import { sameRoutineConfiguration, routineScheduleIssue } from "./routines.ts";
 import {
   getBackgroundActivityBaseProfile,
   normalizeBackgroundActivitySettings,
@@ -158,6 +166,106 @@ function mergeSettingsEntries<Value>(
     }
   }
   return Object.fromEntries(next);
+}
+
+/** Resolve wire mutations under the settings lock, retaining scheduler-owned history. */
+export function resolveClientSettingsPatch(
+  current: ServerSettings,
+  patch: ServerSettingsClientPatch,
+  now: number,
+): ServerSettingsPatch {
+  const { routines, ...rest } = patch;
+  if (routines === undefined) return rest;
+  const resolved: Record<string, RoutineDefinition | null> = {};
+  for (const [id, mutation] of Object.entries(routines)) {
+    if (mutation === null) {
+      resolved[id] = null;
+      continue;
+    }
+    const previous = current.routines[id];
+    // Old clients encoded Run now by overwriting runtime fields. Reject that
+    // ambiguous request rather than acknowledge a launch that was never queued.
+    if (
+      !("_tag" in mutation) &&
+      previous &&
+      mutation.lastRunStatus === "never" &&
+      mutation.nextRunAt !== null &&
+      mutation.nextRunAt !== previous.nextRunAt
+    ) {
+      throw new Error(
+        "Update this client to run routines. Run requests now use the server's current configuration.",
+      );
+    }
+    if ("_tag" in mutation && !previous) {
+      throw new Error(
+        "This routine was removed on another device. Duplicate it to create a new routine.",
+      );
+    }
+    if (
+      "_tag" in mutation &&
+      mutation._tag === "RoutineEdit" &&
+      previous &&
+      !sameRoutineConfiguration(previous, mutation.expected) &&
+      !sameRoutineConfiguration(previous, mutation.routine)
+    ) {
+      throw new Error(
+        "This routine changed on another device. Review the saved version before saving. Your draft is still here.",
+      );
+    }
+    if ("_tag" in mutation && mutation._tag === "RoutineAction") {
+      // The assertion follows the missing-entry check above, including for deleted routines.
+      const routine = previous!;
+      if (mutation.action === "run-now") {
+        const issue = routineScheduleIssue(routine.cron, routine.timeZone);
+        if (issue !== null) throw new Error(issue);
+        if (routine.lastRunStatus === "running")
+          throw new Error(
+            "This routine is already starting. Wait for its task before running it again.",
+          );
+        resolved[id] = {
+          ...routine,
+          enabled: true,
+          nextRunAt: DateTime.formatIso(DateTime.makeUnsafe(now - 1_000)),
+          lastRunStatus: "never",
+          lastError: null,
+        };
+      } else {
+        const enabled = mutation.action === "resume";
+        resolved[id] = {
+          ...routine,
+          enabled,
+          nextRunAt: enabled === routine.enabled ? routine.nextRunAt : null,
+        };
+      }
+      continue;
+    }
+    const rawDraft = "_tag" in mutation ? mutation.routine : mutation;
+    const {
+      lastSkippedAt: _clientSkippedAt,
+      runHistory: _clientHistory,
+      dailyLaunchUsage: _clientUsage,
+      ...draft
+    } = rawDraft;
+    resolved[id] = {
+      ...draft,
+      overlapPolicy: draft.overlapPolicy ?? previous?.overlapPolicy ?? "allow",
+      nextRunAt:
+        previous &&
+        previous.cron === draft.cron &&
+        previous.timeZone === draft.timeZone &&
+        previous.enabled === draft.enabled
+          ? previous.nextRunAt
+          : null,
+      lastRunAt: previous?.lastRunAt ?? null,
+      lastRunStatus: previous?.lastRunStatus ?? "never",
+      lastThreadId: previous?.lastThreadId ?? null,
+      lastError: previous?.lastError ?? null,
+      ...(previous?.lastSkippedAt ? { lastSkippedAt: previous.lastSkippedAt } : {}),
+      ...(previous?.runHistory ? { runHistory: previous.runHistory } : {}),
+      ...(previous?.dailyLaunchUsage ? { dailyLaunchUsage: previous.dailyLaunchUsage } : {}),
+    };
+  }
+  return { ...rest, routines: resolved };
 }
 
 export function applyServerSettingsPatch(

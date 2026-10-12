@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-03 */
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark, .dark *));
@@ -337,6 +339,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
   border: 1px solid color-mix(in srgb, var(--contrast-foreground) 10%, transparent);
+  html[data-theme-id] & {
+    border: 1px solid color-mix(in srgb, var(--app-theme-border) 65%, transparent);
+    box-shadow: 0 12px 36px -8px color-mix(in srgb, var(--app-theme-accent) 12%, black);
+  }
 
   @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
     background: var(--popover) !important;
@@ -1621,9 +1627,35 @@ code {
   -webkit-app-region: no-drag;
 }
 
+
+/* Prism theme responsive scrollbar and glass accents */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-scrollbar-thumb) transparent;
+}
+
+html[data-theme-id] {
+  --app-scrollbar-thumb: color-mix(in srgb, var(--app-theme-border) 75%, transparent);
+  --app-scrollbar-thumb-hover: color-mix(in srgb, var(--app-theme-accent) 65%, var(--app-theme-border));
+}
+
+html[data-theme-id] ::-webkit-scrollbar-thumb {
+  background: var(--app-scrollbar-thumb);
+  border-radius: 9999px;
+  border: 1.5px solid transparent;
+  background-clip: padding-box;
+}
+
+html[data-theme-id] ::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
+  border: 1.5px solid transparent;
+  background-clip: padding-box;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: var(--app-scrollbar-width);
+  height: var(--app-scrollbar-width);
 }
 
 ::-webkit-scrollbar-track {
@@ -1632,11 +1664,20 @@ code {
 
 ::-webkit-scrollbar-thumb {
   background: var(--app-scrollbar-thumb);
-  border-radius: 3px;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.15s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--app-scrollbar-thumb-hover);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* Chat markdown rendering */

@@ -1,3 +1,4 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-03 */
 import { parsePatchFiles } from "@pierre/diffs/utils/parsePatchFiles";
 import type { FileDiffMetadata } from "@pierre/diffs/types";
 
@@ -55,6 +56,16 @@ export type RenderablePatch =
 export interface DiffLineStat {
   additions: number;
   deletions: number;
+}
+
+export function getSingleFileDiffLineStat(file: FileDiffMetadata): DiffLineStat {
+  let additions = 0;
+  let deletions = 0;
+  for (const hunk of file.hunks) {
+    additions += hunk.additionLines;
+    deletions += hunk.deletionLines;
+  }
+  return { additions, deletions };
 }
 
 export function getDiffLineStat(files: ReadonlyArray<FileDiffMetadata>): DiffLineStat {

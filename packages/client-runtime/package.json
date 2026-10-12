@@ -3,6 +3,18 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./routines": {
+      "types": "./src/routines.ts",
+      "default": "./src/routines.ts"
+    },
+    "./promptPresets": {
+      "types": "./src/promptPresets.ts",
+      "default": "./src/promptPresets.ts"
+    },
+    "./threadReport": {
+      "types": "./src/threadReport.ts",
+      "default": "./src/threadReport.ts"
+    },
     "./load-balancing": {
       "types": "./src/load-balancing.ts",
       "default": "./src/load-balancing.ts"
@@ -238,6 +250,14 @@
     "./thread-pull-request-compatibility": {
       "types": "./src/threadPullRequestCompatibility.ts",
       "default": "./src/threadPullRequestCompatibility.ts"
+    },
+    "./state/prism-bridge": {
+      "types": "./src/state/prismBridgeHttp.ts",
+      "import": "./src/state/prismBridgeHttp.ts"
+    },
+    "./state/sync": {
+      "types": "./src/state/sync.ts",
+      "default": "./src/state/sync.ts"
     }
   },
   "scripts": {

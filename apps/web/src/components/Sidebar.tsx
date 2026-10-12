@@ -1,4 +1,6 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
+/* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { LinkBranchPullRequestButton } from "./pullRequest/LinkBranchPullRequestButton";
 import {
@@ -173,6 +175,7 @@ import {
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
   shouldRecedeSidebarThread,
+  sidebarProjectMatchesQuery,
   resolveWorkingStartedAt,
   sidebarListItemId,
   sidebarMarkerId,
@@ -255,6 +258,7 @@ import {
   type ComposerThreadDraftState,
   type DraftSessionState,
 } from "../composerDraftStore";
+import { copyThreadReport, exportThreadReport } from "../threadReportActions";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
@@ -4299,12 +4303,32 @@ export default function Sidebar() {
         const isPinned = thread.pinnedAt != null;
         // Presets resolve at menu-open time (same as the popover).
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
+        const threadProjectGroup =
+          projectGroupsRef.current.find((group) =>
+            group.memberProjectRefs.some(
+              (projectRef) =>
+                projectRef.environmentId === thread.environmentId &&
+                projectRef.projectId === thread.projectId,
+            ),
+          ) ?? null;
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
+              // v1 servers have no scope or auto-settle contracts: every local
+              // connection operates, and the auto-settle submenu stays hidden.
+              canOperate: true,
               branch: thread.branch ?? null,
+              // The only scope control on this surface: picking the already
+              // scoped project again is the way back to all projects.
+              projectFilter: threadProjectGroup
+                ? {
+                    label: threadProjectGroup.displayName,
+                    isActive: projectScopeKey === threadProjectGroup.projectKey,
+                  }
+                : null,
               isPinned,
               isSettled,
+              autoSettleEnabled: true,
               isSnoozed,
               canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
               isRegeneratingTitle,
@@ -4312,6 +4336,7 @@ export default function Sidebar() {
                 thread.session?.status === "running" && thread.session.activeTurnId != null,
               supports: {
                 settlement: supportsSettlement,
+                autoSettleOptOut: false,
                 snooze: supportsSnooze,
                 pinning: supportsPinning,
                 titleRegeneration: supportsTitleRegeneration,
@@ -4323,7 +4348,7 @@ export default function Sidebar() {
             position,
           ),
         );
-        if (clicked._tag === "Failure") return;
+        if (clicked._tag === "Failure" || clicked.value === null) return;
         if (clicked.value === "folder:none" || clicked.value?.startsWith("folder:")) {
           assignThreadToChatFolder(
             threadKey,
@@ -4339,6 +4364,15 @@ export default function Sidebar() {
           return;
         }
         switch (clicked.value) {
+          case "filter-by-project":
+            if (threadProjectGroup) {
+              setProjectScopeKey(
+                projectScopeKey === threadProjectGroup.projectKey
+                  ? null
+                  : threadProjectGroup.projectKey,
+              );
+            }
+            return;
           case "project-settings": {
             const projectGroup = projectGroupsRef.current.find((group) =>
               group.memberProjectRefs.some(
@@ -4439,6 +4473,15 @@ export default function Sidebar() {
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
             return;
+          case "copy-report":
+            void copyThreadReport(threadRef, "report");
+            return;
+          case "copy-pr":
+            void copyThreadReport(threadRef, "pr");
+            return;
+          case "export-report":
+            void exportThreadReport(threadRef);
+            return;
           case "archive": {
             if (confirmThreadArchive) {
               const confirmed = await settlePromise(() =>
@@ -4519,6 +4562,8 @@ export default function Sidebar() {
       markThreadUnread,
       openProjectSettings,
       projectByKey,
+      projectScopeKey,
+      setProjectScopeKey,
       serverConfigs,
       startThreadRename,
       updateThreadMetadata,
@@ -4708,7 +4753,7 @@ export default function Sidebar() {
                     setActiveSearchResultIndex(0);
                   }}
                   onKeyDown={handleThreadSearchKeyDown}
-                  placeholder="Search threads or PRs"
+                  placeholder="Find threads, PRs"
                   aria-label="Search threads"
                   role="combobox"
                   aria-autocomplete="list"

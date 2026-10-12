@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=7m; seat=codex; date=2026-10-01 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=2m; seat=antigravity; date=2026-10-01 */
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -6,6 +8,7 @@ import {
   formatConnectionSummary,
   formatHarnessReadiness,
   sortUpcomingRoutines,
+  selectMissionQueue,
 } from "./commandCenter.logic";
 
 const idleThread = {
@@ -107,5 +110,65 @@ describe("sortUpcomingRoutines", () => {
       "Later",
       "Paused",
     ]);
+  });
+});
+
+describe("mission queue", () => {
+  const thread = (
+    title: string,
+    state: Partial<import("./commandCenter.logic").CommandCenterThreadLike>,
+    updatedAt = "2026-10-01T10:00:00Z",
+  ) => ({ ...idleThread, ...state, title, updatedAt });
+  const rows = [
+    thread("Recent work", { session: { status: "running" } }, "2026-10-01T12:00:00Z"),
+    thread("Approval needed", { hasPendingApprovals: true }, "2026-10-01T01:00:00Z"),
+    thread("Settled", {}),
+    thread("Archived approval", { archivedAt: "2026-10-01T00:00:00Z", hasPendingApprovals: true }),
+    thread("Input needed", { hasPendingUserInput: true }),
+    thread("Failure", { session: { status: "error" } }),
+  ];
+  it("brings actionable work ahead of recent activity and excludes archives", () => {
+    expect(
+      selectMissionQueue(rows, "active", "", (row) => row.title).map((row) => row.title),
+    ).toEqual(["Approval needed", "Input needed", "Failure", "Recent work"]);
+  });
+  it("isolates attention while keeping ready missions accessible in All", () => {
+    expect(selectMissionQueue(rows, "attention", "", (row) => row.title)).toHaveLength(3);
+    expect(selectMissionQueue(rows, "all", "", (row) => row.title).at(-1)?.title).toBe("Settled");
+  });
+  it("searches normalized project and computer labels without mutating source order", () => {
+    const before = rows.map((row) => row.title);
+    expect(
+      selectMissionQueue(
+        rows,
+        "active",
+        "  REMOTE SCHOOL  ",
+        (row) => `${row.title} Remote School`,
+      ),
+    ).toHaveLength(4);
+    expect(selectMissionQueue(rows, "attention", "unknown", (row) => row.title)).toEqual([]);
+    expect(rows.map((row) => row.title)).toEqual(before);
+  });
+  it("filters missions by project predicate when provided", () => {
+    const threadWithProject = (title: string, projectId: string) => ({
+      ...idleThread,
+      title,
+      projectId,
+      session: { status: "running" as const },
+      updatedAt: "2026-10-01T10:00:00Z",
+    });
+    const threadsList = [
+      threadWithProject("Task 1", "projA"),
+      threadWithProject("Task 2", "projB"),
+    ];
+    expect(
+      selectMissionQueue(
+        threadsList,
+        "active",
+        "",
+        (row) => row.title,
+        (row) => row.projectId === "projA",
+      ).map((row) => row.title),
+    ).toEqual(["Task 1"]);
   });
 });

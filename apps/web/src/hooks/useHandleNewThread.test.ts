@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 */
 import { describe, expect, it, vi } from "vite-plus/test";
 
 const testState = vi.hoisted(() => {
@@ -18,8 +19,11 @@ const testState = vi.hoisted(() => {
       router.state.location.href = `/draft/${request.params.draftId}`;
     }),
   };
+  const investedDraftIds = new Set<string>();
   const draftStore = {
-    getComposerDraft: vi.fn(() => ({})),
+    getComposerDraft: vi.fn((target: string) => ({
+      prompt: investedDraftIds.has(target) ? "Keep my existing work" : "",
+    })),
     getDraftSessionByLogicalProjectKey: vi.fn(() => storedDraft),
     getDraftSession: vi.fn(() => null),
     getDraftThread: vi.fn(() => null),
@@ -32,11 +36,13 @@ const testState = vi.hoisted(() => {
   return {
     completeProjectFileRead: (value: null) => completeProjectFileRead(value),
     draftStore,
+    investedDraftIds,
     get projectFileRead() {
       return projectFileRead;
     },
     reset(nextStoredDraft: typeof storedDraft) {
       storedDraft = nextStoredDraft;
+      investedDraftIds.clear();
       router.state.location.href = "/";
       router.navigate.mockClear();
       draftStore.setLogicalProjectDraftThreadId.mockClear();
@@ -94,7 +100,8 @@ vi.mock("../composerDraftStore", () => {
     getState: () => testState.draftStore,
   });
   return {
-    composerDraftHasUserContent: () => false,
+    composerDraftHasUserContent: (draft: { readonly prompt?: string } | null) =>
+      Boolean(draft?.prompt?.trim()),
     markPromotedDraftThreadByRef: vi.fn(),
     useComposerDraftStore,
   };
@@ -170,5 +177,95 @@ describe("useNewThreadHandler", () => {
     expect(testState.router.state.location.href).toBe("/usage");
     expect(testState.router.navigate).not.toHaveBeenCalled();
     expect(testState.draftStore.setLogicalProjectDraftThreadId).not.toHaveBeenCalled();
+  });
+});
+
+describe("mission draft preservation", () => {
+  const existing = {
+    draftId: "draft-existing",
+    environmentId: "environment-ssh",
+    promotedTo: null,
+    threadId: "thread-existing",
+  } as const;
+  it("opens a fresh mission instead of reusing a draft containing instructions", async () => {
+    testState.reset(existing);
+    testState.investedDraftIds.add(existing.draftId);
+    const opening = useNewThreadHandler()({
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never);
+    testState.completeProjectFileRead(null);
+    expect(await opening).toEqual({ draftId: "draft-delayed", threadId: "thread-delayed" });
+    expect(testState.router.state.location.href).toBe("/draft/draft-delayed");
+    expect(testState.draftStore.getComposerDraft(existing.draftId).prompt).toBe(
+      "Keep my existing work",
+    );
+    expect(testState.draftStore.setLogicalProjectDraftThreadId.mock.calls.at(-1)?.[2]).toBe(
+      "draft-delayed",
+    );
+  });
+  it("abandons reuse if the user starts typing during the project read", async () => {
+    testState.reset(existing);
+    const opening = useNewThreadHandler()({
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never);
+    testState.investedDraftIds.add(existing.draftId);
+    testState.completeProjectFileRead(null);
+    expect(await opening).toBeNull();
+    expect(testState.router.navigate).not.toHaveBeenCalled();
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).not.toHaveBeenCalled();
+    expect(testState.draftStore.getComposerDraft(existing.draftId).prompt).toBe(
+      "Keep my existing work",
+    );
+  });
+});
+
+describe("mission initialization before navigation", () => {
+  it.each([
+    ["new", null],
+    [
+      "reused",
+      {
+        draftId: "draft-existing",
+        environmentId: "environment-ssh",
+        promotedTo: null,
+        threadId: "thread-existing",
+      },
+    ],
+  ] as const)("prepares a %s draft before the caller leaves its form", async (_, draft) => {
+    testState.reset(draft);
+    let preparedId: string | null = null;
+    const opening = useNewThreadHandler()(
+      { environmentId: "environment-ssh", projectId: "project-remote" } as never,
+      {
+        initializeDraft(draftId) {
+          expect(testState.router.state.location.href).toBe("/");
+          preparedId = draftId;
+          testState.investedDraftIds.add(draftId);
+        },
+      },
+    );
+    testState.completeProjectFileRead(null);
+    const opened = await opening;
+    expect(preparedId).toBe(opened?.draftId);
+    expect(testState.router.state.location.href).toBe(`/draft/${preparedId}`);
+    expect(testState.draftStore.getComposerDraft(preparedId!).prompt).toBe("Keep my existing work");
+  });
+
+  it("keeps the form route open when preparation fails", async () => {
+    testState.reset(null);
+    const opening = useNewThreadHandler()(
+      { environmentId: "environment-ssh", projectId: "project-remote" } as never,
+      {
+        initializeDraft() {
+          throw new Error("Subscription became unavailable");
+        },
+      },
+    );
+    testState.completeProjectFileRead(null);
+    await expect(opening).rejects.toThrow("Subscription became unavailable");
+    expect(testState.router.state.location.href).toBe("/");
+    expect(testState.router.navigate).not.toHaveBeenCalled();
   });
 });

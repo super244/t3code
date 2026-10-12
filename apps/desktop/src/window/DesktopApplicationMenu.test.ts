@@ -1,3 +1,6 @@
+/* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-04 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-10-01 */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -184,6 +187,65 @@ describe("DesktopApplicationMenu", () => {
 
       zoomIn.click({} as Electron.MenuItem, {} as Electron.BrowserWindow, {} as KeyboardEvent);
       assert.equal(yield* Deferred.await(selectedAction), "zoom-in");
+    }),
+  );
+
+  it.effect(
+    "routes Go menu actions (Command Center, Usage, Routines, Skills) through DesktopWindow",
+    () =>
+      Effect.gen(function* () {
+        const selectedAction = yield* Deferred.make<string>();
+        const applicationMenuTemplate =
+          yield* Deferred.make<readonly Electron.MenuItemConstructorOptions[]>();
+
+        yield* configureMenu(selectedAction, applicationMenuTemplate);
+
+        const template = yield* Deferred.await(applicationMenuTemplate);
+        const goMenu = template.find((item) => item.label === "Go");
+        assert.isDefined(goMenu);
+        if (!Array.isArray(goMenu.submenu)) {
+          throw new Error("Expected Go menu submenu to be an array.");
+        }
+
+        const commandCenterItem = goMenu.submenu.find((item) => item.label === "Command Center");
+        assert.isDefined(commandCenterItem);
+        assert.equal(commandCenterItem.accelerator, "CmdOrCtrl+Shift+C");
+        if (typeof commandCenterItem.click !== "function") {
+          throw new Error("Expected Command Center menu item to have a click handler.");
+        }
+
+        commandCenterItem.click(
+          {} as Electron.MenuItem,
+          {} as Electron.BrowserWindow,
+          {} as KeyboardEvent,
+        );
+        assert.equal(yield* Deferred.await(selectedAction), "open-command-center");
+      }),
+  );
+
+  it.effect("routes the Go menu Race item through DesktopWindow", () =>
+    Effect.gen(function* () {
+      const selectedAction = yield* Deferred.make<string>();
+      const applicationMenuTemplate =
+        yield* Deferred.make<readonly Electron.MenuItemConstructorOptions[]>();
+
+      yield* configureMenu(selectedAction, applicationMenuTemplate);
+
+      const template = yield* Deferred.await(applicationMenuTemplate);
+      const goMenu = template.find((item) => item.label === "Go");
+      if (!goMenu || !Array.isArray(goMenu.submenu)) {
+        throw new Error("Expected a Go menu with a submenu.");
+      }
+
+      const raceItem = goMenu.submenu.find((item) => item.label === "Race");
+      assert.isDefined(raceItem);
+      assert.equal(raceItem.accelerator, "CmdOrCtrl+Shift+B");
+      if (typeof raceItem.click !== "function") {
+        throw new Error("Expected Race menu item to have a click handler.");
+      }
+
+      raceItem.click({} as Electron.MenuItem, {} as Electron.BrowserWindow, {} as KeyboardEvent);
+      assert.equal(yield* Deferred.await(selectedAction), "open-race");
     }),
   );
 });

@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=35m; seat=codex; date=2026-10-02 */
 import {
   addProjectRemoteSourceLabel,
   addProjectRemoteSourcePathHint,
@@ -529,8 +530,8 @@ export function AddProjectSourceScreen() {
         <>
           <ListSection>
             <ListRow
-              title="Local folder"
-              subtitle="Browse a folder on disk"
+              title="Browse folders"
+              subtitle="Select an existing project on this environment"
               icon={
                 <SymbolView
                   name="folder.badge.plus"
@@ -834,6 +835,11 @@ function FolderBrowser(props: {
             }}
           />
         ))}
+        {!browseState.isPending && !browseState.error && visibleBrowseEntries.length === 0 ? (
+          <Text className="px-4 py-3 text-sm text-foreground-muted">
+            {browseFilterQuery ? "No folders match this path." : "No subfolders in this folder."}
+          </Text>
+        ) : null}
       </ListSection>
     </>
   );
@@ -878,17 +884,17 @@ export function AddProjectLocalFolderScreen(props: { readonly environmentId?: st
             onChangeText={setPathInput}
             onSubmit={() => void submitPath()}
           />
-          <PrimaryActionButton
-            label="Add project"
-            disabled={isBrowseNavigating || isSubmitting}
-            onPress={() => void submitPath()}
-            loading={isSubmitting}
-          />
           <FolderBrowser
             environment={environment}
             navigateToBrowsePath={navigateToBrowsePath}
             pathInput={pathInput}
             setPathInput={setPathInput}
+          />
+          <PrimaryActionButton
+            label="Add this folder"
+            disabled={isBrowseNavigating || isSubmitting}
+            onPress={() => void submitPath()}
+            loading={isSubmitting}
           />
         </>
       ) : (

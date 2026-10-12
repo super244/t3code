@@ -1,3 +1,7 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-10 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
+/* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=14m; seat=codex; date=2026-10-02 */
 import {
   sameUsageLimitCommandCoverage,
   withUsageLimitsCommands,
@@ -1297,6 +1301,8 @@ const makeWsRpcLayer = (
             },
             settings,
             shellResumeCompletionMarker: true,
+            routineOverlapProtection: true,
+            routineDailyLaunchLimit: true,
             ...(fileManagerRevealKind === undefined
               ? {}
               : {
@@ -2012,9 +2018,9 @@ const makeWsRpcLayer = (
         [WS_METHODS.serverUpdateSettings]: ({ patch }) =>
           observeRpcEffect(
             WS_METHODS.serverUpdateSettings,
-            serverSettings
-              .updateSettings(patch)
-              .pipe(Effect.map(ServerSettings.redactServerSettingsForClient)),
+            ServerSettings.updateClientSettings(serverSettings, patch).pipe(
+              Effect.map(ServerSettings.redactServerSettingsForClient),
+            ),
             {
               "rpc.aggregate": "server",
             },
@@ -2625,6 +2631,20 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.vcsRemoveWorktree,
             gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsIntegrateWorktree]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsIntegrateWorktree,
+            gitWorkflow.integrateWorktree(input).pipe(
+              Effect.tap(() =>
+                // Both checkouts moved: the project gained a commit and the
+                // worktree's own changes became one.
+                Effect.all([refreshGitStatus(input.cwd), refreshGitStatus(input.worktreePath)], {
+                  concurrency: 2,
+                }),
+              ),
+            ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsCreateRef]: (input) =>

@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=6m; seat=claude-code; date=2026-10-06 */
 import { describe, expect, it } from "vite-plus/test";
 
 import { resolveSnoozePresets, snoozeWakeDescription } from "./Sidebar.snooze";
@@ -65,7 +66,11 @@ describe("resolveSnoozePresets", () => {
     const twelveHour = resolveSnoozePresets(localDate(2026, 4, 8, 10), "12-hour");
     const twentyFourHour = resolveSnoozePresets(localDate(2026, 4, 8, 10), "24-hour");
 
-    expect(twelveHour.find((preset) => preset.id === "evening")!.whenLabel).toMatch(/PM/i);
+    // 12-hour output is locale-shaped ("6:00 PM", "6:00 p.m.", "下午6:00"); what every
+    // locale shares is the 6, never the 18.
+    const evening = twelveHour.find((preset) => preset.id === "evening")!.whenLabel;
+    expect(evening).toMatch(/\b6:00\b/);
+    expect(evening).not.toMatch(/18/);
     expect(twentyFourHour.find((preset) => preset.id === "evening")!.whenLabel).toBe("18:00");
   });
 });
@@ -86,9 +91,13 @@ describe("snoozeWakeDescription", () => {
   });
 
   it("formats wake descriptions with the selected clock preference", () => {
-    expect(snoozeWakeDescription(localDate(2026, 4, 8, 18).toISOString(), now, "12-hour")).toMatch(
-      /PM/i,
+    const twelveHour = snoozeWakeDescription(
+      localDate(2026, 4, 8, 18).toISOString(),
+      now,
+      "12-hour",
     );
+    expect(twelveHour).toMatch(/\b6:00\b/);
+    expect(twelveHour).not.toMatch(/18/);
     expect(snoozeWakeDescription(localDate(2026, 4, 8, 18).toISOString(), now, "24-hour")).toBe(
       "18:00",
     );

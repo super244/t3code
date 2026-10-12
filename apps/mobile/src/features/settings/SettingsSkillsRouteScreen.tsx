@@ -1,3 +1,5 @@
+/* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-10-01 */
 import {
   displayedSkillCount,
   fetchEnvironmentSkillInventory,
@@ -5,6 +7,8 @@ import {
   formatSkillCount,
   formatSkillPath,
   groupSkillsByHarness,
+  quietSkillHarnesses,
+  type QuietSkillHarness,
   skillContentForDisplay,
   skillKey,
 } from "@t3tools/client-runtime/state/skills";
@@ -172,6 +176,16 @@ function EnvironmentSkillInventory(props: {
     () => (state.status === "loaded" ? filterSkillInventory(state.inventory, props.query) : null),
     [props.query, state],
   );
+  const quietHarnesses = useMemo(() => {
+    if (state.status !== "loaded") return [];
+    const needle = props.query.trim().toLowerCase();
+    return quietSkillHarnesses(
+      props.environment.serverConfig?.providers ?? [],
+      state.inventory.installations,
+    ).filter(
+      (harness) => needle.length === 0 || harness.harnessDisplayName.toLowerCase().includes(needle),
+    );
+  }, [props.environment.serverConfig?.providers, props.query, state]);
   const isConnected = Option.isSome(prepared);
   const total = displayedSkillCount(
     state.status === "loaded" ? state.inventory : null,
@@ -232,12 +246,12 @@ function EnvironmentSkillInventory(props: {
                 <Text className="text-sm font-t3-medium">Try again</Text>
               </Pressable>
             </View>
-          ) : visibleInventory?.installations.length === 0 ? (
+          ) : visibleInventory?.installations.length === 0 && quietHarnesses.length === 0 ? (
             <StatusLine>
               {props.query ? "No skills match this search." : "No global agent skills found."}
             </StatusLine>
           ) : visibleInventory ? (
-            <SkillHarnessGroups inventory={visibleInventory} />
+            <SkillHarnessGroups inventory={visibleInventory} quietHarnesses={quietHarnesses} />
           ) : null}
         </View>
       ) : null}
@@ -249,47 +263,75 @@ function StatusLine({ children }: { readonly children: string }) {
   return <Text className="px-4 py-5 text-sm text-foreground-muted">{children}</Text>;
 }
 
-function SkillHarnessGroups({ inventory }: { readonly inventory: SkillInventory }) {
+function SkillHarnessGroups(props: {
+  readonly inventory: SkillInventory;
+  readonly quietHarnesses: readonly QuietSkillHarness[];
+}) {
   const [expandedSkillKey, setExpandedSkillKey] = useState<string | null>(null);
-  return groupSkillsByHarness(inventory.installations).map((group, groupIndex) => (
-    <View key={group.key} className={cn(groupIndex !== 0 && "border-t border-border")}>
-      <View className="flex-row items-center gap-2 bg-subtle/45 px-4 py-2.5">
-        <SymbolView
-          name={{ ios: "cpu", android: "memory" }}
-          size={14}
-          tintColorClassName="accent-icon-muted"
-          type="monochrome"
-        />
-        <Text className="text-xs font-t3-bold uppercase tracking-wider text-foreground-muted">
-          {group.harnessDisplayName}
-        </Text>
-        <Text className="font-mono text-xs tabular-nums text-foreground-muted">
-          {group.skills.length}
-        </Text>
-        {group.rootPath ? (
-          <Text
-            className="min-w-0 flex-1 text-right font-mono text-xs text-foreground-faint"
-            ellipsizeMode="middle"
-            numberOfLines={1}
-          >
-            {formatSkillPath(group.rootPath)}
-          </Text>
-        ) : null}
-      </View>
-      {group.skills.map((skill, index) => {
-        const key = skillKey(skill);
-        return (
-          <SkillRow
-            key={key}
-            skill={skill}
-            bordered={index !== 0}
-            open={expandedSkillKey === key}
-            onToggle={() => setExpandedSkillKey((current) => (current === key ? null : key))}
-          />
-        );
-      })}
-    </View>
-  ));
+  const groups = groupSkillsByHarness(props.inventory.installations);
+
+  return (
+    <>
+      {groups.map((group, groupIndex) => (
+        <View key={group.key} className={cn(groupIndex !== 0 && "border-t border-border")}>
+          <View className="flex-row items-center gap-2 bg-subtle/45 px-4 py-2.5">
+            <SymbolView
+              name={{ ios: "cpu", android: "memory" }}
+              size={14}
+              tintColorClassName="accent-icon-muted"
+              type="monochrome"
+            />
+            <Text className="text-xs font-t3-bold uppercase tracking-wider text-foreground-muted">
+              {group.harnessDisplayName}
+            </Text>
+            <Text className="font-mono text-xs tabular-nums text-foreground-muted">
+              {group.skills.length}
+            </Text>
+            {group.rootPath ? (
+              <Text
+                className="min-w-0 flex-1 text-right font-mono text-xs text-foreground-faint"
+                ellipsizeMode="middle"
+                numberOfLines={1}
+              >
+                {formatSkillPath(group.rootPath)}
+              </Text>
+            ) : null}
+          </View>
+          {group.skills.map((skill, index) => {
+            const key = skillKey(skill);
+            return (
+              <SkillRow
+                key={key}
+                skill={skill}
+                bordered={index !== 0}
+                open={expandedSkillKey === key}
+                onToggle={() => setExpandedSkillKey((current) => (current === key ? null : key))}
+              />
+            );
+          })}
+        </View>
+      ))}
+      {props.quietHarnesses.map((harness, harnessIndex) => (
+        <View
+          key={harness.key}
+          className={cn((groups.length > 0 || harnessIndex !== 0) && "border-t border-border")}
+        >
+          <View className="flex-row items-center gap-2 bg-subtle/30 px-4 py-2.5">
+            <SymbolView
+              name={{ ios: "cpu", android: "memory" }}
+              size={14}
+              tintColorClassName="accent-icon-muted"
+              type="monochrome"
+            />
+            <Text className="text-xs font-t3-bold uppercase tracking-wider text-foreground-muted">
+              {harness.harnessDisplayName}
+            </Text>
+            <Text className="text-xs text-foreground-muted">No global skills</Text>
+          </View>
+        </View>
+      ))}
+    </>
+  );
 }
 
 function SkillRow(props: {

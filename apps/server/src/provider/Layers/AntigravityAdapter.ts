@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=56m; seat=codex; date=2026-10-07 */
 import {
   ApprovalRequestId,
   EventId,
@@ -230,11 +231,36 @@ const resolveClientFilePath = Effect.fn("AntigravityAdapter.resolveClientFilePat
   }) {
     const { path } = input;
     const resolved = path.resolve(input.requestPath);
-    // Follow symlinks on the parent so a link out of the workspace cannot escape it.
-    const parent = yield* input.fileSystem
-      .realPath(path.dirname(resolved))
-      .pipe(Effect.orElseSucceed(() => path.dirname(resolved)));
-    const real = path.join(parent, path.basename(resolved));
+    // Resolve an existing target too: following only its parent misses a
+    // file symlink. For new nested paths, resolve the nearest existing ancestor.
+    let probe = resolved;
+    const missing: Array<string> = [];
+    let real: string;
+    while (true) {
+      const canonical = yield* input.fileSystem.realPath(probe).pipe(
+        Effect.catchIf(
+          (error) => error.reason._tag === "NotFound",
+          () => Effect.succeed(null),
+        ),
+        Effect.mapError(() =>
+          EffectAcpErrors.AcpRequestError.invalidParams(
+            `Path '${input.requestPath}' could not be resolved safely.`,
+          ),
+        ),
+      );
+      if (canonical !== null) {
+        real = path.join(canonical, ...missing);
+        break;
+      }
+      const parent = path.dirname(probe);
+      if (parent === probe) {
+        return yield* EffectAcpErrors.AcpRequestError.invalidParams(
+          `Path '${input.requestPath}' could not be resolved safely.`,
+        );
+      }
+      missing.unshift(path.basename(probe));
+      probe = parent;
+    }
     const roots = yield* Effect.forEach(input.allowedRoots, (root) =>
       input.fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => root)),
     );

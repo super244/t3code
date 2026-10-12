@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+/* agent-watermark: model=grok-4.7; effort=default; duration=15m; seat=cursor; date=2026-09-30 */
 import { assert, it } from "@effect/vitest";
 import {
   AntigravitySettings,
@@ -6,6 +7,7 @@ import {
   CodexSettings,
   CursorSettings,
   GrokSettings,
+  OpenCodeSettings,
   ProviderDriverKind,
   ProviderInstanceId,
 } from "@t3tools/contracts";
@@ -25,6 +27,7 @@ const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 const decodeCursorSettings = Schema.decodeSync(CursorSettings);
 const decodeAntigravitySettings = Schema.decodeSync(AntigravitySettings);
 const decodeGrokSettings = Schema.decodeSync(GrokSettings);
+const decodeOpenCodeSettings = Schema.decodeSync(OpenCodeSettings);
 
 const makeGrokInspectSpawner = (skillPath: string) =>
   ChildProcessSpawner.make(() =>
@@ -291,6 +294,82 @@ it.layer(NodeServices.layer)("discoverGlobalSkillInventory", (it) => {
           ["antigravity", "Antigravity Work", "research"],
           ["cursor", "Cursor Work", "refactor"],
           ["grok", "Grok Work", "ship"],
+        ],
+      );
+    }),
+  );
+
+  it.effect("discovers global OpenCode skills and lets the plural directory win", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const tempDirectory = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-opencode-skill-inventory-",
+      });
+      const configHome = path.join(tempDirectory, "config");
+      yield* writeSkill(path.join(configHome, "opencode"), "review", "Review with OpenCode.");
+      const singular = path.join(configHome, "opencode", "skill", "review");
+      yield* fileSystem.makeDirectory(singular, { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(singular, "SKILL.md"),
+        "---\nname: review\ndescription: Singular copy must lose.\n---\n",
+      );
+      yield* writeSkill(path.join(configHome, "opencode"), "ship", "Ship with OpenCode.");
+      // writeSkill always uses a `skills/` child. Put ship only in the singular dir.
+      yield* fileSystem.remove(path.join(configHome, "opencode", "skills", "ship"), {
+        recursive: true,
+      });
+      yield* fileSystem.makeDirectory(path.join(configHome, "opencode", "skill", "ship"), {
+        recursive: true,
+      });
+      yield* fileSystem.writeFileString(
+        path.join(configHome, "opencode", "skill", "ship", "SKILL.md"),
+        "---\nname: ship\ndescription: Ship with OpenCode.\n---\n",
+      );
+
+      const inventory = yield* discoverGlobalSkillInventory().pipe(
+        Effect.provide(
+          ServerSettings.layerTest({
+            providers: {
+              codex: decodeCodexSettings({ enabled: false }),
+              claudeAgent: decodeClaudeSettings({ enabled: false }),
+            },
+            providerInstances: {
+              [ProviderInstanceId.make("opencode_work")]: {
+                driver: ProviderDriverKind.make("opencode"),
+                displayName: "OpenCode Work",
+                enabled: true,
+                environment: [{ name: "XDG_CONFIG_HOME", value: configHome, sensitive: false }],
+                config: decodeOpenCodeSettings({ enabled: true }),
+              },
+            },
+          }),
+        ),
+      );
+
+      assert.deepEqual(
+        inventory.installations.map((skill) => [
+          skill.harness,
+          skill.harnessDisplayName,
+          skill.name,
+          skill.directoryPath,
+          skill.content.includes("Review with OpenCode."),
+        ]),
+        [
+          [
+            "opencode",
+            "OpenCode Work",
+            "review",
+            path.join(configHome, "opencode", "skills", "review"),
+            true,
+          ],
+          [
+            "opencode",
+            "OpenCode Work",
+            "ship",
+            path.join(configHome, "opencode", "skill", "ship"),
+            false,
+          ],
         ],
       );
     }),

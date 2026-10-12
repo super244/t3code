@@ -50,7 +50,7 @@ describe("parseClaudeLine", () => {
       outputTokens: 286,
       reasoningTokens: 0,
     });
-    expect(record?.dedupeKey).toBe("msg_1:");
+    expect(record?.dedupeKey).toBeNull();
   });
 
   it("gives every content block of one message the same dedupe key", () => {

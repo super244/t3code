@@ -1,9 +1,22 @@
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 -->
+
 # Updating T3 Code
 
 The app you use and the server running your agents can be on different machines.
 When a server is behind your web or desktop app, an update notice appears in the
 conversation and **Settings → Connections**. Update the machine named in that
 notice.
+
+## Upstream releases in this custom app
+
+Open **Upstream** in the sidebar to view official releases and recent commits.
+Choose **Stable** for published releases or **Nightly** for previews that may
+contain unfinished changes. **Check Now** refreshes the information. A failed
+check displays the error and retains the last known information for this session.
+
+These downloads install the official upstream app. They do not merge changes
+into this custom checkout or replace its custom features. Use the normal server
+update flow below when updating a connected server.
 
 ## Before you update
 

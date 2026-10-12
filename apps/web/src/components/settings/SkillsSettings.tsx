@@ -1,3 +1,4 @@
+/* agent-watermark: model=grok-4.7; effort=default; duration=18m; seat=cursor; date=2026-09-30 */
 import { CheckIcon, ChevronRightIcon, CopyIcon, RefreshCwIcon, SparklesIcon } from "lucide-react";
 import type { SkillInventory, SkillInventoryInstallation } from "@t3tools/contracts";
 import * as Option from "effect/Option";
@@ -10,6 +11,7 @@ import {
   formatSkillCount,
   formatSkillPath,
   groupSkillsByHarness,
+  quietSkillHarnesses,
   setKeyCollapsed,
   skillContentForDisplay,
   skillKey,
@@ -165,6 +167,16 @@ function EnvironmentSkillInventory({
     () => (state.status === "loaded" ? filterSkillInventory(state.inventory, query) : null),
     [query, state],
   );
+  const quietHarnesses = useMemo(() => {
+    if (state.status !== "loaded") return [];
+    const needle = query.trim().toLowerCase();
+    return quietSkillHarnesses(
+      environment.serverConfig?.providers ?? [],
+      state.inventory.installations,
+    ).filter(
+      (harness) => needle.length === 0 || harness.harnessDisplayName.toLowerCase().includes(needle),
+    );
+  }, [environment.serverConfig?.providers, query, state]);
   const isConnected = Option.isSome(prepared);
   const skillCount = displayedSkillCount(
     state.status === "loaded" ? state.inventory : null,
@@ -223,12 +235,16 @@ function EnvironmentSkillInventory({
               <StatusLine>Scanning skills…</StatusLine>
             ) : state.status === "error" ? (
               <StatusLine tone="error">{state.message}</StatusLine>
-            ) : visibleInventory?.installations.length === 0 ? (
+            ) : visibleInventory?.installations.length === 0 && quietHarnesses.length === 0 ? (
               <StatusLine>
                 {query ? "No skills match this search." : "No global agent skills found."}
               </StatusLine>
             ) : visibleInventory ? (
-              <SkillHarnessGroups inventory={visibleInventory} isSearching={isSearching} />
+              <SkillHarnessGroups
+                inventory={visibleInventory}
+                isSearching={isSearching}
+                quietHarnesses={quietHarnesses}
+              />
             ) : null}
           </div>
         </CollapsibleContent>
@@ -240,30 +256,52 @@ function EnvironmentSkillInventory({
 function SkillHarnessGroups({
   inventory,
   isSearching,
+  quietHarnesses,
 }: {
   inventory: SkillInventory;
   isSearching: boolean;
+  quietHarnesses: ReturnType<typeof quietSkillHarnesses>;
 }) {
   const [collapsedHarnesses, setCollapsedHarnesses] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
   const groups = useMemo(() => groupSkillsByHarness(inventory.installations), [inventory]);
 
-  return groups.map((group) => (
-    <SkillHarnessGroup
-      key={group.key}
-      harnessDisplayName={group.harnessDisplayName}
-      harness={group.harness}
-      rootPath={group.rootPath}
-      skills={group.skills}
-      open={isSearching || !collapsedHarnesses.has(group.key)}
-      onOpenChange={(nextOpen) => {
-        if (!isSearching) {
-          setCollapsedHarnesses((keys) => setKeyCollapsed(keys, group.key, !nextOpen));
-        }
-      }}
-    />
-  ));
+  return (
+    <>
+      {groups.map((group) => (
+        <SkillHarnessGroup
+          key={group.key}
+          harnessDisplayName={group.harnessDisplayName}
+          harness={group.harness}
+          rootPath={group.rootPath}
+          skills={group.skills}
+          open={isSearching || !collapsedHarnesses.has(group.key)}
+          onOpenChange={(nextOpen) => {
+            if (!isSearching) {
+              setCollapsedHarnesses((keys) => setKeyCollapsed(keys, group.key, !nextOpen));
+            }
+          }}
+        />
+      ))}
+      {quietHarnesses.map((harness) => {
+        const HarnessIcon = PROVIDER_ICON_BY_PROVIDER[harness.harness] ?? null;
+        return (
+          <div
+            key={harness.key}
+            className="flex min-w-0 items-center gap-2 py-1.5 pl-7 pr-3 sm:pl-8 sm:pr-4"
+          >
+            <span className="size-3 shrink-0" />
+            {HarnessIcon ? <HarnessIcon aria-hidden className="size-3.5 shrink-0" /> : null}
+            <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
+              {harness.harnessDisplayName}
+            </span>
+            <span className="truncate text-xs text-muted-foreground">No global skills</span>
+          </div>
+        );
+      })}
+    </>
+  );
 }
 
 function SkillHarnessGroup({

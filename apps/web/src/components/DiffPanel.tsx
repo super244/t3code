@@ -1,3 +1,5 @@
+/* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-03 */
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
 import type { FileDiffContentsLoader } from "@pierre/diffs";
@@ -16,6 +18,7 @@ import {
   ChevronsDownUpIcon,
   ChevronsUpDownIcon,
   Columns2Icon,
+  CopyIcon,
   FolderTreeIcon,
   PilcrowIcon,
   Rows3Icon,
@@ -38,12 +41,19 @@ import {
   buildFileDiffIdentityKey,
   getDiffCollapseIconClassName,
   getDiffLineStat,
+  getSingleFileDiffLineStat,
   getRenderablePatch,
   resolveDiffThemeName,
   resolveFileDiffPath,
 } from "../lib/diffRendering";
-import { PREFERRED_HIGHLIGHTER } from "../lib/syntaxHighlighting";
+import { PREFERRED_HIGHLIGHTER, warmSyntaxHighlighterCache } from "../lib/syntaxHighlighting";
 import { areAllDiffFilesCollapsed, toggleAllDiffFiles } from "../lib/diffCollapse";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import {
+  ANCHORED_COPY_TOAST_TIMEOUT_MS,
+  showAnchoredCopyErrorToast,
+  showAnchoredCopySuccessToast,
+} from "./ui/anchoredCopyToast";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useWorkspaceMutationRefresh } from "../hooks/useWorkspaceMutationRefresh";
 import { useProject, useThread } from "../state/entities";
@@ -129,6 +139,18 @@ export default function DiffPanel({
   }));
   const [codeViewRevision, setCodeViewRevision] = useState(0);
   const [codeView, setCodeView] = useState<AnnotatableCodeViewHandle | null>(null);
+
+  useEffect(() => {
+    warmSyntaxHighlighterCache();
+  }, []);
+
+  const copyPatchButtonRef = useRef<HTMLButtonElement>(null);
+  const { copyToClipboard: copyPatchToClipboard, isCopied: isPatchCopied } =
+    useCopyToClipboard<void>({
+      onCopy: () => showAnchoredCopySuccessToast(copyPatchButtonRef),
+      onError: (error) => showAnchoredCopyErrorToast(copyPatchButtonRef, error),
+      timeout: ANCHORED_COPY_TOAST_TIMEOUT_MS,
+    });
 
   const routeThreadRef = useParams({
     strict: false,
@@ -856,6 +878,35 @@ export default function DiffPanel({
             {diffIgnoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
           </TooltipPopup>
         </Tooltip>
+        {hasResolvedPatch && !hasNoNetChanges && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  ref={copyPatchButtonRef}
+                  size="icon-sm"
+                  variant="ghost"
+                  className="size-7 text-muted-foreground hover:text-foreground"
+                  aria-label="Copy entire patch"
+                  onClick={() => {
+                    if (typeof selectedPatch === "string") {
+                      copyPatchToClipboard(selectedPatch, undefined);
+                    }
+                  }}
+                >
+                  {isPatchCopied ? (
+                    <CheckIcon className="size-3.5 text-success" />
+                  ) : (
+                    <CopyIcon className="size-3.5" />
+                  )}
+                </Button>
+              }
+            />
+            <TooltipPopup side="top">
+              {isPatchCopied ? "Patch copied!" : "Copy entire patch"}
+            </TooltipPopup>
+          </Tooltip>
+        )}
         {codeViewFiles.length > 0 && (
           <Tooltip>
             <TooltipTrigger
@@ -975,9 +1026,29 @@ export default function DiffPanel({
                     sectionId={reviewSectionId}
                     sectionTitle={reviewSectionTitle}
                     composerDraftTarget={composerDraftTarget}
-                    renderHeaderFilenameSuffix={(fileDiff) => (
-                      <DiffFilePathCopyButton filePath={resolveFileDiffPath(fileDiff)} />
-                    )}
+                    renderHeaderFilenameSuffix={(fileDiff) => {
+                      const stat = getSingleFileDiffLineStat(fileDiff);
+                      const filePath = resolveFileDiffPath(fileDiff);
+                      return (
+                        <div className="flex items-center gap-1.5 ml-auto">
+                          {(stat.additions > 0 || stat.deletions > 0) && (
+                            <span className="inline-flex items-center gap-1 font-mono text-[10px] tabular-nums text-muted-foreground mr-1">
+                              {stat.additions > 0 && (
+                                <span className="text-emerald-500 font-semibold">
+                                  +{stat.additions}
+                                </span>
+                              )}
+                              {stat.deletions > 0 && (
+                                <span className="text-rose-500 font-semibold">
+                                  -{stat.deletions}
+                                </span>
+                              )}
+                            </span>
+                          )}
+                          <DiffFilePathCopyButton filePath={filePath} />
+                        </div>
+                      );
+                    }}
                     renderHeaderPrefix={(fileDiff, fileKey, collapsed) => {
                       const filePath = resolveFileDiffPath(fileDiff);
                       return (

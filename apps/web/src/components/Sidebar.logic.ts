@@ -1235,3 +1235,83 @@ export function sortScopedProjectsForSidebar<
       left.id.localeCompare(right.id),
   );
 }
+
+/* agent-watermark: model=muse-spark; effort=high; duration=35m; seat=opencode; date=2026-10-10 */
+// --- Sidebar project filter + folder grouping ---
+// Pure helpers: the sidebar scope menu matches across name AND path, and
+// projects group under their parent folder for scannable sections.
+
+export interface SidebarProjectFilterItem {
+  readonly value: string;
+  readonly label: string;
+  readonly workspaceRoot?: string;
+  readonly title?: string;
+}
+
+function normalizeSidebarFilterToken(value: string): string {
+  return value.trim().toLowerCase().replace(/\\/g, "/");
+}
+
+/** Tokenized, case-insensitive match across label, title, and workspace path. */
+export function sidebarProjectMatchesQuery(
+  item: SidebarProjectFilterItem,
+  query: string,
+): boolean {
+  const normalized = normalizeSidebarFilterToken(query);
+  if (normalized.length === 0) return true;
+  const tokens = normalized.split(/\s+/);
+  const haystack = [item.label, item.title ?? "", item.workspaceRoot ?? ""]
+    .map(normalizeSidebarFilterToken)
+    .join("\n");
+  return tokens.every((token) => haystack.includes(token));
+}
+
+/** Project-filter variant of the scope-menu filter: searches name + path. */
+export function filterSidebarProjects<TItem extends SidebarProjectFilterItem>(input: {
+  items: readonly TItem[];
+  activeScopeKey: string | null;
+  query: string;
+}): readonly TItem[] {
+  const query = input.query.trim();
+  const projectItems = input.items.filter((item) => item.value !== "all");
+  if (query.length > 0) {
+    return projectItems.filter((item) => sidebarProjectMatchesQuery(item, query));
+  }
+  return input.activeScopeKey === null ? projectItems : input.items;
+}
+
+export interface SidebarProjectFolderGroup<TItem> {
+  readonly folder: string;
+  readonly items: TItem[];
+}
+
+/**
+ * Parent folder of a workspace root: "~/projects/acme" -> "~/projects",
+ * "/a/b/c" -> "/a/b", bare names and "~" group under "Workspace".
+ */
+export function getSidebarProjectFolder(workspaceRoot: string | undefined): string {
+  const root = (workspaceRoot ?? "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!root || root === "~" || !root.includes("/")) return "Workspace";
+  const parent = root.slice(0, root.lastIndexOf("/"));
+  return parent || "/";
+}
+
+/** Group scope-menu items under parent-folder sections, folders A–Z. */
+export function groupSidebarProjectsByFolder<TItem extends SidebarProjectFilterItem>(
+  items: readonly TItem[],
+): SidebarProjectFolderGroup<TItem>[] {
+  const groups = new Map<string, TItem[]>();
+  for (const item of items) {
+    if (item.value === "all") continue;
+    const folder = getSidebarProjectFolder(item.workspaceRoot);
+    const existing = groups.get(folder);
+    if (existing) existing.push(item);
+    else groups.set(folder, [item]);
+  }
+  return [...groups.entries()]
+    .toSorted(([left], [right]) => left.localeCompare(right))
+    .map(([folder, folderItems]) => ({
+      folder,
+      items: [...folderItems].toSorted((left, right) => left.label.localeCompare(right.label)),
+    }));
+}

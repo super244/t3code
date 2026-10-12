@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
@@ -164,8 +165,26 @@ export const VcsRemoveWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   path: TrimmedNonEmptyStringSchema,
   force: Schema.optional(Schema.Boolean),
+  /**
+   * Branch to delete once the worktree is gone, for callers whose branch dies
+   * with it. Best effort: a branch that is missing or still checked out
+   * somewhere leaves the removal successful.
+   */
+  deleteBranch: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type VcsRemoveWorktreeInput = typeof VcsRemoveWorktreeInput.Type;
+
+/**
+ * Folds a worktree's branch back into the project checkout it was cut from.
+ * `cwd` is the project checkout root, `worktreePath` the entrant's worktree.
+ */
+export const VcsIntegrateWorktreeInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  worktreePath: TrimmedNonEmptyStringSchema,
+  branch: TrimmedNonEmptyStringSchema,
+  commitMessage: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(10_000)),
+});
+export type VcsIntegrateWorktreeInput = typeof VcsIntegrateWorktreeInput.Type;
 
 export const VcsCreateRefInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -277,6 +296,64 @@ export const VcsCreateWorktreeResult = Schema.Struct({
   worktree: VcsWorktree,
 });
 export type VcsCreateWorktreeResult = typeof VcsCreateWorktreeResult.Type;
+
+/**
+ * Every outcome of integrating a worktree is a value, not an error: the
+ * refusals are states the user can act on, so clients render them instead of
+ * guessing at an exception. Only a broken repository fails the RPC.
+ *
+ * Each refusal leaves the project checkout byte-identical to how it was found,
+ * including the ones raised after a squash merge was already staged. The
+ * worktree keeps whatever it held: its uncommitted work is only turned into a
+ * commit on its own branch once the checkout has passed every check, so a
+ * refusal never rewrites the attempt either.
+ */
+export const VcsIntegrateWorktreeResult = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal("merged"),
+    commitSha: TrimmedNonEmptyStringSchema,
+    filesChanged: NonNegativeInt,
+  }),
+  Schema.Struct({
+    status: Schema.Literal("nothing_to_merge"),
+  }),
+  Schema.Struct({
+    status: Schema.Literal("base_dirty"),
+    /** Tracked files the project checkout has changed. */
+    files: Schema.Array(TrimmedNonEmptyStringSchema),
+  }),
+  Schema.Struct({
+    status: Schema.Literal("conflict"),
+    /** Paths the squash merge could not resolve. */
+    files: Schema.Array(TrimmedNonEmptyStringSchema),
+  }),
+  /**
+   * The checkout's own commit hooks refused the squashed commit (or the commit
+   * failed for another local reason, such as unavailable signing). `reason`
+   * carries that output, trimmed and capped.
+   */
+  Schema.Struct({
+    status: Schema.Literal("rejected"),
+    reason: TrimmedNonEmptyStringSchema,
+  }),
+  /**
+   * The checkout is no longer on the branch this attempt was cut from, so
+   * merging would land the work somewhere nobody chose. Both fields are null
+   * when the respective branch is unknown (a detached HEAD, or an attempt with
+   * no recorded base).
+   */
+  Schema.Struct({
+    status: Schema.Literal("base_moved"),
+    expected: Schema.NullOr(TrimmedNonEmptyStringSchema),
+    current: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  }),
+  /** The worktree itself moved off the branch being integrated. */
+  Schema.Struct({
+    status: Schema.Literal("branch_mismatch"),
+    current: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  }),
+]);
+export type VcsIntegrateWorktreeResult = typeof VcsIntegrateWorktreeResult.Type;
 
 export const GitResolvePullRequestResult = Schema.Struct({
   pullRequest: GitResolvedPullRequest,

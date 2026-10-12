@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=35m; seat=codex; date=2026-10-02 */
 import {
   EnvironmentId,
   ProjectId,
@@ -37,6 +38,9 @@ describe("add project shared logic", () => {
     expect(getAddProjectInitialQuery("")).toBe("~/");
     expect(getAddProjectInitialQuery("/work")).toBe("/work/");
     expect(getAddProjectInitialQuery("C:\\work")).toBe("C:\\work\\");
+    for (const invalidBase of ["projects", "./projects", "../projects", "   "]) {
+      expect(getAddProjectInitialQuery(invalidBase)).toBe("~/");
+    }
   });
 
   it("derives the clone folder name from the repository name with owner", () => {

@@ -1,14 +1,20 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=4m; seat=claude-code; date=2026-10-10 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-10-10 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-04 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
+/* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
 import {
   ArrowLeftIcon,
   CalendarClockIcon,
   ChartNoAxesColumnIcon,
+  FlagIcon,
   LayoutDashboardIcon,
   GitPullRequestIcon,
   SettingsIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
-import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
@@ -33,8 +39,12 @@ import {
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
+import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
+import { UpstreamUpdatePill } from "../updates/UpstreamUpdatePill";
+import { SoundControlPill } from "../sound/SoundControlPill";
+import { PrismThemeSwitcher } from "../themes/PrismThemeSwitcher";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -135,23 +145,10 @@ function SidebarUtilityItem({
 
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
-  const canGoBack = useCanGoBack();
+  const navigateToMainApp = useNavigateToMainApp();
   const { isMobile, setOpenMobile } = useSidebar();
-  const currentFooterPage = useLocation({
-    select: (location) =>
-      /^\/settings(?:\/|$)/.test(location.pathname)
-        ? "settings"
-        : /^\/projects\/[^/]+\/?$/.test(location.pathname)
-          ? "project-settings"
-          : location.pathname === "/usage"
-            ? "usage"
-            : location.pathname === "/command-center"
-              ? "command-center"
-              : location.pathname === "/routines"
-                ? "routines"
-                : location.pathname === "/pull-requests"
-                  ? "pull-requests"
-                  : null,
+  const isOnUtilityPage = useLocation({
+    select: (location) => isSidebarUtilityPage(location.pathname),
   });
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
@@ -191,18 +188,19 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigate({ to: "/routines" });
   }, [closeMobileSidebar, navigate]);
 
+  const handleRaceClick = useCallback(() => {
+    closeMobileSidebar();
+    void navigate({ to: "/race" });
+  }, [closeMobileSidebar, navigate]);
+
   const handleBackClick = useCallback(() => {
     closeMobileSidebar();
-    if (canGoBack) {
-      window.history.back();
-      return;
-    }
-    void navigate({ to: "/" });
-  }, [canGoBack, closeMobileSidebar, navigate]);
+    void navigateToMainApp();
+  }, [closeMobileSidebar, navigateToMainApp]);
 
   return (
     <SidebarMenu className="flex-row items-center">
-      {currentFooterPage ? (
+      {isOnUtilityPage ? (
         <SidebarMenuItem className="min-w-0 flex-1">
           <SidebarMenuButton onClick={handleBackClick}>
             <ArrowLeftIcon />
@@ -238,6 +236,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Routines"
             onClick={handleRoutinesClick}
           />
+          <SidebarUtilityItem icon={<FlagIcon />} label="Race" onClick={handleRaceClick} />
         </>
       )}
       <SidebarUpdatePill />
@@ -248,6 +247,13 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   return (
     <SidebarFooter className="p-[var(--sidebar-content-inset)]">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-1.5 pb-1">
+        <UpstreamUpdatePill />
+        <div className="ml-auto flex min-w-0 items-center gap-1.5">
+          <SoundControlPill />
+          <PrismThemeSwitcher />
+        </div>
+      </div>
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
       <SidebarUtilityMenu />

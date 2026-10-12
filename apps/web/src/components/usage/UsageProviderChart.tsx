@@ -1,3 +1,4 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-09-30 */
 import type { UsageProviderKind } from "@t3tools/contracts";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -364,24 +365,28 @@ export function UsageProviderChart({
             })}
 
             {/* Fills first, then every stroke, so no series covers another's line. */}
-            {paths.map(({ provider, area }) => (
-              <path
-                key={provider}
-                d={area}
-                fill={PROVIDER_PRESENTATION[provider].color}
-                fillOpacity={0.12}
-              />
-            ))}
-            {paths.map(({ provider, line }) => (
-              <path
-                key={provider}
-                d={line}
-                fill="none"
-                stroke={PROVIDER_PRESENTATION[provider].color}
-                strokeWidth={2}
-                vectorEffect="non-scaling-stroke"
-              />
-            ))}
+            {paths
+              .filter((p) => p.total > 0)
+              .map(({ provider, area }) => (
+                <path
+                  key={provider}
+                  d={area}
+                  fill={PROVIDER_PRESENTATION[provider].color}
+                  fillOpacity={0.12}
+                />
+              ))}
+            {paths
+              .filter((p) => p.total > 0)
+              .map(({ provider, line }) => (
+                <path
+                  key={provider}
+                  d={line}
+                  fill="none"
+                  stroke={PROVIDER_PRESENTATION[provider].color}
+                  strokeWidth={2}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ))}
 
             {hoverIndex === null ? null : (
               <line

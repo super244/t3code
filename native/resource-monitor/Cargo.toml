@@ -1,7 +1,9 @@
+# agent-watermark: model=gpt-6.1-sol; effort=high; duration=16m; seat=codex; date=2026-10-08
 [package]
 name = "t3-resource-monitor"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95"
 license = "MIT"
 publish = false
 

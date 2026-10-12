@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-10 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import {
@@ -566,6 +568,10 @@ export const ServerConfig = Schema.Struct({
   settings: ServerSettings,
   /** Whether shell subscriptions can emit an opt-in catch-up completion marker. */
   shellResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),
+  /** Whether scheduled and manual routine occurrences honor overlapPolicy. */
+  routineOverlapProtection: Schema.optionalKey(Schema.Boolean),
+  /** Whether all routine launches honor the persisted daily attempt limit. */
+  routineDailyLaunchLimit: Schema.optionalKey(Schema.Boolean),
   /** Whether shell.openInEditor honors `LaunchEditorInput.reveal` for the
       file-manager editor. */
   shellRevealInFileManager: Schema.optionalKey(Schema.Boolean),

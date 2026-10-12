@@ -1,5 +1,6 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=medium; duration=20m; seat=antigravity; date=2026-10-08 */
 import { describe, expect, it } from "vite-plus/test";
-import { ProviderInstanceId, type ModelCapabilities } from "@t3tools/contracts";
+import { ProviderDriverKind, ProviderInstanceId, type ModelCapabilities } from "@t3tools/contracts";
 
 import {
   applyClaudePromptEffortPrefix,
@@ -10,6 +11,7 @@ import {
   getModelSelectionBooleanOptionValue,
   getModelSelectionStringOptionValue,
   getProviderOptionDescriptors,
+  normalizeModelSlug,
   readCustomModelEntries,
   toCustomModelSetting,
   getProviderOptionBooleanSelectionValue,
@@ -244,3 +246,37 @@ describe("readCustomModelEntries", () => {
     });
   });
 });
+
+describe("normalizeModelSlug", () => {
+  const antigravity = ProviderDriverKind.make("antigravity");
+  const claude = ProviderDriverKind.make("claudeAgent");
+  const codex = ProviderDriverKind.make("codex");
+
+  it("normalizes Antigravity aliases to canonical manifest models", () => {
+    expect(normalizeModelSlug("gemini-3.8-flash", antigravity)).toBe("gemini-3.8-flash-medium");
+    expect(normalizeModelSlug("flash", antigravity)).toBe("gemini-3.8-flash-medium");
+    expect(normalizeModelSlug("gemini-flash", antigravity)).toBe("gemini-3.8-flash-medium");
+    expect(normalizeModelSlug("3.8-flash", antigravity)).toBe("gemini-3.8-flash-medium");
+    expect(normalizeModelSlug("pro", antigravity)).toBe("gemini-3.8-pro");
+    expect(normalizeModelSlug("gemini-3.8-pro", antigravity)).toBe("gemini-3.8-pro");
+    expect(normalizeModelSlug("gemini-pro", antigravity)).toBe("gemini-3.8-pro");
+    expect(normalizeModelSlug("3.8-pro", antigravity)).toBe("gemini-3.8-pro");
+    expect(normalizeModelSlug("2.5-flash", antigravity)).toBe("gemini-2.5-flash");
+    expect(normalizeModelSlug("2.5-pro", antigravity)).toBe("gemini-2.5-pro");
+  });
+
+  it("normalizes Claude aliases", () => {
+    expect(normalizeModelSlug("claude-3-7-sonnet", claude)).toBe("claude-sonnet-5");
+    expect(normalizeModelSlug("sonnet-3.7", claude)).toBe("claude-sonnet-5");
+    expect(normalizeModelSlug("sonnet", claude)).toBe("claude-sonnet-5");
+    expect(normalizeModelSlug("haiku", claude)).toBe("claude-haiku-4-5");
+    expect(normalizeModelSlug("opus", claude)).toBe("claude-opus-5");
+  });
+
+  it("leaves unaliased or custom slugs trimmed and unchanged", () => {
+    expect(normalizeModelSlug("  custom-model  ", antigravity)).toBe("custom-model");
+    expect(normalizeModelSlug(null, antigravity)).toBe(null);
+    expect(normalizeModelSlug("", antigravity)).toBe(null);
+  });
+});
+

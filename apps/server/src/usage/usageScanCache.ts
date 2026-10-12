@@ -1,3 +1,4 @@
+/* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 /**
  * Durable per-file scan cache.
  *
@@ -26,7 +27,8 @@ import type { CodexScanState, UsageRecord } from "./usageTranscripts.ts";
 // entries would keep serving double-counted records forever.
 // v3: entries carry the parse position and reducer state so a grown file
 // re-parses only its appended bytes instead of starting over.
-const USAGE_SCAN_CACHE_VERSION = 3 as const;
+// v4: accurate Claude Code block token counting and Antigravity pricing.
+const USAGE_SCAN_CACHE_VERSION = 4 as const;
 
 export interface CachedFile {
   readonly size: number;
@@ -219,7 +221,15 @@ export function decodeScanCache(document: unknown): ScanCache {
     if (typeof raw !== "object" || raw === null) continue;
     const entry = raw as Partial<SerializedFile>;
     if (typeof entry.s !== "number" || typeof entry.m !== "number") continue;
-    if (entry.p !== "claude" && entry.p !== "codex" && entry.p !== "grok") continue;
+    if (
+      entry.p !== "claude" &&
+      entry.p !== "codex" &&
+      entry.p !== "grok" &&
+      entry.p !== "opencode" &&
+      entry.p !== "antigravity"
+    ) {
+      continue;
+    }
     if (!isRecordArray(entry.r) || !isRecordArray(entry.t)) continue;
     // Position fields feed byte offsets and a Buffer allocation in the reader,
     // so anything outside their real ranges must reject the entry: a bogus

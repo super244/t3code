@@ -1,11 +1,14 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=medium; duration=20m; seat=antigravity; date=2026-10-08 */
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   type AntigravityAuthMethod,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   type ProviderSendTurnInput,
+  ProviderDriverKind,
   type RuntimeMode,
 } from "@t3tools/contracts";
+import { normalizeModelSlug } from "@t3tools/shared/model";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -112,6 +115,8 @@ export function antigravityModelOptions(
  * account offers it, so T3 can pick a newer model than the one Google marks
  * current. Otherwise the agent's current selection stands.
  */
+const ANTIGRAVITY_DRIVER_KIND = ProviderDriverKind.make("antigravity");
+
 export function resolveAntigravityModel(input: {
   readonly configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption>;
   readonly model: string | null | undefined;
@@ -119,8 +124,17 @@ export function resolveAntigravityModel(input: {
 }): string | undefined {
   const modelConfig = input.configOptions.find((option) => option.id === "model");
   const current = modelConfig?.type === "select" ? modelConfig.currentValue : undefined;
-  if (input.model && input.model !== ANTIGRAVITY_DEFAULT_MODEL) return input.model;
   const options = antigravityModelOptions(input.configOptions);
+  if (input.model && input.model !== ANTIGRAVITY_DEFAULT_MODEL) {
+    if (options.some((opt) => opt.value === input.model)) {
+      return input.model;
+    }
+    const normalized = normalizeModelSlug(input.model, ANTIGRAVITY_DRIVER_KIND);
+    if (normalized && options.some((opt) => opt.value === normalized)) {
+      return normalized;
+    }
+    return input.model;
+  }
   return input.defaultModel && options.some((option) => option.value === input.defaultModel)
     ? input.defaultModel
     : current;

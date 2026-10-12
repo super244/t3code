@@ -1,3 +1,6 @@
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=19m; seat=codex; date=2026-10-04 -->
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=35m; seat=codex; date=2026-10-02 -->
+
 # Source control
 
 T3 Code integrates with GitHub, GitLab, Bitbucket, and Azure DevOps to clone and publish
@@ -53,10 +56,16 @@ az extension add --name azure-devops
 az login
 ```
 
-## Clone or publish a project
+## Open, clone, or publish a project
 
-Use **Add Project** in the command palette (`Cmd/Ctrl+K`) to clone a repository. Choose a hosting
-provider or paste a Git URL, then choose where to save it.
+Use **Add Project** from the sidebar or command palette (`Cmd/Ctrl+K`) to browse and add an existing
+folder. Click folder rows to navigate, use **Home** or **Up** to change location, and
+choose **Add this folder** for the open directory. Desktop also offers **Choose folder…**
+for the system picker. Folders belong to the selected environment: a remote connection browses that computer's folders.
+
+To clone on web or desktop, choose **Clone repository…** from the folder browser. On mobile, choose
+a repository source in **Add Project**. Choose a hosting provider or paste a Git URL, then choose
+where to save it.
 
 For a local Git repository without a remote, **Publish Repository** creates a hosted repository,
 adds it as `origin`, and pushes your commits. If there are no commits yet, it creates the remote;

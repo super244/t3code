@@ -1,3 +1,5 @@
+/* agent-watermark: model=grok-4.7; effort=default; duration=18m; seat=cursor; date=2026-09-30 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=5m; seat=antigravity; date=2026-09-30 */
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import type {
@@ -76,6 +78,43 @@ export function skillKey(skill: SkillInventoryInstallation): string {
 function parentDirectory(path: string): string {
   const parent = path.replace(/[/\\]+[^/\\]+[/\\]*$/, "");
   return parent || path;
+}
+
+export interface QuietSkillHarness {
+  readonly key: string;
+  readonly harness: SkillInventoryInstallation["harness"];
+  readonly harnessDisplayName: string;
+}
+
+/**
+ * Enabled subscriptions that scanned cleanly and still have no global skill.
+ * They stay visible so an empty harness is not mistaken for one we skipped.
+ */
+export function quietSkillHarnesses(
+  providers: readonly {
+    readonly instanceId: string;
+    readonly driver: SkillInventoryInstallation["harness"];
+    readonly displayName?: string | null | undefined;
+    readonly enabled: boolean;
+  }[],
+  installations: readonly Pick<SkillInventoryInstallation, "providerInstanceId">[],
+): readonly QuietSkillHarness[] {
+  const covered = new Set<string>(installations.map((skill) => skill.providerInstanceId));
+  return providers
+    .filter((provider) => provider.enabled && !covered.has(provider.instanceId))
+    .map((provider) => {
+      const displayName = provider.displayName?.trim() ?? "";
+      return {
+        key: provider.instanceId,
+        harness: provider.driver,
+        harnessDisplayName: displayName.length > 0 ? displayName : provider.instanceId,
+      };
+    })
+    .sort(
+      (left, right) =>
+        left.harnessDisplayName.localeCompare(right.harnessDisplayName) ||
+        left.key.localeCompare(right.key),
+    );
 }
 
 export function groupSkillsByHarness(

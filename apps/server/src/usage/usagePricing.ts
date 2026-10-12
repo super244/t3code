@@ -30,6 +30,14 @@ export interface ModelRate {
 
 export type RateTable = ReadonlyMap<string, ModelRate>;
 
+/** Standard fallback rates for Gemini Flash models when unlisted. */
+const STANDARD_GEMINI_FLASH_RATE: ModelRate = {
+  inputCostPerToken: 0.3 / 1_000_000,
+  outputCostPerToken: 2.5 / 1_000_000,
+  cacheReadCostPerToken: 0.075 / 1_000_000,
+  cacheCreationCostPerToken: 0.3 / 1_000_000,
+};
+
 /** Custom IDs keep their case, provider prefix, and variant suffix. */
 export function createOverrideRateTable(
   overrides: Readonly<Record<string, UsageModelPriceOverride>>,
@@ -133,13 +141,14 @@ function bareModelName(key: string): string {
 }
 
 /**
- * Drops a bracketed variant suffix such as `claude-fable-5-1[1m]`, which
- * Claude Code writes for the 1M context tier. The rate table only knows the
- * base name, and we price at the base tier anyway.
+ * Drops bracketed variant suffixes such as `claude-fable-5-1[1m]`, and reasoning/tier
+ * suffixes such as `-high`, `-medium`, `-low`, `-thinking`, `-extended-thinking`.
  */
 function stripVariantSuffix(key: string): string {
   const bracket = key.indexOf("[");
-  return bracket === -1 ? key : key.slice(0, bracket);
+  let base = bracket === -1 ? key : key.slice(0, bracket);
+  base = base.replace(/-(?:high|medium|low|thinking|extended-thinking|latest|preview|exp)$/, "");
+  return base;
 }
 
 /**
@@ -162,7 +171,28 @@ export function lookupRate(table: RateTable, model: string): ModelRate | null {
   const key = stripVariantSuffix(normalizeRateKey(model));
   const bareName = bareModelName(key);
   if (bareName.length === 0 || UNPRICEABLE_MODELS.has(bareName)) return null;
-  return table.get(key) ?? null;
+
+  const direct = table.get(key);
+  if (direct !== undefined) return direct;
+
+  // Antigravity fallback for default models to standard Gemini Flash rates
+  if (key === "antigravity" || bareName === "antigravity") {
+    const fallback =
+      table.get("gemini-3.8-flash") ??
+      table.get("gemini-2.5-flash") ??
+      table.get("gemini-1.5-flash");
+    if (fallback !== undefined) return fallback;
+    return STANDARD_GEMINI_FLASH_RATE;
+  }
+
+  // Antigravity records can emit "gemini-3.8-flash", "gemini-3.8-pro", etc. without provider prefix,
+  // which LiteLLM sometimes indexes under vertex_ai/gemini-*.
+  if (key.startsWith("gemini-") && !key.includes("/")) {
+    const vertexMatch = table.get(`vertex_ai/${key}`);
+    if (vertexMatch !== undefined) return vertexMatch;
+  }
+
+  return null;
 }
 
 export interface PricedUsage {
