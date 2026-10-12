@@ -1,4 +1,4 @@
-/* agent-watermark: model=opus-5.5; effort=high; duration=90m; seat=claude-code; date=2026-10-05 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=100m; seat=claude-code; date=2026-10-05 */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
@@ -148,6 +148,9 @@ function SendFindings({ review, sourceId }: { review: LinkedThread; sourceId: Th
     review.session?.status === "running" ||
     (review.latestTurn !== null && review.latestTurn.completedAt === null);
   const findings = reviewFindings(review);
+  // An errored or interrupted review can leave a half-written reply; say so rather than pass it off as the verdict.
+  const stoppedEarly =
+    review.latestTurn?.state === "error" || review.latestTurn?.state === "interrupted";
   const alreadySent = source?.messages.some(
     (message) => message.role === "user" && parseFindingsSource(message.text) === review.id,
   );
@@ -180,6 +183,7 @@ function SendFindings({ review, sourceId }: { review: LinkedThread; sourceId: Th
             reviewThreadId: review.id,
             reviewerLabel: labelFor(review.modelSelection),
             findings,
+            stoppedEarly,
           }),
           attachments: [],
         },
@@ -221,7 +225,7 @@ function SendFindings({ review, sourceId }: { review: LinkedThread; sourceId: Th
         ? "Sending…"
         : sourceRunning
           ? `${labelFor(source.modelSelection)} is still working`
-          : `Send findings to ${labelFor(source.modelSelection)}`}
+          : `Send ${stoppedEarly ? "partial " : ""}findings to ${labelFor(source.modelSelection)}`}
     </Button>
   );
 }

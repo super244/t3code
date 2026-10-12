@@ -1,6 +1,11 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=35m; seat=codex; date=2026-10-02 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-01 */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   DEFAULT_SERVER_SETTINGS,
+  ProjectId,
+  ThreadId,
+  ServerSettingsClientPatch,
   ProviderDriverKind,
   ProviderInstanceId,
   resolveProviderInstanceEnabled,
@@ -11,6 +16,7 @@ import { createModelSelection } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
+import { TestClock } from "effect/testing";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -27,6 +33,8 @@ import { resolveProviderInstanceTerminalEnvironment } from "./terminal/Manager.t
 
 const decodeSettingsPatch = Schema.decodeUnknownEffect(ServerSettingsPatch);
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
+const decodeClientSettingsPatch = Schema.decodeUnknownEffect(ServerSettingsClientPatch);
+const decodePersistedSettings = Schema.decodeUnknownEffect(Schema.fromJsonString(ServerSettings));
 
 const makeServerSettingsLayer = () =>
   ServerSettingsModule.layer.pipe(
@@ -1277,6 +1285,413 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.match(environment.CODEX_HOME ?? "", /[\\/][.]codex-terminal$/);
       assert.notInclude(persisted, "sk-terminal-secret");
       assert.include(persisted, '"valueRedacted": true');
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+});
+
+it.layer(NodeServices.layer)("routine schedule persistence", (it) => {
+  const routine = {
+    name: "Daily review",
+    enabled: true,
+    cron: "0 7 * * *",
+    timeZone: "America/Vancouver",
+    projectId: ProjectId.make("routine-project"),
+    prompt: "Review this project.",
+    modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-6.1-sol"),
+    runtimeMode: "approval-required" as const,
+    interactionMode: "default" as const,
+    nextRunAt: null,
+    lastRunAt: null,
+    lastRunStatus: "never" as const,
+    lastThreadId: null,
+    lastError: null,
+  };
+  it.effect(
+    "checks future occurrences against the server clock, including explicit legacy years",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2000-01-01T00:00:00.000Z"));
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const datedRoutine = { ...routine, cron: "0 0 7 1 1 * 2010" };
+        const saved = yield* service.updateSettings({ routines: { dated: datedRoutine } });
+        assert.equal(saved.routines.dated?.cron, datedRoutine.cron);
+        yield* TestClock.setTime(Date.parse("2011-01-01T00:00:00.000Z"));
+        const expired = yield* service
+          .updateSettings({ routines: { expired: datedRoutine } })
+          .pipe(Effect.result);
+        assert.equal(expired._tag, "Failure");
+        assert.equal((yield* service.getSettings).routines.expired, undefined);
+      }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+  it.effect("allows a manual run of an exhausted schedule but rejects resuming it", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* TestClock.setTime(Date.parse("2000-01-01T00:00:00.000Z"));
+      yield* service.updateSettings({
+        routines: { dated: { ...routine, enabled: false, cron: "0 0 7 1 1 * 2010" } },
+      });
+      yield* TestClock.setTime(Date.parse("2026-10-02T12:00:00.000Z"));
+      const resume = yield* ServerSettingsModule.updateClientSettings(service, {
+        routines: { dated: { _tag: "RoutineAction", action: "resume" } },
+      }).pipe(Effect.result);
+      assert.equal(resume._tag, "Failure");
+      assert.equal((yield* service.getSettings).routines.dated!.enabled, false);
+      const queued = yield* ServerSettingsModule.updateClientSettings(service, {
+        routines: { dated: { _tag: "RoutineAction", action: "run-now" } },
+      });
+      assert.equal(queued.routines.dated!.nextRunAt, "2026-10-02T11:59:59.000Z");
+      assert.equal(queued.routines.dated!.enabled, true);
+      assert.equal(queued.routines.dated!.lastRunStatus, "never");
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+  it.effect("rejects invalid edited schedules without writing any part of the settings patch", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      yield* service.updateSettings({ routines: { daily: routine } });
+      const before = yield* fs.readFileString(config.settingsPath);
+      for (const edit of [
+        { cron: "99 7 * * *" },
+        { cron: "0 25 * * *" },
+        { cron: "0 7 31 2 *" },
+        { cron: "2027-01-01T07:00:00Z" },
+        { timeZone: "Mars/Crater" },
+      ]) {
+        const result = yield* service
+          .updateSettings({ routines: { daily: { ...routine, ...edit } } })
+          .pipe(Effect.result);
+        assert.equal(result._tag, "Failure");
+        assert.equal(yield* fs.readFileString(config.settingsPath), before);
+        assert.equal((yield* service.getSettings).routines.daily?.cron, routine.cron);
+      }
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+  it.effect("keeps existing invalid schedules repairable, pausable and removable", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const previous = (yield* service.getSettings).routines.legacy!;
+      const paused = yield* service.updateSettings({
+        routines: { legacy: { ...previous, enabled: false } },
+      });
+      assert.equal(paused.routines.legacy?.enabled, false);
+      const fixed = yield* service.updateSettings({
+        routines: { legacy: { ...previous, cron: "0 9 * * MON-FRI" } },
+      });
+      assert.equal(fixed.routines.legacy?.cron, "0 9 * * MON-FRI");
+      const removed = yield* service.updateSettings({ routines: { legacy: null } });
+      assert.equal(removed.routines.legacy, undefined);
+    }).pipe(
+      Effect.provide(
+        ServerSettingsModule.layerTest({
+          routines: { legacy: { ...routine, cron: "99 7 * * *" } },
+        }),
+      ),
+    ),
+  );
+});
+
+it.layer(NodeServices.layer)("atomic settings updates", (it) => {
+  it.effect("serializes functional routine edits against the latest persisted settings", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const routine = {
+        name: "Concurrent edits",
+        enabled: false,
+        cron: "0 7 * * *",
+        timeZone: "UTC",
+        projectId: ProjectId.make("routine-project"),
+        prompt: "start",
+        modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "test-model"),
+        runtimeMode: "approval-required" as const,
+        interactionMode: "default" as const,
+        nextRunAt: null,
+        lastRunAt: null,
+        lastRunStatus: "never" as const,
+        lastThreadId: null,
+        lastError: null,
+      };
+      yield* service.updateSettings({ routines: { daily: routine } });
+      yield* Effect.all(
+        Array.from({ length: 16 }, (_, index) =>
+          service.updateSettings((current) => {
+            const latest = current.routines.daily!;
+            return { routines: { daily: { ...latest, prompt: `${latest.prompt} ${index}` } } };
+          }),
+        ),
+        { concurrency: "unbounded" },
+      );
+      const latest = (yield* service.getSettings).routines.daily!;
+      assert.deepEqual(
+        new Set(latest.prompt.split(" ")),
+        new Set(["start", ...Array.from({ length: 16 }, (_, index) => String(index))]),
+      );
+      yield* service.updateSettings({ routines: { daily: null } });
+      const skipped = yield* service.updateSettings((current) =>
+        current.routines.daily ? { routines: { daily: routine } } : null,
+      );
+      assert.equal(skipped.routines.daily, undefined);
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+});
+
+const clientRoutine = {
+  name: "Daily review",
+  enabled: true,
+  cron: "0 7 * * *",
+  timeZone: "UTC",
+  projectId: ProjectId.make("routine-project"),
+  prompt: "Newest instructions",
+  modelSelection: createModelSelection(ProviderInstanceId.make("codex-work"), "test-model"),
+  runtimeMode: "approval-required" as const,
+  interactionMode: "plan" as const,
+  nextRunAt: "2026-10-03T07:00:00.000Z",
+  lastRunAt: "2026-10-02T07:00:00.000Z",
+  lastRunStatus: "launched" as const,
+  lastThreadId: ThreadId.make("newest-routine-task"),
+  lastError: null,
+};
+
+it.layer(NodeServices.layer)("client routine mutations", (it) => {
+  it.effect("ignores provider-option order and accepts retries but protects changed options", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const baseline = {
+        ...clientRoutine,
+        modelSelection: {
+          ...clientRoutine.modelSelection,
+          options: [
+            { id: "reasoning", value: "high" },
+            { id: "fast", value: true },
+          ],
+        },
+      };
+      yield* service.updateSettings({ routines: { daily: baseline } });
+      const draft = { ...baseline, name: "Renamed" };
+      const expected = {
+        ...baseline,
+        modelSelection: {
+          ...baseline.modelSelection,
+          options: baseline.modelSelection.options.toReversed(),
+        },
+      };
+      const patch = {
+        routines: { daily: { _tag: "RoutineEdit" as const, routine: draft, expected } },
+      };
+      const saved = yield* ServerSettingsModule.updateClientSettings(service, patch);
+      const retried = yield* ServerSettingsModule.updateClientSettings(service, patch);
+      assert.deepEqual(retried.routines.daily, saved.routines.daily);
+      yield* service.updateSettings((current) => ({
+        routines: {
+          daily: {
+            ...current.routines.daily!,
+            modelSelection: {
+              ...baseline.modelSelection,
+              options: [
+                { id: "reasoning", value: "low" },
+                { id: "fast", value: true },
+              ],
+            },
+          },
+        },
+      }));
+      const rejected = yield* ServerSettingsModule.updateClientSettings(service, {
+        routines: {
+          daily: {
+            _tag: "RoutineEdit",
+            expected: saved.routines.daily!,
+            routine: { ...draft, name: "Another rename" },
+          },
+        },
+      }).pipe(Effect.flip);
+      assert.include(rejected.message, "changed on another device");
+      assert.deepEqual((yield* service.getSettings).routines.daily!.modelSelection.options, [
+        { id: "reasoning", value: "low" },
+        { id: "fast", value: true },
+      ]);
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("rejects a stale configuration while preserving the newer saved version", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* service.updateSettings({ routines: { daily: clientRoutine } });
+      const otherDevice = {
+        ...clientRoutine,
+        prompt: "Instructions from another device",
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("codex-personal"),
+          "another-model",
+        ),
+      };
+      yield* service.updateSettings({ routines: { daily: otherDevice } });
+      const rejected = yield* ServerSettingsModule.updateClientSettings(service, {
+        routines: {
+          daily: {
+            _tag: "RoutineEdit",
+            expected: clientRoutine,
+            routine: { ...clientRoutine, name: "Local unsaved name" },
+          },
+        },
+      }).pipe(Effect.flip);
+      assert.include(rejected.message, "changed on another device");
+      assert.deepEqual((yield* service.getSettings).routines.daily, otherDevice);
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("commits only one of two concurrent saves based on the same configuration", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* service.updateSettings({ routines: { daily: clientRoutine } });
+      const results = yield* Effect.all(
+        ["First edit", "Second edit"].map((prompt) =>
+          ServerSettingsModule.updateClientSettings(service, {
+            routines: {
+              daily: {
+                _tag: "RoutineEdit",
+                expected: clientRoutine,
+                routine: { ...clientRoutine, prompt },
+              },
+            },
+          }).pipe(Effect.exit),
+        ),
+        { concurrency: "unbounded" },
+      );
+      assert.equal(results.filter((result) => result._tag === "Success").length, 1);
+      assert.equal(results.filter((result) => result._tag === "Failure").length, 1);
+      assert.include(
+        ["First edit", "Second edit"],
+        (yield* service.getSettings).routines.daily!.prompt,
+      );
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("retains authoritative history when a delayed configuration save reaches disk", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* service.updateSettings({ routines: { daily: clientRoutine } });
+      const stale = {
+        ...clientRoutine,
+        prompt: "Edited instructions",
+        nextRunAt: null,
+        lastRunAt: null,
+        lastRunStatus: "never" as const,
+        lastThreadId: null,
+        lastError: null,
+      };
+      const patch = yield* decodeClientSettingsPatch({
+        routines: { daily: { _tag: "RoutineEdit", routine: stale, expected: clientRoutine } },
+      });
+      const saved = yield* ServerSettingsModule.updateClientSettings(service, patch);
+      assert.deepEqual(saved.routines.daily, { ...clientRoutine, prompt: "Edited instructions" });
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const persisted = yield* decodePersistedSettings(
+        yield* fs.readFileString(config.settingsPath),
+      );
+      assert.deepEqual(persisted.routines.daily, saved.routines.daily);
+      const changed = yield* ServerSettingsModule.updateClientSettings(service, {
+        routines: {
+          daily: {
+            _tag: "RoutineEdit",
+            routine: { ...stale, cron: "0 8 * * *" },
+            expected: saved.routines.daily!,
+          },
+        },
+      });
+      assert.equal(changed.routines.daily!.nextRunAt, null);
+      assert.equal(changed.routines.daily!.lastThreadId, clientRoutine.lastThreadId);
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("uses the latest subscription and instructions for actions, on the server clock", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* service.updateSettings({
+        routines: {
+          daily: { ...clientRoutine, lastRunStatus: "failed", lastError: "Provider unavailable" },
+        },
+      });
+      const pause = yield* ServerSettingsModule.updateClientSettings(service, {
+        routines: { daily: { _tag: "RoutineAction", action: "pause" } },
+      });
+      assert.equal(pause.routines.daily!.enabled, false);
+      assert.equal(pause.routines.daily!.lastError, "Provider unavailable");
+      const now = Date.parse("2026-10-02T12:00:00.000Z");
+      yield* TestClock.setTime(now);
+      const queued = yield* ServerSettingsModule.updateClientSettings(service, {
+        routines: { daily: { _tag: "RoutineAction", action: "run-now" } },
+      });
+      assert.deepEqual(queued.routines.daily, {
+        ...clientRoutine,
+        enabled: true,
+        nextRunAt: "2026-10-02T11:59:59.000Z",
+        lastRunStatus: "never",
+      });
+      const resumed = yield* ServerSettingsModule.updateClientSettings(service, {
+        routines: { daily: { _tag: "RoutineAction", action: "resume" } },
+      });
+      assert.equal(resumed.routines.daily!.nextRunAt, queued.routines.daily!.nextRunAt);
+      yield* service.updateSettings((current) => ({
+        routines: { daily: { ...current.routines.daily!, lastRunStatus: "running" } },
+      }));
+      const rejected = yield* ServerSettingsModule.updateClientSettings(service, {
+        routines: { daily: { _tag: "RoutineAction", action: "run-now" } },
+      }).pipe(Effect.flip);
+      assert.include(rejected.message, "already starting");
+      assert.equal((yield* service.getSettings).routines.daily!.lastRunStatus, "running");
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect(
+    "rejects deleted edits and actions without resurrecting them or partially applying a patch",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        for (const mutation of [
+          { _tag: "RoutineEdit", routine: clientRoutine, expected: clientRoutine } as const,
+          { _tag: "RoutineAction", action: "run-now" } as const,
+          { _tag: "RoutineAction", action: "pause" } as const,
+          { _tag: "RoutineAction", action: "resume" } as const,
+        ]) {
+          const rejected = yield* ServerSettingsModule.updateClientSettings(service, {
+            defaultAutoPull: true,
+            routines: { deleted: mutation },
+          }).pipe(Effect.flip);
+          assert.include(rejected.message, "removed on another device");
+          const unchanged = yield* service.getSettings;
+          assert.equal(unchanged.routines.deleted, undefined);
+          assert.equal(unchanged.defaultAutoPull, DEFAULT_SERVER_SETTINGS.defaultAutoPull);
+        }
+        const created = yield* ServerSettingsModule.updateClientSettings(service, {
+          routines: { fresh: clientRoutine },
+        });
+        assert.equal(created.routines.fresh!.lastRunStatus, "never");
+        assert.equal(created.routines.fresh!.lastRunAt, null);
+        assert.equal(created.routines.fresh!.lastThreadId, null);
+        assert.equal(created.routines.fresh!.nextRunAt, null);
+      }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("accepts legacy configuration saves but rejects ambiguous legacy launch markers", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* service.updateSettings({ routines: { daily: clientRoutine } });
+      const saved = yield* ServerSettingsModule.updateClientSettings(service, {
+        routines: { daily: { ...clientRoutine, name: "Renamed", lastThreadId: null } },
+      });
+      assert.equal(saved.routines.daily!.lastThreadId, clientRoutine.lastThreadId);
+      const rejected = yield* ServerSettingsModule.updateClientSettings(service, {
+        routines: {
+          daily: {
+            ...clientRoutine,
+            nextRunAt: "2026-10-01T00:00:00.000Z",
+            lastRunStatus: "never",
+          },
+        },
+      }).pipe(Effect.flip);
+      assert.include(rejected.message, "Update this client");
+      assert.equal((yield* service.getSettings).routines.daily!.name, "Renamed");
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 });

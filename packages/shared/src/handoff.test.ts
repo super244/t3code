@@ -1,9 +1,11 @@
-/* agent-watermark: model=opus-5.5; effort=high; duration=40m; seat=claude-code; date=2026-10-05 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-05 */
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildHandoffBrief,
+  buildFindingsMessage,
   buildHandoffTitle,
+  buildReviewBrief,
   findHandoffsFrom,
   HANDOFF_BRIEF_MAX_CHARS,
   parseHandoffSource,
@@ -129,6 +131,70 @@ describe("handoff brief", () => {
     });
     expect(brief).toContain("No uncommitted changes.");
     expect(brief).toContain("It had not replied yet.");
+  });
+});
+
+describe("changed files in briefs", () => {
+  // VCS status reports an untracked file as +0 −0 because `git diff` never sees it.
+  const changedFiles = [
+    { path: "calc.py", insertions: 1, deletions: 1 },
+    { path: "test_calc.py", insertions: 0, deletions: 0 },
+  ];
+
+  it("does not call a new file empty or understate the total in a handoff", () => {
+    const brief = buildHandoffBrief({
+      ...base,
+      messages: [{ role: "user", text: "Fix add." }],
+      changedFiles,
+    });
+    expect(brief).toContain("2 uncommitted files changed:");
+    expect(brief).not.toContain("(+1 −1)");
+    expect(brief).toContain("- `calc.py` +1 −1");
+    expect(brief).toContain("- `test_calc.py` (no line counts: new, binary or mode-only)");
+    expect(brief).not.toContain("+0 −0");
+  });
+
+  it("keeps the total when every file has line counts", () => {
+    const brief = buildHandoffBrief({
+      ...base,
+      messages: [{ role: "user", text: "Fix add." }],
+      changedFiles: [changedFiles[0]!],
+    });
+    expect(brief).toContain("1 uncommitted file changed (+1 −1):");
+  });
+
+  it("points a reviewer at git status, where new files show up", () => {
+    const brief = buildReviewBrief({
+      ...base,
+      messages: [
+        { role: "user", text: "Fix add." },
+        { role: "assistant", text: "Fixed and added tests." },
+      ],
+      changedFiles,
+    });
+    expect(brief).toContain("- `test_calc.py` (no line counts: new, binary or mode-only)");
+    expect(brief).not.toContain("+0 −0");
+    expect(brief).toContain("`git status` (new files appear only there)");
+  });
+});
+
+describe("findings message", () => {
+  const input = {
+    reviewThreadId: "review-1",
+    reviewerLabel: "Claude · Sonnet 5.5",
+    findings: "1. Minor — x",
+  };
+
+  it("presents a finished review as its findings", () => {
+    const message = buildFindingsMessage(input);
+    expect(message).toContain("reviewed your changes in this checkout. Its findings:");
+    expect(message).not.toContain("may be incomplete");
+  });
+
+  it("says a review that stopped early may be incomplete", () => {
+    const message = buildFindingsMessage({ ...input, stoppedEarly: true });
+    expect(message).toContain("stopped before finishing, so these findings may be incomplete");
+    expect(message).toContain("> 1. Minor — x");
   });
 });
 

@@ -1,3 +1,4 @@
+/* agent-watermark: model=grok-4.7; effort=default; duration=18m; seat=cursor; date=2026-09-30 */
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind, ProviderInstanceId, type SkillInventory } from "@t3tools/contracts";
 
@@ -7,6 +8,7 @@ import {
   formatSkillCount,
   formatSkillPath,
   groupSkillsByHarness,
+  quietSkillHarnesses,
   setKeyCollapsed,
   skillContentForDisplay,
 } from "@t3tools/client-runtime/state/skills";
@@ -102,6 +104,34 @@ describe("skill explorer helpers", () => {
         skills: ["deploy"],
       },
     ]);
+  });
+
+  it("keeps an enabled harness visible when it has no global skills", () => {
+    expect(
+      quietSkillHarnesses(
+        [
+          {
+            instanceId: "opencode",
+            driver: ProviderDriverKind.make("opencode"),
+            displayName: "OpenCode",
+            enabled: true,
+          },
+          {
+            instanceId: "codex",
+            driver: ProviderDriverKind.make("codex"),
+            displayName: "Codex",
+            enabled: true,
+          },
+          {
+            instanceId: "cursor",
+            driver: ProviderDriverKind.make("cursor"),
+            displayName: "Cursor",
+            enabled: false,
+          },
+        ],
+        inventory.installations,
+      ).map((harness) => harness.harnessDisplayName),
+    ).toEqual(["OpenCode"]);
   });
 
   it("normalizes empty skill content for the detail view", () => {

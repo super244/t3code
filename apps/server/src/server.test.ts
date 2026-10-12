@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -7533,6 +7534,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 worktree: { path: "/tmp/wt", refName: "feature/demo" },
               }),
             removeWorktree: () => Effect.void,
+            integrateWorktree: () =>
+              Effect.succeed({
+                status: "merged" as const,
+                commitSha: "9f1c2b3a4d5e6f70819a2b3c4d5e6f7081920a1b",
+                filesChanged: 3,
+              }),
             createRef: (input) => Effect.succeed({ refName: input.refName }),
             switchRef: (input) => Effect.succeed({ refName: input.refName }),
           },
@@ -7665,6 +7672,24 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           }),
         ),
       );
+
+      // The integration result is a union, so this also proves it survives the
+      // wire for the clients that render each outcome.
+      const integrated = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsIntegrateWorktree]({
+            cwd: "/tmp/repo",
+            worktreePath: "/tmp/wt",
+            branch: "t3code/race-k3f9a2-2of3",
+            commitMessage: "race: keep this one",
+          }),
+        ),
+      );
+      assert.deepStrictEqual(integrated, {
+        status: "merged",
+        commitSha: "9f1c2b3a4d5e6f70819a2b3c4d5e6f7081920a1b",
+        filesChanged: 3,
+      });
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>

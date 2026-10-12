@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=25m; seat=codex; date=2026-10-02 */
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
@@ -11,9 +12,14 @@ import {
   resolveProviderInstanceEnabled,
   ServerSettings,
   ServerSettingsPatch,
+  ServerSettingsClientPatch,
+  ServerSettingsError,
 } from "./settings.ts";
 
+const encodeSettingsError = Schema.encodeSync(ServerSettingsError);
+const decodeSettingsError = Schema.decodeUnknownSync(ServerSettingsError);
 const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
+const decodeClientPatch = Schema.decodeUnknownSync(ServerSettingsClientPatch);
 const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
 const encodeClientSettings = Schema.encodeSync(ClientSettingsSchema);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
@@ -73,24 +79,24 @@ describe("ServerSettings usage price overrides", () => {
   });
 });
 
-describe("ServerSettings routines", () => {
-  const routine = {
-    name: "Morning review",
-    enabled: true,
-    cron: "0 7 * * *",
-    timeZone: "America/Vancouver",
-    projectId: ProjectId.make("project-1"),
-    prompt: "Review the project.",
-    modelSelection: { instanceId: ProviderInstanceId.make("codex_personal"), model: "gpt-5" },
-    runtimeMode: "full-access" as const,
-    interactionMode: "default" as const,
-    nextRunAt: null,
-    lastRunAt: null,
-    lastRunStatus: "never" as const,
-    lastThreadId: null,
-    lastError: null,
-  };
+const routine = {
+  name: "Morning review",
+  enabled: true,
+  cron: "0 7 * * *",
+  timeZone: "America/Vancouver",
+  projectId: ProjectId.make("project-1"),
+  prompt: "Review the project.",
+  modelSelection: { instanceId: ProviderInstanceId.make("codex_personal"), model: "gpt-5" },
+  runtimeMode: "full-access" as const,
+  interactionMode: "default" as const,
+  nextRunAt: null,
+  lastRunAt: null,
+  lastRunStatus: "never" as const,
+  lastThreadId: null,
+  lastError: null,
+};
 
+describe("ServerSettings routines", () => {
   it("defaults to no routines and accepts per-entry deletion patches", () => {
     expect(decodeServerSettings({}).routines).toEqual({});
     expect(
@@ -99,6 +105,41 @@ describe("ServerSettings routines", () => {
       morning: routine,
       old: null,
     });
+  });
+});
+
+describe("routine client protocol", () => {
+  it("requires the configuration that an edit was based on", () => {
+    expect(() =>
+      decodeClientPatch({
+        routines: {
+          daily: { _tag: "RoutineEdit", routine },
+        },
+      }),
+    ).toThrow();
+  });
+  it("preserves actionable routine errors across the wire", () => {
+    const error = new ServerSettingsError({
+      operation: "normalize",
+      settingsPath: "<memory>",
+      cause: new Error("Routine no longer exists"),
+      routineIssue: "This routine was removed on another device.",
+    });
+    const encoded = encodeSettingsError(error);
+    const decoded = decodeSettingsError(encoded);
+    expect(decoded.message).toBe("This routine was removed on another device.");
+    expect(decoded.operation).toBe("normalize");
+  });
+  const decode = Schema.decodeUnknownSync(ServerSettingsClientPatch);
+  it("round-trips explicit actions while older servers reject them", () => {
+    for (const action of ["run-now", "pause", "resume"] as const) {
+      const patch = { routines: { daily: { _tag: "RoutineAction", action } } };
+      expect(decode(patch)).toEqual(patch);
+      expect(() => decodeServerSettingsPatch(patch)).toThrow();
+    }
+    expect(() =>
+      decode({ routines: { daily: { _tag: "RoutineAction", action: "launch-all" } } }),
+    ).toThrow();
   });
 });
 

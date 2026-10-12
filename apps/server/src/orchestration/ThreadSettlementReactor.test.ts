@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-01 */
 import {
   DEFAULT_SERVER_SETTINGS,
   ProjectId,
@@ -10,7 +11,6 @@ import {
   type OrchestrationThreadShell,
   type PullRequestSummary,
   type ServerSettings,
-  type ServerSettingsPatch,
 } from "@t3tools/contracts";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import { assert, describe, it } from "@effect/vitest";
@@ -185,9 +185,12 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const summaryRecovery = yield* Ref.make<ReadonlyArray<boolean | undefined>>([]);
   const invalidatedCwds = yield* Ref.make<ReadonlyArray<string>>([]);
 
-  const updateSettings = (patch: ServerSettingsPatch) =>
+  const updateSettings: ServerSettingsService["Service"]["updateSettings"] = (patchOrUpdate) =>
     Effect.gen(function* () {
-      const next = applyServerSettingsPatch(yield* Ref.get(settings), patch);
+      const current = yield* Ref.get(settings);
+      const patch = typeof patchOrUpdate === "function" ? patchOrUpdate(current) : patchOrUpdate;
+      if (patch === null) return current;
+      const next = applyServerSettingsPatch(current, patch);
       yield* Ref.set(settings, next);
       yield* PubSub.publish(settingsChanges, next);
       return next;

@@ -1,3 +1,6 @@
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=19m; seat=codex; date=2026-10-04 -->
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 -->
+
 # Appearance and themes
 
 Open **Settings → Appearance** to choose a theme and follow the system appearance or stay in light
@@ -13,12 +16,33 @@ can be selected separately for light and dark appearances.
 Android also offers **Material You Layout**, which changes shapes and spacing independently
 of the selected theme.
 
+## Sound effects
+
+On web and desktop, use the sidebar sound control or **Settings → Appearance** to
+choose a sound pack, set volume, or mute cues. Previews use the selected pack and
+volume, even when automatic cues are disabled. The Silent pack and zero volume
+also silence previews. Sound preferences belong to this browser or desktop profile;
+if storage is unavailable, changes remain usable for the current session.
+
 ## Motion
 
 The main sidebar, right panel, and terminal drawer open and close immediately by default. Move the
 **Panel animations** slider above 0 ms to add motion, up to 400 ms, unless reduced motion is enabled
 in your operating system. Moving between threads always snaps to the selected thread's panel state
 without replaying its transitions.
+
+## Prism palettes in this custom app
+
+The sidebar's Prism selector offers built-in palettes. **Sync host** reads Prism
+settings on your primary connected environment and selects a matching palette.
+It reports unavailable settings, unsupported themes, or write failures; choosing
+a built-in palette works independently of host sync. Sync requires an authenticated
+connection with permission to operate on that environment.
+
+This bridge reads `~/Library/Application Support/Prism/settings.json` with an
+`activeThemeID` entry. If your Prism installation does not publish that file,
+choose a palette manually. Successful sync publishes the palette in that server's
+configured themes directory.
 
 ## Custom themes
 

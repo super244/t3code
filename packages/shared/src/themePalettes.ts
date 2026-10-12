@@ -771,3 +771,5 @@ export function getThemeColorsForAppearance(
   if (theme.appearance === appearance) return theme.colors;
   return theme.variants?.[appearance] ?? null;
 }
+
+export * from "./prismPalettes.ts";

@@ -1,13 +1,27 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=5m; seat=codex; date=2026-10-02 */
 // @effect-diagnostics globalDate:off -- A fixed instant keeps calendar-window assertions deterministic.
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  makeAllHistoryWindow,
   enumerateHourStarts,
   formatDateTimeShort,
   formatHourShort,
   formatRelativeHourShort,
   makeWindow,
 } from "./usageFormat.ts";
+
+describe("all-time usage window", () => {
+  it("retains Unix-era history without an hourly or rolling-year cutoff", () => {
+    const window = makeAllHistoryWindow(new Date("2026-10-02T12:15:48.000Z"));
+    expect(window.sinceDay).toBe("1970-01-01");
+    expect(window.sinceDay <= "2001-06-15").toBe(true);
+    expect(window.untilDay >= "2026-10-01").toBe(true);
+    expect(window.resolution).toBe("day");
+    expect(window.sinceTime).toBeUndefined();
+    expect(window.untilTime).toBeUndefined();
+  });
+});
 
 describe("hourly usage formatting", () => {
   it("enumerates 24 fixed buckets across a rolling window", () => {

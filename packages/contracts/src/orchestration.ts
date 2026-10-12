@@ -1,3 +1,4 @@
+/* agent-watermark: model=muse-spark; effort=high; duration=45m; seat=opencode; date=2026-10-08 */
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
@@ -733,6 +734,9 @@ export const OrchestrationThread = Schema.Struct({
   // threads remain in their respective shelves even when pinned.
   // Optional so payloads from pre-pinning servers still decode.
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  // v2-forward auto-settle opt-out: null/absent = auto-settle enabled,
+  // timestamp = user disabled it. Optional so pre-opt-out servers still decode.
+  autoSettleDisabledAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   // Fractional index for user-arranged pinned order. Keyed threads sort by
   // string comparison ahead of keyless ones (which keep creation order), so
   // servers never need each other's threads to agree on the merged list.
@@ -808,6 +812,9 @@ export const OrchestrationThreadShell = Schema.Struct({
   snoozedUntil: Schema.optional(Schema.NullOr(IsoDateTime)),
   snoozedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  // v2-forward auto-settle opt-out (see OrchestrationThread): null/absent =
+  // enabled. Optional so cached snapshots from older servers still decode.
+  autoSettleDisabledAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
@@ -1069,6 +1076,15 @@ const ThreadUnsettleCommand = Schema.Struct({
   reason: Schema.Literal("user"),
 });
 
+// v2-forward opt-out toggle. `enabled: false` stamps autoSettleDisabledAt
+// (disables the settlement sweep for this thread); `enabled: true` clears it.
+const ThreadAutoSettleSetCommand = Schema.Struct({
+  type: Schema.Literal("thread.auto-settle.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  enabled: Schema.Boolean,
+});
+
 const ThreadSnoozeCommand = Schema.Struct({
   type: Schema.Literal("thread.snooze"),
   commandId: CommandId,
@@ -1310,6 +1326,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUnarchiveCommand,
   ThreadSettleCommand,
   ThreadUnsettleCommand,
+  ThreadAutoSettleSetCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
   ThreadPinCommand,
@@ -1342,6 +1359,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUnarchiveCommand,
   ThreadSettleCommand,
   ThreadUnsettleCommand,
+  ThreadAutoSettleSetCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
   ThreadPinCommand,
@@ -1510,6 +1528,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.unarchived",
   "thread.settled",
   "thread.unsettled",
+  "thread.auto-settle-set",
   "thread.snoozed",
   "thread.unsnoozed",
   "thread.pinned",
@@ -1613,6 +1632,12 @@ export const ThreadSettledPayload = Schema.Struct({
 export const ThreadUnsettledPayload = Schema.Struct({
   threadId: ThreadId,
   reason: Schema.Literals(["user", "activity"]),
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadAutoSettleSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  autoSettleDisabledAt: Schema.NullOr(IsoDateTime),
   updatedAt: IsoDateTime,
 });
 
@@ -1881,6 +1906,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.unsettled"),
     payload: ThreadUnsettledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.auto-settle-set"),
+    payload: ThreadAutoSettleSetPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

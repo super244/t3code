@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=10m; seat=codex; date=2026-10-03 */
+import { createRuntimeCommand } from "@t3tools/client-runtime/state/runtime";
 import * as Effect from "effect/Effect";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
@@ -114,7 +116,16 @@ export function createMobilePreferencesState(runtime: Atom.AtomRuntime<MobilePre
     )
     .pipe(Atom.keepAlive, Atom.withLabel("mobile:preferences:update"));
 
-  return { preferencesAtom, updatePreferencesAtom } as const;
+  const transformPreferencesCommand = createRuntimeCommand(runtime, {
+    label: "mobile:preferences:transform",
+    concurrency: { mode: "serial", key: () => "preferences" },
+    execute: (transform: (current: Preferences) => Partial<Preferences>, registry) =>
+      MobilePreferencesStore.pipe(
+        Effect.flatMap((store) => store.update(transform)),
+        Effect.tap((saved) => Effect.sync(() => registry.set(confirmedPreferencesAtom, saved))),
+      ),
+  });
+  return { preferencesAtom, updatePreferencesAtom, transformPreferencesCommand } as const;
 }
 
 const mobilePreferencesRuntime = Atom.runtime(Runtime.runtimeContextLayer);
@@ -122,3 +133,5 @@ export const mobilePreferencesState = createMobilePreferencesState(mobilePrefere
 
 export const mobilePreferencesAtom = mobilePreferencesState.preferencesAtom;
 export const updateMobilePreferencesAtom = mobilePreferencesState.updatePreferencesAtom;
+
+export const transformMobilePreferencesCommand = mobilePreferencesState.transformPreferencesCommand;

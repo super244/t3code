@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=31m; seat=codex; date=2026-10-03 */
 import type {
   DesktopAppBranding,
   DesktopAppStageLabel,
@@ -149,7 +150,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
   const homeDirectory = input.homeDirectory;
   const devServerUrl = config.devServerUrl;
   const isDevelopment = Option.isSome(devServerUrl);
-  const appDataDirectory =
+  const defaultAppDataDirectory =
     input.platform === "win32"
       ? Option.getOrElse(config.appDataDirectory, () =>
           path.join(homeDirectory, "AppData", "Roaming"),
@@ -162,6 +163,10 @@ const make = Effect.fn("desktop.environment.make")(function* (
     joinPath: path.join,
     t3Home: config.t3Home,
   });
+  // An explicit T3 home also isolates Chromium sessions and Clerk's lock.
+  const appDataDirectory = Option.isSome(config.t3Home)
+    ? path.join(baseDir, "desktop")
+    : defaultAppDataDirectory;
   const rootDir = path.resolve(input.dirname, "../../..");
   const appRoot = input.isPackaged ? input.appPath : rootDir;
   const serverRoot =

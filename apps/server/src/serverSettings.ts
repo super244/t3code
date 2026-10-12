@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=35m; seat=codex; date=2026-10-02 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-01 */
 /**
  * ServerSettings - Server-authoritative settings service.
  *
@@ -25,12 +27,15 @@ import {
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
+  type ServerSettingsClientPatch,
 } from "@t3tools/contracts";
+import { nextRoutineOccurrence } from "@t3tools/shared/routines";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
+import * as DateTime from "effect/DateTime";
 import * as Equal from "effect/Equal";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -52,11 +57,13 @@ import { fromJsonStringPretty, fromLenientJson } from "@t3tools/shared/schemaJso
 import {
   applyServerSettingsPatch,
   isModelSelectionProviderEnabled,
+  resolveClientSettingsPatch,
 } from "@t3tools/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 
 export { resolveSourceControlWriterModelSelection } from "@t3tools/shared/serverSettings";
 
+const isServerSettingsError = Schema.is(ServerSettingsError);
 const encodeServerSettings = Schema.encodeEffect(ServerSettings);
 const encodeServerSettingsJson = Schema.encodeUnknownEffect(fromJsonStringPretty(ServerSettings));
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
@@ -128,6 +135,44 @@ const normalizeServerSettings = (
     ),
   );
 
+/** Validate edited schedules before persistence; leave historical invalid schedules repairable. */
+const validateRoutineSchedulePatch = Effect.fn("ServerSettings.validateRoutineSchedulePatch")(
+  function* (current: ServerSettings, patch: ServerSettingsPatch) {
+    const now = yield* DateTime.now;
+    yield* Effect.try({
+      try: () => {
+        for (const [id, routine] of Object.entries(patch.routines ?? {})) {
+          if (routine === null) continue;
+          const previous = current.routines[id];
+          if (
+            previous &&
+            previous.cron === routine.cron &&
+            previous.timeZone === routine.timeZone &&
+            (!routine.enabled || previous.enabled)
+          )
+            continue;
+          const next = nextRoutineOccurrence(routine.cron, routine.timeZone, DateTime.toDate(now));
+          const manualOccurrence =
+            previous !== undefined &&
+            routine.lastRunStatus === "never" &&
+            routine.nextRunAt !== null &&
+            Date.parse(routine.nextRunAt) <= DateTime.toEpochMillis(now);
+          if (next === null && !manualOccurrence)
+            throw new Error("This routine has no future occurrence.");
+        }
+      },
+      catch: (cause) =>
+        new ServerSettingsError({
+          settingsPath: "<memory>",
+          operation: "normalize",
+          cause,
+          routineIssue:
+            "This routine has an invalid schedule or no future occurrence. Check its cron expression and time zone.",
+        }),
+    });
+  },
+);
+
 function providerEnvironmentSecretName(input: {
   readonly instanceId: string;
   readonly name: string;
@@ -197,9 +242,9 @@ export class ServerSettingsService extends Context.Service<
     /** Read the current settings. */
     readonly getSettings: Effect.Effect<ServerSettings, ServerSettingsError>;
 
-    /** Patch settings and persist. Returns the new full settings object. */
+    /** Patch settings; functional updates run inside the write lock and null skips the write. */
     readonly updateSettings: (
-      patch: ServerSettingsPatch,
+      patch: ServerSettingsPatch | ((current: ServerSettings) => ServerSettingsPatch | null),
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
     /** Stream of settings change events. */
@@ -232,17 +277,36 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
         : {}),
     });
     const currentSettingsRef = yield* Ref.make<ServerSettings>(initialSettings);
+    const writeSemaphore = yield* Semaphore.make(1);
 
     return {
       start: Effect.void,
       ready: Effect.void,
       getSettings: Ref.get(currentSettingsRef).pipe(Effect.map(resolveTextGenerationProvider)),
-      updateSettings: (patch) =>
-        Ref.get(currentSettingsRef).pipe(
-          Effect.map((currentSettings) => applyServerSettingsPatch(currentSettings, patch)),
-          Effect.flatMap(normalizeServerSettings),
-          Effect.tap((nextSettings) => Ref.set(currentSettingsRef, nextSettings)),
-          Effect.map(resolveTextGenerationProvider),
+      updateSettings: (patchOrUpdate) =>
+        writeSemaphore.withPermits(1)(
+          Effect.gen(function* () {
+            const current = yield* Ref.get(currentSettingsRef);
+            const patch =
+              typeof patchOrUpdate === "function"
+                ? yield* Effect.try({
+                    try: () => patchOrUpdate(current),
+                    catch: (cause) =>
+                      isServerSettingsError(cause)
+                        ? cause
+                        : new ServerSettingsError({
+                            settingsPath: "<memory>",
+                            operation: "normalize",
+                            cause,
+                          }),
+                  })
+                : patchOrUpdate;
+            if (patch === null) return resolveTextGenerationProvider(current);
+            yield* validateRoutineSchedulePatch(current, patch);
+            const next = yield* normalizeServerSettings(applyServerSettingsPatch(current, patch));
+            yield* Ref.set(currentSettingsRef, next);
+            return resolveTextGenerationProvider(next);
+          }),
         ),
       streamChanges: Stream.empty,
       subscribeChanges: Effect.succeed(Stream.empty),
@@ -251,6 +315,26 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
 
 export const layerTest = (overrides: DeepPartial<ServerSettings> = {}) =>
   Layer.effect(ServerSettingsService, makeTest(overrides));
+
+/** Client commands resolve inside the same lock as scheduler claims and receipts. */
+export const updateClientSettings = Effect.fn("ServerSettings.updateClientSettings")(function* (
+  service: ServerSettingsService["Service"],
+  patch: ServerSettingsClientPatch,
+) {
+  const now = yield* DateTime.now;
+  return yield* service.updateSettings((current) => {
+    try {
+      return resolveClientSettingsPatch(current, patch, DateTime.toEpochMillis(now));
+    } catch (cause) {
+      throw new ServerSettingsError({
+        settingsPath: "<memory>",
+        operation: "normalize",
+        cause,
+        routineIssue: cause instanceof Error ? cause.message : "Routine update failed.",
+      });
+    }
+  });
+});
 
 const ServerSettingsJson = fromLenientJson(ServerSettings);
 const decodeServerSettingsJsonExit = Schema.decodeUnknownExit(ServerSettingsJson);
@@ -837,10 +921,29 @@ const make = Effect.gen(function* () {
       Effect.flatMap(materializeProviderEnvironmentSecrets),
       Effect.map(resolveTextGenerationProvider),
     ),
-    updateSettings: (patch) =>
+    updateSettings: (patchOrUpdate) =>
       writeSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const current = yield* getSettingsFromCache;
+          const patch =
+            typeof patchOrUpdate === "function"
+              ? yield* Effect.try({
+                  try: () => patchOrUpdate(current),
+                  catch: (cause) =>
+                    isServerSettingsError(cause)
+                      ? cause
+                      : new ServerSettingsError({
+                          settingsPath: "<memory>",
+                          operation: "normalize",
+                          cause,
+                        }),
+                })
+              : patchOrUpdate;
+          if (patch === null)
+            return resolveTextGenerationProvider(
+              yield* materializeProviderEnvironmentSecrets(current),
+            );
+          yield* validateRoutineSchedulePatch(current, patch);
           const nextPersisted = yield* persistProviderEnvironmentSecrets(
             current,
             applyServerSettingsPatch(current, patch),

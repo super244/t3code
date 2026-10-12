@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=10m; seat=codex; date=2026-10-01 */
 /**
  * Multi-environment usage state.
  *
@@ -12,6 +13,7 @@ import {
   type EnvironmentId,
   type UsageSummary,
   type UsageSummaryInput,
+  type UsageProviderKind,
 } from "@t3tools/contracts";
 import { refreshUsage } from "@t3tools/client-runtime/state/usage";
 import * as Option from "effect/Option";
@@ -76,6 +78,7 @@ export interface UsageView {
 export function useUsage(
   input: UsageSummaryInput,
   selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null = null,
+  selectedProvider: UsageProviderKind | null = null,
 ): UsageView {
   const windowKey = useMemo(
     () =>
@@ -132,8 +135,8 @@ export function useUsage(
             },
           ],
     );
-    return mergeUsage(answered, USAGE_CONTRACT_VERSION);
-  }, [selectedEnvironments]);
+    return mergeUsage(answered, USAGE_CONTRACT_VERSION, selectedProvider);
+  }, [selectedEnvironments, selectedProvider]);
 
   const answeredCount = selectedEnvironments.filter(
     (environment) => environment.summary !== null,

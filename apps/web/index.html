@@ -6,28 +6,28 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
     />
-    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="theme-color" content="#08131f" />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <script>
       (() => {
         const LIGHT_BACKGROUND = "#ffffff";
-        const DARK_BACKGROUND = "#0a0a0a";
+        const DARK_BACKGROUND = "#08131f";
         const CUSTOM_THEMES_STORAGE_KEY = "t3code:themes:v1";
         const THEME_FOLLOW_SYSTEM_STORAGE_KEY = "t3code:theme-follow-system";
         const THEME_APPEARANCE_MODE_STORAGE_KEY = "t3code:theme-appearance-mode";
         const THEME_HALVES_STORAGE_KEY = "t3code:theme-halves:v1";
         const SPLASH_COLORS = {
           light: {
-            background: "#ffffff",
-            foreground: "#262626",
-            accent: "#4f46e5",
+            background: "#f7f5f2",
+            foreground: "#1c1b1a",
+            accent: "#0ea5e9",
           },
           dark: {
-            background: "#0a0a0a",
-            foreground: "#f5f5f5",
-            accent: "#818cf8",
+            background: "#08131f",
+            foreground: "#e6f1fa",
+            accent: "#38bdf8",
           },
         };
         // These are the runtime defaults used to complete a custom palette
@@ -51,6 +51,34 @@
         // Keep this small boot-time copy in sync with the built-in palettes so
         // the selected theme is visible before the app has mounted.
         const BUILT_IN_THEME_PALETTES = {
+          "prism-tide": {
+            light: {
+              background: "#f7f5f2",
+              foreground: "#1c1b1a",
+              accent: "#0ea5e9",
+              chrome: "#f7f5f2",
+            },
+            dark: {
+              background: "#08131f",
+              foreground: "#e6f1fa",
+              accent: "#38bdf8",
+              chrome: "#08131f",
+            },
+          },
+          prism: {
+            light: {
+              background: "#f7f5f2",
+              foreground: "#1c1b1a",
+              accent: "#0ea5e9",
+              chrome: "#f7f5f2",
+            },
+            dark: {
+              background: "#08131f",
+              foreground: "#e6f1fa",
+              accent: "#38bdf8",
+              chrome: "#08131f",
+            },
+          },
           "t3-chat": {
             light: {
               background: "oklch(0.982446 0.010114 325.653)",
@@ -477,7 +505,7 @@
         cursor: pointer;
       }
     </style>
-    <title>T3 Code (Alpha)</title>
+    <title>T3 Code Enterprise v1.0</title>
   </head>
   <body>
     <div id="root">

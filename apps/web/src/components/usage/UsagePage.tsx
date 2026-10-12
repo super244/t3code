@@ -1,7 +1,18 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-02 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 */
+/* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=25m; seat=antigravity; date=2026-10-02 */
+import {
+  assessSpendBudget,
+  calculateUsageVelocity,
+  usageComparisonCoverage,
+} from "@t3tools/shared/usageVelocity";
+import { makeUsageReport, usageReportCsv } from "@t3tools/shared/usageExport";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
 import {
   USAGE_CONTRACT_VERSION,
+  isProviderAvailable,
   type EnvironmentId,
   type UsageProviderKind,
 } from "@t3tools/contracts";
@@ -9,12 +20,15 @@ import {
   CircleAlertIcon,
   ChevronDownIcon,
   CircleDashedIcon,
+  DownloadIcon,
+  SearchIcon,
   SlidersHorizontalIcon,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import {
   isCompatibleUsageContractVersion,
+  selectUsageModels,
   type DailyTotals,
   type HourlyTotals,
 } from "@t3tools/shared/usageMerge";
@@ -37,6 +51,7 @@ import {
   formatUsd,
 } from "@t3tools/shared/usageFormat";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import {
   Menu,
   MenuCheckboxItem,
@@ -63,7 +78,12 @@ import { mergeUsageProjects } from "@t3tools/shared/usageProjects";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProjectBreakdown } from "./UsageProjectBreakdown";
 import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
-import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";
+import {
+  PROVIDER_ORDER,
+  PROVIDER_PRESENTATION,
+  providersOnUsageScreen,
+  usageKindForDriver,
+} from "./usageProviders";
 import { readUsagePagePreferences, saveUsagePagePreferences } from "./usagePagePreferences";
 import {
   makeUsageWindow,
@@ -91,6 +111,7 @@ export function UsagePage() {
   }));
   const metric = preferences.metric;
   const showingLimits = metric === "limits";
+  const selectedProvider = preferences.provider ?? null;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshingRef = useRef(false);
   const [breakdown, setBreakdown] = useState<"model" | "project" | "time">("model");
@@ -102,6 +123,7 @@ export function UsagePage() {
   const { merged, environments, selectedEnvironments, isPending, isPartial, refresh } = useUsage(
     window,
     selectedEnvironmentIds,
+    selectedProvider,
   );
   const projectUsage = useMemo(
     () =>
@@ -111,8 +133,9 @@ export function UsagePage() {
             ? []
             : [{ environmentId: environment.environmentId, summary: environment.summary }],
         ),
+        { provider: selectedProvider },
       ),
-    [selectedEnvironments],
+    [selectedEnvironments, selectedProvider],
   );
   const presentations = useAtomValue(environmentPresentations.presentationsAtom);
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
@@ -139,17 +162,89 @@ export function UsagePage() {
     () => (isHourlyWindow ? merged.hourly : merged.daily).toReversed(),
     [isHourlyWindow, merged.daily, merged.hourly],
   );
-  const breakdownModels = useMemo(
+  const [modelSearch, setModelSearch] = useState("");
+  const [modelProviderFilter, setModelProviderFilter] = useState<string>("all");
+  const filteredBreakdownModels = useMemo(
     () =>
-      breakdown === "model" && metric === "tokens"
-        ? merged.models.toSorted(
-            (left, right) => right.totalTokens - left.totalTokens || right.costUsd - left.costUsd,
-          )
-        : merged.models,
-    [breakdown, merged.models, metric],
+      selectUsageModels(merged.models, {
+        metric: metric === "tokens" ? "tokens" : "cost",
+        query: modelSearch,
+        provider: modelProviderFilter === "all" ? null : modelProviderFilter,
+      }),
+    [merged.models, metric, modelSearch, modelProviderFilter],
   );
-  const activeProviders = useMemo(() => providersWithUsage(merged.providers), [merged.providers]);
-  const timeValueColumnWidth = `${60 / (activeProviders.length + 2)}%`;
+
+  const velocity = calculateUsageVelocity({
+    costUsd: merged.costUsd,
+    totalTokens: merged.totalTokens,
+    window,
+    allHistory: windowPreset === "all",
+    observedDays: days,
+  });
+
+  const monthlyBudgetUsd = preferences.monthlyBudgetUsd ?? null;
+  const comparisonCoverage = usageComparisonCoverage({
+    unpricedShare: merged.costQuality.unpricedShare,
+    staleEnvironmentCount: merged.staleEnvironments.length,
+    provider: selectedProvider,
+    environments: selectedEnvironments,
+  });
+  const budgetAssessment = useMemo(
+    () =>
+      assessSpendBudget({
+        monthlyBudgetUsd,
+        thirtyDayCostUsd: velocity?.thirtyDayCostUsd,
+        comparisonCoverage,
+      }),
+    [monthlyBudgetUsd, velocity?.thirtyDayCostUsd, comparisonCoverage],
+  );
+
+  const selectBudget = (budget: number | null) => {
+    const nextPreferences = { ...preferences, monthlyBudgetUsd: budget };
+    setPreferences(nextPreferences);
+    saveUsagePagePreferences(nextPreferences);
+  };
+  const connectedProviders = useMemo(() => {
+    const found = new Set<UsageProviderKind>();
+    for (const [envId, presentation] of presentations) {
+      if (selectedEnvironmentIds !== null && !selectedEnvironmentIds.has(envId)) continue;
+      for (const provider of presentation.serverConfig?.providers ?? []) {
+        const kind = usageKindForDriver(provider.driver);
+        if (kind) {
+          if (
+            provider.enabled ||
+            provider.installed ||
+            provider.status === "ready" ||
+            isProviderAvailable(provider)
+          ) {
+            found.add(kind);
+          }
+        }
+      }
+    }
+    return Array.from(found);
+  }, [presentations, selectedEnvironmentIds]);
+  const availableProviders = useMemo(
+    () =>
+      providersOnUsageScreen(
+        merged.providers,
+        selectedEnvironments.flatMap((environment) =>
+          (environment.summary?.sources ?? []).map((source) => ({
+            provider: source.fingerprint.provider,
+            status: source.status,
+          })),
+        ),
+        connectedProviders,
+      ),
+    [connectedProviders, merged.providers, selectedEnvironments],
+  );
+  const listedProviders = selectedProvider === null ? availableProviders : [selectedProvider];
+  const selectProvider = (provider: UsageProviderKind | null) => {
+    const nextPreferences = { ...preferences, provider };
+    setPreferences(nextPreferences);
+    saveUsagePagePreferences(nextPreferences);
+  };
+  const timeValueColumnWidth = `${60 / (listedProviders.length + 2)}%`;
   const activePeriods = (isHourlyWindow ? merged.hourly : merged.daily).filter(
     (period) => period.totalTokens > 0,
   ).length;
@@ -158,7 +253,7 @@ export function UsagePage() {
   const cachedShare = observedInput === 0 ? 0 : merged.cachedInputTokens / observedInput;
 
   const selectWindow = (preset: UsageWindowPreset) => {
-    const nextPreferences = { metric, windowPreset: preset };
+    const nextPreferences = { ...preferences, metric, windowPreset: preset };
     setPreferences(nextPreferences);
     saveUsagePagePreferences(nextPreferences);
     setWindowSelection({
@@ -167,7 +262,7 @@ export function UsagePage() {
     });
   };
   const selectMetric = (nextMetric: UsageMetric) => {
-    const nextPreferences = { metric: nextMetric, windowPreset };
+    const nextPreferences = { ...preferences, metric: nextMetric, windowPreset };
     setPreferences(nextPreferences);
     saveUsagePagePreferences(nextPreferences);
   };
@@ -206,6 +301,36 @@ export function UsagePage() {
       setIsRefreshing(false);
     });
   };
+
+  const exportReport = (format: "json" | "csv") => {
+    if (metric === "limits") return;
+    const exportedAt = new Date().toISOString();
+    const report = makeUsageReport({
+      merged,
+      window,
+      windowLabel,
+      metric,
+      exportedAt,
+      selectedProvider,
+      selectedEnvironmentIds: selectedEnvironmentIds === null ? null : [...selectedEnvironmentIds],
+      providers: listedProviders.map((provider) => ({
+        provider,
+        label: PROVIDER_PRESENTATION[provider].label,
+      })),
+    });
+    const blob = new Blob(
+      [format === "json" ? JSON.stringify(report, null, 2) : usageReportCsv(report)],
+      { type: format === "json" ? "application/json" : "text/csv;charset=utf-8;" },
+    );
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `t3-usage-${windowPreset}-${selectedProvider ?? "all"}-${exportedAt.slice(0, 10)}.${format}`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  const exportUsage = () => exportReport("json");
+  const exportUsageCsv = () => exportReport("csv");
   const windowLabel =
     windowPreset === "all"
       ? "All recorded activity"
@@ -231,6 +356,42 @@ export function UsagePage() {
             staleEnvironments={merged.staleEnvironments}
           />
         </WorkspaceBreadcrumbItem>
+        {!showingLimits ? (
+          <>
+            <WorkspaceBreadcrumbSeparator />
+            <WorkspaceBreadcrumbItem current className="min-w-0">
+              <Select
+                value={selectedProvider ?? "all"}
+                onValueChange={(value) => {
+                  if (value === "all") selectProvider(null);
+                  else if (PROVIDER_ORDER.some((provider) => provider === value))
+                    selectProvider(value as UsageProviderKind);
+                }}
+              >
+                <SelectTrigger
+                  aria-label="Filter usage harness"
+                  size="compact"
+                  variant="ghost"
+                  className="w-auto min-w-0"
+                >
+                  <SelectValue>
+                    {selectedProvider === null
+                      ? "All harnesses"
+                      : PROVIDER_PRESENTATION[selectedProvider].label}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup alignItemWithTrigger={false}>
+                  <SelectItem value="all">All harnesses</SelectItem>
+                  {PROVIDER_ORDER.map((provider) => (
+                    <SelectItem key={provider} value={provider}>
+                      {PROVIDER_PRESENTATION[provider].label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </WorkspaceBreadcrumbItem>
+          </>
+        ) : null}
       </WorkspaceBreadcrumb>
       {!showingLimits ? (
         <span className="hidden min-w-0 truncate text-xs text-muted-foreground 2xl:block">
@@ -266,6 +427,52 @@ export function UsagePage() {
         >
           <RefreshIcon className="size-3.5" refreshing={isRefreshing} />
         </Button>
+        {!showingLimits ? (
+          <>
+            <Menu>
+              <MenuTrigger
+                render={
+                  <Button
+                    aria-label="30-day API-equivalent cost target"
+                    title="30-day API-equivalent cost target"
+                    size="compact"
+                    variant="outline"
+                    className="text-xs font-normal"
+                  >
+                    {monthlyBudgetUsd ? `Target: ${formatUsd(monthlyBudgetUsd)}` : "Target"}
+                  </Button>
+                }
+              />
+              <MenuPopup align="end">
+                <MenuItem onClick={() => selectBudget(null)}>No target</MenuItem>
+                <MenuSeparator />
+                <MenuItem onClick={() => selectBudget(25)}>$25 / 30 days</MenuItem>
+                <MenuItem onClick={() => selectBudget(50)}>$50 / 30 days</MenuItem>
+                <MenuItem onClick={() => selectBudget(100)}>$100 / 30 days</MenuItem>
+                <MenuItem onClick={() => selectBudget(250)}>$250 / 30 days</MenuItem>
+                <MenuItem onClick={() => selectBudget(500)}>$500 / 30 days</MenuItem>
+              </MenuPopup>
+            </Menu>
+            <Menu>
+              <MenuTrigger
+                render={
+                  <Button
+                    aria-label="Export usage report"
+                    title="Export usage report"
+                    size="icon-sm"
+                    variant="ghost"
+                  >
+                    <DownloadIcon className="size-3.5" />
+                  </Button>
+                }
+              />
+              <MenuPopup align="end">
+                <MenuItem onClick={exportUsage}>Export as JSON</MenuItem>
+                <MenuItem onClick={exportUsageCsv}>Export as CSV</MenuItem>
+              </MenuPopup>
+            </Menu>
+          </>
+        ) : null}
       </div>
       <div className="col-span-2 ms-auto flex min-w-0 items-center justify-end gap-1 xl:hidden">
         <Select
@@ -323,6 +530,52 @@ export function UsagePage() {
         >
           <RefreshIcon className="size-3.5" refreshing={isRefreshing} />
         </Button>
+        {!showingLimits ? (
+          <>
+            <Menu>
+              <MenuTrigger
+                render={
+                  <Button
+                    aria-label="30-day API-equivalent cost target"
+                    title="30-day API-equivalent cost target"
+                    size="compact"
+                    variant="outline"
+                    className="text-xs font-normal"
+                  >
+                    {monthlyBudgetUsd ? `Target: ${formatUsd(monthlyBudgetUsd)}` : "Target"}
+                  </Button>
+                }
+              />
+              <MenuPopup align="end">
+                <MenuItem onClick={() => selectBudget(null)}>No target</MenuItem>
+                <MenuSeparator />
+                <MenuItem onClick={() => selectBudget(25)}>$25 / 30 days</MenuItem>
+                <MenuItem onClick={() => selectBudget(50)}>$50 / 30 days</MenuItem>
+                <MenuItem onClick={() => selectBudget(100)}>$100 / 30 days</MenuItem>
+                <MenuItem onClick={() => selectBudget(250)}>$250 / 30 days</MenuItem>
+                <MenuItem onClick={() => selectBudget(500)}>$500 / 30 days</MenuItem>
+              </MenuPopup>
+            </Menu>
+            <Menu>
+              <MenuTrigger
+                render={
+                  <Button
+                    aria-label="Export usage report"
+                    title="Export usage report"
+                    size="icon-sm"
+                    variant="ghost"
+                  >
+                    <DownloadIcon className="size-3.5" />
+                  </Button>
+                }
+              />
+              <MenuPopup align="end">
+                <MenuItem onClick={exportUsage}>Export as JSON</MenuItem>
+                <MenuItem onClick={exportUsageCsv}>Export as CSV</MenuItem>
+              </MenuPopup>
+            </Menu>
+          </>
+        ) : null}
       </div>
     </div>
   );
@@ -369,14 +622,18 @@ export function UsagePage() {
                       ) : null}
                     </div>
 
-                    {activeProviders.map((provider) => {
+                    {listedProviders.map((provider) => {
                       const totals = merged.providers.find((entry) => entry.provider === provider);
                       const share =
                         metric === "cost" ? (totals?.costShare ?? 0) : (totals?.tokenShare ?? 0);
+                      const quiet =
+                        (totals?.totalTokens ?? 0) === 0 && (totals?.costUsd ?? 0) === 0;
                       const providerSessions = totals?.sessions ?? 0;
-                      const sessionLabel = `${formatCount(providerSessions)} ${
-                        providerSessions === 1 ? "session" : "sessions"
-                      }`;
+                      const sessionLabel = quiet
+                        ? "Connected"
+                        : `${formatCount(providerSessions)} ${
+                            providerSessions === 1 ? "session" : "sessions"
+                          }`;
                       return (
                         <div key={provider} className="flex flex-col gap-1">
                           <div className="flex items-baseline justify-between gap-4">
@@ -405,9 +662,11 @@ export function UsagePage() {
                             </span>
                           </div>
                           <span className="text-xs text-muted-foreground">
-                            {metric === "cost"
-                              ? `${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens`
-                              : `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}`}
+                            {quiet
+                              ? "No activity in this window"
+                              : metric === "cost"
+                                ? `${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens`
+                                : `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}`}
                           </span>
                         </div>
                       );
@@ -420,7 +679,7 @@ export function UsagePage() {
                       {metric === "tokens" ? "processed tokens" : "API-equivalent cost"}
                     </h2>
                     <UsageProviderChart
-                      providers={activeProviders}
+                      providers={listedProviders}
                       days={days}
                       daily={merged.daily}
                       hours={hours}
@@ -479,34 +738,182 @@ export function UsagePage() {
                       detail="records excluded from cost"
                       warning={merged.costQuality.unpricedShare > 0}
                     />
+                    {budgetAssessment ? (
+                      <div
+                        className={cn(
+                          "col-span-2 flex flex-col gap-2 rounded-lg border p-3.5 text-xs md:col-span-3 xl:col-span-6",
+                          budgetAssessment.status === "exceeded"
+                            ? "border-destructive/40 bg-destructive/5"
+                            : budgetAssessment.status === "warning" ||
+                                budgetAssessment.status === "unknown"
+                              ? "border-amber-500/40 bg-amber-500/5"
+                              : "border-border/60 bg-muted/20",
+                        )}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                            <span
+                              className={cn(
+                                "size-2 shrink-0 rounded-full",
+                                budgetAssessment.status === "exceeded"
+                                  ? "bg-destructive"
+                                  : budgetAssessment.status === "warning" ||
+                                      budgetAssessment.status === "unknown"
+                                    ? "bg-amber-500"
+                                    : "bg-emerald-500",
+                              )}
+                            />
+                            <span className="font-medium text-foreground">
+                              30-day API-equivalent target:
+                            </span>
+                            <span className="text-muted-foreground">{budgetAssessment.label}</span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 tabular-nums">
+                            <span className="text-muted-foreground">
+                              30-day equivalent:{" "}
+                              <strong className="font-semibold text-foreground">
+                                {formatUsd(budgetAssessment.thirtyDayCostUsd)}
+                              </strong>{" "}
+                              of{" "}
+                              <strong className="font-semibold text-foreground">
+                                {formatUsd(budgetAssessment.monthlyBudgetUsd)}
+                              </strong>
+                            </span>
+                            <span
+                              className={cn(
+                                "rounded px-1.5 py-0.5 font-semibold text-[11px]",
+                                budgetAssessment.status === "exceeded"
+                                  ? "bg-destructive/15 text-destructive"
+                                  : budgetAssessment.status === "warning" ||
+                                      budgetAssessment.status === "unknown"
+                                    ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                                    : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+                              )}
+                            >
+                              {budgetAssessment.status === "unknown"
+                                ? "Unknown"
+                                : `${budgetAssessment.percentOfBudget}%`}
+                            </span>
+                          </div>
+                        </div>
+                        {budgetAssessment.status !== "unknown" ? (
+                          <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-all duration-300",
+                                budgetAssessment.status === "exceeded"
+                                  ? "bg-destructive"
+                                  : budgetAssessment.status === "warning"
+                                    ? "bg-amber-500"
+                                    : "bg-emerald-500",
+                              )}
+                              style={{
+                                width: `${Math.min(budgetAssessment.percentOfBudget, 100)}%`,
+                              }}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <div className="col-span-2 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md border border-border/60 bg-muted/30 px-3.5 py-2 text-xs md:col-span-3 xl:col-span-6">
+                      <span className="font-medium text-foreground">Recorded usage rate:</span>
+                      <span className="text-muted-foreground">
+                        API-equivalent average:{" "}
+                        <strong className="font-semibold text-foreground tabular-nums">
+                          {velocity ? formatUsd(velocity.dailyCostVelocity) : "—"}
+                        </strong>
+                        /day
+                      </span>
+                      <span className="text-muted-foreground">
+                        30 days at this rate:{" "}
+                        <strong className="font-semibold text-foreground tabular-nums">
+                          {velocity ? formatUsd(velocity.thirtyDayCostUsd) : "—"}
+                        </strong>
+                      </span>
+                      <span className="text-muted-foreground">
+                        Daily token average:{" "}
+                        <strong className="font-semibold text-foreground tabular-nums">
+                          {velocity ? formatTokens(velocity.dailyTokenVelocity) : "—"}
+                        </strong>
+                        /day
+                      </span>
+                      <span className="w-full text-muted-foreground">
+                        Based on recorded history
+                        {windowPreset === "all"
+                          ? " from the first through last recorded day"
+                          : " in this window"}
+                        ; includes quiet periods. API-equivalent cost, not a subscription bill or
+                        forecast.
+                      </span>
+                    </div>
                   </div>
                 </section>
 
                 <section className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <h2 className="text-sm font-medium text-foreground">Breakdown</h2>
-                    <ToggleGroup
-                      aria-label="Usage breakdown"
-                      variant="segmented"
-                      value={[breakdown]}
-                      onValueChange={(next) => {
-                        const value = next[0];
-                        if (value === "model" || value === "project" || value === "time")
-                          setBreakdown(value);
-                      }}
-                    >
-                      {(
-                        [
-                          { value: "model", label: "Model" },
-                          { value: "project", label: "Project" },
-                          { value: "time", label: isHourlyWindow ? "Hour" : "Day" },
-                        ] as const
-                      ).map((option) => (
-                        <Toggle key={option.value} value={option.value}>
-                          {option.label}
-                        </Toggle>
-                      ))}
-                    </ToggleGroup>
+                  <div className="flex flex-col gap-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <h2 className="text-sm font-medium text-foreground">Breakdown</h2>
+                      <ToggleGroup
+                        aria-label="Usage breakdown"
+                        variant="segmented"
+                        value={[breakdown]}
+                        onValueChange={(next) => {
+                          const value = next[0];
+                          if (value === "model" || value === "project" || value === "time") setBreakdown(value);
+                        }}
+                      >
+                        {(
+                          [
+                            { value: "model", label: "Model" },
+                            { value: "project", label: "Project" },
+                            { value: "time", label: isHourlyWindow ? "Hour" : "Day" },
+                          ] as const
+                        ).map((option) => (
+                          <Toggle key={option.value} value={option.value}>
+                            {option.label}
+                          </Toggle>
+                        ))}
+                      </ToggleGroup>
+                    </div>
+
+                    {breakdown === "model" ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="relative min-w-40 flex-1 sm:max-w-xs">
+                          <SearchIcon className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
+                          <Input
+                            value={modelSearch}
+                            onChange={(e) => setModelSearch(e.currentTarget.value)}
+                            placeholder="Search models…"
+                            className="h-8 pl-8 text-xs"
+                          />
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {["all", ...listedProviders].map((providerKey) => {
+                            const isAll = providerKey === "all";
+                            const label = isAll
+                              ? "All"
+                              : (PROVIDER_PRESENTATION[providerKey as UsageProviderKind]?.label ??
+                                providerKey);
+                            const active = modelProviderFilter === providerKey;
+                            return (
+                              <button
+                                key={providerKey}
+                                type="button"
+                                onClick={() => setModelProviderFilter(providerKey)}
+                                className={cn(
+                                  "rounded-sm px-2 py-1 text-xs transition-colors",
+                                  active
+                                    ? "bg-muted font-medium text-foreground shadow-xs"
+                                    : "text-muted-foreground hover:bg-muted/40",
+                                )}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
 
                   {breakdown === "project" ? (
@@ -531,14 +938,16 @@ export function UsagePage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {breakdownModels.length === 0 ? (
+                        {filteredBreakdownModels.length === 0 ? (
                           <tr>
                             <td colSpan={4} className="py-6 text-center text-muted-foreground">
-                              No activity in this window.
+                              {merged.models.length === 0
+                                ? "No activity in this window."
+                                : "No matching models."}
                             </td>
                           </tr>
                         ) : (
-                          breakdownModels.map((model) => (
+                          filteredBreakdownModels.map((model) => (
                             <tr
                               key={`${model.provider}:${model.model}`}
                               className="border-b border-border/50 transition-colors hover:bg-muted/50"
@@ -567,7 +976,7 @@ export function UsagePage() {
                     <table className="w-full table-fixed text-sm">
                       <colgroup>
                         <col className="w-2/5" />
-                        {activeProviders.map((provider) => (
+                        {listedProviders.map((provider) => (
                           <col key={provider} style={{ width: timeValueColumnWidth }} />
                         ))}
                         <col style={{ width: timeValueColumnWidth }} />
@@ -576,7 +985,7 @@ export function UsagePage() {
                       <thead>
                         <tr className="border-b border-border text-left text-xs text-muted-foreground">
                           <th className="py-2 font-normal">{isHourlyWindow ? "Hour" : "Day"}</th>
-                          {activeProviders.map((provider) => (
+                          {listedProviders.map((provider) => (
                             <th key={provider} className="py-2 text-right font-normal">
                               {PROVIDER_PRESENTATION[provider].label}
                             </th>
@@ -589,7 +998,7 @@ export function UsagePage() {
                         {breakdownPeriods.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={activeProviders.length + 3}
+                              colSpan={listedProviders.length + 3}
                               className="py-6 text-center text-muted-foreground"
                             >
                               No activity in this window.
@@ -606,7 +1015,7 @@ export function UsagePage() {
                                   ? formatHourShort(period.hourStart, window.timeZone)
                                   : formatDayShort(period.day)}
                               </td>
-                              {activeProviders.map((provider) => (
+                              {listedProviders.map((provider) => (
                                 <td
                                   key={provider}
                                   className="py-2 text-right text-muted-foreground tabular-nums"

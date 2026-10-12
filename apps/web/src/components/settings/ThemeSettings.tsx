@@ -1,3 +1,6 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-10 */
+/* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
+import { Badge } from "../ui/badge";
 import {
   CheckIcon,
   CopyIcon,
@@ -27,6 +30,7 @@ import {
   GROVE_THEME,
   IRIS_THEME,
   OCEAN_THEME,
+  PRISM_FLAGSHIP_THEMES,
 } from "../../themePalette";
 import {
   AlertDialog,
@@ -811,6 +815,27 @@ export function ThemeLibrary({
               }
               onUse={() => persistTheme(maintainerTheme.id)}
               onUseMode={handlePairPick(maintainerTheme.id)}
+              theme={card}
+            />
+          );
+        })}
+        {PRISM_FLAGSHIP_THEMES.map((prismTheme) => {
+          const card = getThemeCardDefinition(prismTheme);
+          return (
+            <ThemeLibraryCard
+              activeModes={pickedModesFor(prismTheme.id)}
+              isActive={false}
+              key={prismTheme.id}
+              onDuplicate={() =>
+                openThemeEditor({
+                  editingThemeId: null,
+                  seedThemeId: prismTheme.id,
+                  seedName: `${prismTheme.label} copy`,
+                  initialAppearance,
+                })
+              }
+              onUse={() => persistTheme(prismTheme.id)}
+              onUseMode={handlePairPick(prismTheme.id)}
               theme={card}
             />
           );

@@ -1,3 +1,6 @@
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=19m; seat=codex; date=2026-10-08 -->
+<!-- agent-watermark: model=opus-5.5; effort=high; duration=72m; seat=claude-code; date=2026-10-04 -->
+
 # T3 Code
 
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
@@ -11,6 +14,23 @@ Nothing. We built T3 Code because we wanted the best possible development experi
 We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
 
 ## Installation
+
+### Local custom Alpha upgrades
+
+From this checkout, install a packaged custom Alpha build with:
+
+```bash
+python3 scripts/install-local-desktop.py path/to/custom-alpha.zip --dry-run
+python3 scripts/install-local-desktop.py path/to/custom-alpha.zip
+```
+
+Close Alpha before installation; the installer leaves running apps uninterrupted
+and Nightly can stay open. It checks the bundle paths, channel, version and local
+code signature, refuses downgrades, and retains the previous app bundle under
+`/Applications/.t3-local-upgrades/`. Server data and the existing Alpha profile
+stay in their current locations. Open Alpha normally afterward. The printed
+backup path restores the previous application bundle; it does not roll back
+database changes made by later app use.
 
 > [!WARNING]
 > T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and Antigravity. Install and authenticate at least one provider before use:
@@ -85,6 +105,7 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 - [Scheduled routines](./docs/user/routines.md)
 - [Command Center](./docs/user/command-center.md) for missions, harnesses, routines, skills, and usage
 - [Continue with another agent](./docs/user/handoff.md) for picking a thread up on a different provider when one stops
+- [Race](./docs/user/race.md) for running one prompt on several agents and keeping the best result
 - [Source control integrations](./docs/user/source-control.md)
 - Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
 - [Run T3 Code as a background service](./docs/user/background-service.md)

@@ -1,3 +1,7 @@
+// @effect-diagnostics nodeBuiltinImport:off
+/* agent-watermark: model=opus-5; effort=high; duration=18m; seat=claude-code; date=2026-10-04 */
+import * as NodeOS from "node:os";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, describe, expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -36,6 +40,27 @@ const writeTextFile = Effect.fn("writeTextFile")(function* (
 
 it.layer(TestLayer)("WorkspacePathsLive", (it) => {
   describe("normalizeWorkspaceRoot", () => {
+    // The Add Project box opens on `~/`. An absolute path pasted after that
+    // prefix used to be joined onto the home directory, and because creating a
+    // project may create its root, the user got an empty directory at an
+    // invented path instead of the repository they picked.
+    it.effect("keeps an absolute path pasted after the tilde prefix", () =>
+      Effect.gen(function* () {
+        const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const repositoryRoot = yield* makeTempDir();
+
+        const normalized = yield* workspacePaths.normalizeWorkspaceRoot(`~/${repositoryRoot}`, {
+          createIfMissing: true,
+        });
+
+        expect(normalized).toBe(repositoryRoot);
+        const path = yield* Path.Path;
+        const invented = path.join(NodeOS.homedir(), repositoryRoot);
+        expect(yield* fileSystem.exists(invented)).toBe(false);
+      }),
+    );
+
     it.effect("resolves an existing directory", () =>
       Effect.gen(function* () {
         const workspacePaths = yield* WorkspacePaths.WorkspacePaths;

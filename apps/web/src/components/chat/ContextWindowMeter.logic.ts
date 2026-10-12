@@ -135,3 +135,63 @@ export function shouldReserveContextWindowMeter(input: {
     input.providerReportsContextWindow !== false
   );
 }
+
+export interface CacheEfficiencySummary {
+  readonly hitRatePercentage: number;
+  readonly label: string;
+  readonly savingsEstimateRatio: number;
+}
+
+export function deriveCacheEfficiency(input: {
+  readonly inputTokens?: number | null | undefined;
+  readonly cachedInputTokens?: number | null | undefined;
+}): CacheEfficiencySummary | null {
+  const cached = input.cachedInputTokens ?? 0;
+  const totalInput = input.inputTokens ?? 0;
+  if (cached <= 0 || totalInput <= 0) {
+    return null;
+  }
+  const hitRate = Math.min(100, Math.max(0, (cached / totalInput) * 100));
+  // Most providers discount cached prompt tokens by 80% to 90%
+  const savingsEstimateRatio = (cached / totalInput) * 0.85;
+  const formatted =
+    hitRate < 10 ? hitRate.toFixed(1).replace(/\.0$/, "") : Math.round(hitRate).toString();
+  return {
+    hitRatePercentage: hitRate,
+    label: `${formatted}% cached`,
+    savingsEstimateRatio,
+  };
+}
+
+export interface DetailedTokenBreakdown {
+  readonly inputTokens: number | null;
+  readonly cachedInputTokens: number | null;
+  readonly uncachedInputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly reasoningTokens: number | null;
+  readonly totalProcessedTokens: number | null;
+}
+
+export function deriveDetailedTokenBreakdown(usage: {
+  readonly inputTokens?: number | null | undefined;
+  readonly cachedInputTokens?: number | null | undefined;
+  readonly outputTokens?: number | null | undefined;
+  readonly reasoningOutputTokens?: number | null | undefined;
+  readonly totalProcessedTokens?: number | null | undefined;
+}): DetailedTokenBreakdown {
+  const input = usage.inputTokens ?? null;
+  const cached = usage.cachedInputTokens ?? null;
+  const uncached = input !== null ? Math.max(0, input - (cached ?? 0)) : null;
+  const output = usage.outputTokens ?? null;
+  const reasoning = usage.reasoningOutputTokens ?? null;
+  const total = usage.totalProcessedTokens ?? null;
+
+  return {
+    inputTokens: input,
+    cachedInputTokens: cached,
+    uncachedInputTokens: uncached,
+    outputTokens: output,
+    reasoningTokens: reasoning,
+    totalProcessedTokens: total,
+  };
+}

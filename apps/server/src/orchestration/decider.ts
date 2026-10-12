@@ -1,3 +1,4 @@
+/* agent-watermark: model=muse-spark; effort=high; duration=45m; seat=opencode; date=2026-10-08 */
 import {
   EventId,
   MAX_SCRIPT_ID_LENGTH,
@@ -481,6 +482,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           }),
         );
       }
+      // v2 parity: an explicit opt-out disables the sweep. The user re-enables
+      // via thread.auto-settle.set; the sweep must never override that choice.
+      if (command.type === "thread.auto-settle" && thread.autoSettleDisabledAt != null) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `thread ${command.threadId} has auto-settle disabled`,
+          }),
+        );
+      }
       // The server owns settle eligibility. A stale command must not settle
       // a thread whose session is coming alive or working.
       if (thread.session?.status === "starting" || thread.session?.status === "running") {
@@ -613,6 +624,36 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           reason: command.reason,
           updatedAt: alreadyPinnedActive ? thread.updatedAt : occurredAt,
+        },
+      };
+    }
+
+    case "thread.auto-settle.set": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = yield* nowIso;
+      const nextDisabledAt = command.enabled ? null : (thread.autoSettleDisabledAt ?? occurredAt);
+      // Idempotent toggle: re-emit with existing stamps so duplicate clicks
+      // are projection no-ops instead of ordering churn.
+      const alreadyInState =
+        command.enabled === true
+          ? thread.autoSettleDisabledAt == null
+          : thread.autoSettleDisabledAt != null;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.auto-settle-set" as const,
+        payload: {
+          threadId: command.threadId,
+          autoSettleDisabledAt: nextDisabledAt,
+          updatedAt: alreadyInState ? thread.updatedAt : occurredAt,
         },
       };
     }

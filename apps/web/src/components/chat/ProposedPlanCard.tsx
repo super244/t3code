@@ -1,3 +1,4 @@
+/* agent-watermark: model=muse-spark; effort=high; duration=25m; seat=opencode; date=2026-10-10 */
 import { memo, useState, useId } from "react";
 import {
   isAtomCommandInterrupted,
@@ -146,11 +147,16 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   };
 
   return (
-    <div className="rounded-[24px] border border-border/80 bg-card/70 p-4 sm:p-5">
+    <div className="rounded-2xl border border-border/60 bg-card/70 p-4 shadow-xs sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <Badge variant="secondary">Plan</Badge>
-          <p className="truncate text-sm font-medium text-foreground">{title}</p>
+          <p className="truncate text-sm font-medium text-foreground" title={title}>
+            {title}
+          </p>
+          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+            {lineCount} lines
+          </span>
         </div>
         <Menu>
           <MenuTrigger

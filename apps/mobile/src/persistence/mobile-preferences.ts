@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=10m; seat=codex; date=2026-10-01 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=5m; seat=antigravity; date=2026-10-02 */
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -5,6 +7,7 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
+import { UsageProviderKind } from "@t3tools/contracts";
 import type { SidebarProjectGroupingMode } from "@t3tools/contracts";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 
@@ -12,10 +15,22 @@ import * as MobileDatabase from "./mobile-database";
 import * as MobileSecureStorage from "./mobile-secure-storage";
 import { MobileStorageDecodeError, MobileStorageEncodeError } from "./mobile-storage";
 
+const isUsageProvider = Schema.is(UsageProviderKind);
+
 const PREFERENCES_KEY = "t3code.preferences";
 const PREFERENCES_FALLBACK_KEY = "t3code.preferences.fallback";
 
+export interface MobileStashedPrompt {
+  readonly id: string;
+  readonly prompt: string;
+  readonly createdAt: string;
+  readonly title?: string;
+}
+
 export interface Preferences {
+  readonly usageProvider?: UsageProviderKind | null;
+  readonly monthlyBudgetUsd?: number | null;
+  readonly stashedPrompts?: ReadonlyArray<MobileStashedPrompt>;
   readonly liveActivitiesEnabled?: boolean;
   readonly themeId?: MobileThemeId;
   readonly lightThemeId?: MobileThemeId;
@@ -86,6 +101,9 @@ export class MobilePreferencesStore extends Context.Service<
 
 function sanitizePreferences(parsed: Preferences): Preferences {
   const preferences: {
+    usageProvider?: UsageProviderKind | null;
+    monthlyBudgetUsd?: number | null;
+    stashedPrompts?: ReadonlyArray<MobileStashedPrompt>;
     liveActivitiesEnabled?: boolean;
     themeId?: MobileThemeId;
     lightThemeId?: MobileThemeId;
@@ -106,6 +124,27 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
   } = {};
+
+  if (parsed.usageProvider === null || isUsageProvider(parsed.usageProvider)) {
+    preferences.usageProvider = parsed.usageProvider;
+  }
+
+  if (typeof parsed.monthlyBudgetUsd === "number" || parsed.monthlyBudgetUsd === null) {
+    preferences.monthlyBudgetUsd = parsed.monthlyBudgetUsd;
+  }
+
+  if (Array.isArray(parsed.stashedPrompts)) {
+    preferences.stashedPrompts = parsed.stashedPrompts
+      .filter(
+        (entry): entry is MobileStashedPrompt =>
+          typeof entry === "object" &&
+          entry !== null &&
+          typeof entry.id === "string" &&
+          typeof entry.prompt === "string" &&
+          typeof entry.createdAt === "string",
+      )
+      .slice(0, 50);
+  }
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
     preferences.liveActivitiesEnabled = parsed.liveActivitiesEnabled;

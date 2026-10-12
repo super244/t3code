@@ -132,6 +132,7 @@ import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ThemeLibrary } from "./ThemeSettings";
+import { SoundSettingsSection } from "./SoundSettingsSection";
 import {
   backgroundActivityOverrideSettings,
   backgroundActivitySharedPolicySettings,
@@ -1295,6 +1296,10 @@ export function AppearanceSettingsPanel() {
             ) : null
           }
         />
+      </SettingsSection>
+
+      <SettingsSection id="sound" title="Audio & Acoustics">
+        <SoundSettingsSection />
       </SettingsSection>
 
       <TypographySection />

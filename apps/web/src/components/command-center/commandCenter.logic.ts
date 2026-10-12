@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=6m; seat=codex; date=2026-10-01 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=2m; seat=antigravity; date=2026-10-01 */
 import type { RoutineDefinition, ServerProvider } from "@t3tools/contracts";
 
 export type CommandCenterThreadStatus =
@@ -83,4 +85,42 @@ export function sortUpcomingRoutines<
     const rightTime = right.routine.nextRunAt ? Date.parse(right.routine.nextRunAt) : Infinity;
     return leftTime - rightTime || left.routine.name.localeCompare(right.routine.name);
   });
+}
+
+export type MissionQueueFilter = "active" | "attention" | "all";
+
+const MISSION_PRIORITY: Record<CommandCenterThreadStatus, number> = {
+  approval: 0,
+  input: 1,
+  failed: 2,
+  working: 3,
+  monitoring: 4,
+  ready: 5,
+};
+
+export function selectMissionQueue<
+  T extends CommandCenterThreadLike & { readonly updatedAt: string },
+>(
+  threads: ReadonlyArray<T>,
+  filter: MissionQueueFilter,
+  query: string,
+  searchText: (thread: T) => string,
+  projectPredicate?: (thread: T) => boolean,
+): T[] {
+  const needle = query.trim().toLocaleLowerCase();
+  return threads
+    .filter((thread) => {
+      if (thread.archivedAt !== null) return false;
+      const status = commandCenterThreadStatus(thread);
+      if (filter === "active" && status === "ready") return false;
+      if (filter === "attention" && MISSION_PRIORITY[status] > 2) return false;
+      if (projectPredicate && !projectPredicate(thread)) return false;
+      return needle.length === 0 || searchText(thread).toLocaleLowerCase().includes(needle);
+    })
+    .toSorted((left, right) => {
+      const priority =
+        MISSION_PRIORITY[commandCenterThreadStatus(left)] -
+        MISSION_PRIORITY[commandCenterThreadStatus(right)];
+      return priority || (Date.parse(right.updatedAt) || 0) - (Date.parse(left.updatedAt) || 0);
+    });
 }

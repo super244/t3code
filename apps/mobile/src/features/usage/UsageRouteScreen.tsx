@@ -1,7 +1,19 @@
-import { EnvironmentId, USAGE_CONTRACT_VERSION } from "@t3tools/contracts";
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=5m; seat=codex; date=2026-10-02 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-10-02 */
+import {
+  EnvironmentId,
+  isProviderAvailable,
+  USAGE_CONTRACT_VERSION,
+  type UsageProviderKind,
+} from "@t3tools/contracts";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { AsyncResult } from "effect/unstable/reactivity";
+import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useNavigation } from "@react-navigation/native";
 import {
   isCompatibleUsageContractVersion,
+  selectUsageModels,
   type DailyTotals,
   type MergedUsage,
 } from "@t3tools/shared/usageMerge";
@@ -10,23 +22,25 @@ import {
   enumerateHourStarts,
   formatCount,
   formatDayShort,
+  formatDateTimeShort,
   formatHourShort,
   formatPercent,
   formatTokens,
   formatUsd,
-  makeWindow,
 } from "@t3tools/shared/usageFormat";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Alert, Platform, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import Animated, { Easing, FadeIn, LinearTransition, ReduceMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { cn } from "../../lib/cn";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
+import { environmentPresentations } from "../../state/presentation";
 import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
 import { SettingsSection } from "../settings/components/SettingsSection";
+import { shareUsageReport } from "./shareUsageReport";
 import { UsageDailyChart } from "./UsageDailyChart";
 import { toggleUsageEnvironment } from "./usageEnvironmentSelection";
 import { useRefreshLimits } from "./UsageLimitsSection";
@@ -34,72 +48,33 @@ import { UsageLimitsSection } from "./UsageLimitsPooled";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { SymbolView } from "../../components/AppSymbol";
 import type { UsageChartMetric } from "./usageChartData";
-import { PROVIDER_LABEL, useProviderColors } from "./usageProviders";
+import {
+  PROVIDER_LABEL,
+  PROVIDER_ORDER,
+  providersOnUsageScreen,
+  usageKindForDriver,
+  useProviderColors,
+} from "./usageProviders";
+import {
+  assessSpendBudget,
+  calculateUsageVelocity,
+  usageComparisonCoverage,
+  type BudgetAssessment,
+  type UsageVelocityMetrics,
+} from "./usageVelocity";
+
+import {
+  makeUsageWindow,
+  usageWindowOption,
+  WINDOW_OPTIONS,
+  type UsageWindowPreset,
+} from "./usageWindows";
 
 type UsageTab = "usage" | "limits";
 const TAB_OPTIONS = [
   { value: "usage", label: "Usage" },
   { value: "limits", label: "Limits" },
 ] as const satisfies readonly { value: UsageTab; label: string }[];
-
-// Labels are abbreviated to share a row with the metric toggle; screen
-// readers get the full phrase.
-const WINDOW_OPTIONS = [
-  { value: "1h", amount: 1, resolution: "hour", label: "1h", accessibilityLabel: "Past hour" },
-  { value: "5h", amount: 5, resolution: "hour", label: "5h", accessibilityLabel: "Past 5 hours" },
-  {
-    value: "12h",
-    amount: 12,
-    resolution: "hour",
-    label: "12h",
-    accessibilityLabel: "Past 12 hours",
-  },
-  {
-    value: "24h",
-    amount: 24,
-    resolution: "hour",
-    label: "24h",
-    accessibilityLabel: "Past 24 hours",
-  },
-  { value: "3d", amount: 3, resolution: "day", label: "3d", accessibilityLabel: "Past 3 days" },
-  { value: "7d", amount: 7, resolution: "day", label: "7d", accessibilityLabel: "Past 7 days" },
-  { value: "30d", amount: 30, resolution: "day", label: "30d", accessibilityLabel: "Past 30 days" },
-  { value: "90d", amount: 90, resolution: "day", label: "90d", accessibilityLabel: "Past 90 days" },
-  {
-    value: "180d",
-    amount: 180,
-    resolution: "day",
-    label: "180d",
-    accessibilityLabel: "Past 180 days",
-  },
-  { value: "1y", amount: 365, resolution: "day", label: "1y", accessibilityLabel: "Past year" },
-  { value: "2y", amount: 730, resolution: "day", label: "2y", accessibilityLabel: "Past 2 years" },
-  {
-    value: "5y",
-    amount: 1_825,
-    resolution: "day",
-    label: "5y",
-    accessibilityLabel: "Past 5 years",
-  },
-  {
-    value: "all",
-    amount: 7_300,
-    resolution: "day",
-    label: "All",
-    accessibilityLabel: "All usage history",
-  },
-] as const;
-
-type UsageWindowPreset = (typeof WINDOW_OPTIONS)[number]["value"];
-
-function usageWindowOption(value: UsageWindowPreset) {
-  return WINDOW_OPTIONS.find((option) => option.value === value) ?? WINDOW_OPTIONS[6];
-}
-
-function makeUsageWindow(value: UsageWindowPreset) {
-  const option = usageWindowOption(value);
-  return makeWindow(option.amount, undefined, option.resolution);
-}
 
 const METRIC_OPTIONS = [
   { value: "cost", label: "Cost" },
@@ -115,6 +90,15 @@ const CHART_HEIGHT = 180;
  */
 export function UsageRouteScreen() {
   const navigation = useNavigation();
+  const exportSourceIdentifier = useId();
+  const exportController = useRef<AbortController | null>(null);
+  const [exporting, setExporting] = useState(false);
+  useEffect(() => () => exportController.current?.abort(), []);
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const selectedProvider = AsyncResult.isSuccess(preferences)
+    ? (preferences.value.usageProvider ?? null)
+    : null;
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<UsageTab>("usage");
   const [windowSelection, setWindowSelection] = useState(() => ({
@@ -129,8 +113,89 @@ export function UsageRouteScreen() {
   const { merged, environments, selectedEnvironments, isPending, refresh } = useUsage(
     window,
     selectedEnvironmentIds,
+    selectedProvider,
   );
   const limits = useRefreshLimits(selectedEnvironmentIds);
+  const presentations = useAtomValue(environmentPresentations.presentationsAtom);
+
+  const connectedProviders = useMemo(() => {
+    const set = new Set<UsageProviderKind>();
+    for (const [id, pres] of presentations) {
+      if (selectedEnvironmentIds !== null && !selectedEnvironmentIds.has(id)) continue;
+      for (const p of pres.serverConfig?.providers ?? []) {
+        const kind = usageKindForDriver(p.driver);
+        if (kind) {
+          if (p.enabled || p.installed || p.status === "ready" || isProviderAvailable(p)) {
+            set.add(kind);
+          }
+        }
+      }
+    }
+    return Array.from(set);
+  }, [presentations, selectedEnvironmentIds]);
+
+  const sources = useMemo(
+    () =>
+      selectedEnvironments.flatMap((environment) =>
+        (environment.summary?.sources ?? []).map((source) => ({
+          provider: source.fingerprint.provider,
+          status: source.status,
+        })),
+      ),
+    [selectedEnvironments],
+  );
+
+  const availableProviders = useMemo(
+    () => providersOnUsageScreen(merged.providers, sources, connectedProviders),
+    [merged.providers, sources, connectedProviders],
+  );
+
+  const listedProviders = selectedProvider === null ? availableProviders : [selectedProvider];
+
+  const exportReport = (format: "json" | "csv") => {
+    if (exportController.current) return;
+    const request = new AbortController();
+    exportController.current = request;
+    setExporting(true);
+    const windowLabel =
+      windowPreset === "all"
+        ? "All recorded activity"
+        : isHourlyWindow && window.sinceTime !== undefined && window.untilTime !== undefined
+          ? `${formatDateTimeShort(window.sinceTime, window.timeZone)} to ${formatDateTimeShort(window.untilTime, window.timeZone)}`
+          : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`;
+    void shareUsageReport({
+      format,
+      signal: request.signal,
+      sourceIdentifier: exportSourceIdentifier,
+      report: {
+        merged,
+        window,
+        windowLabel,
+        metric,
+        exportedAt: new Date().toISOString(),
+        selectedProvider,
+        selectedEnvironmentIds:
+          selectedEnvironmentIds === null ? null : [...selectedEnvironmentIds],
+        providers: listedProviders.map((provider) => ({
+          provider,
+          label: PROVIDER_LABEL[provider],
+        })),
+      },
+    })
+      .catch((error: unknown) => {
+        if (!request.signal.aborted)
+          Alert.alert(
+            "Could not export usage",
+            error instanceof Error ? error.message : "Try again.",
+          );
+      })
+      .finally(() => {
+        if (exportController.current === request) {
+          exportController.current = null;
+          if (!request.signal.aborted) setExporting(false);
+        }
+      });
+  };
 
   const days = useMemo(
     () =>
@@ -157,6 +222,38 @@ export function UsageRouteScreen() {
           }))
         : merged.daily,
     [isHourlyWindow, merged.daily, merged.hourly],
+  );
+
+  const velocity = useMemo(
+    () =>
+      calculateUsageVelocity({
+        costUsd: merged.costUsd,
+        totalTokens: merged.totalTokens,
+        window,
+        allHistory: windowPreset === "all",
+        observedDays: days,
+      }),
+    [days, window, windowPreset, merged.costUsd, merged.totalTokens],
+  );
+
+  const monthlyBudgetUsd = AsyncResult.isSuccess(preferences)
+    ? (preferences.value.monthlyBudgetUsd ?? null)
+    : null;
+
+  const comparisonCoverage = usageComparisonCoverage({
+    unpricedShare: merged.costQuality.unpricedShare,
+    staleEnvironmentCount: merged.staleEnvironments.length,
+    provider: selectedProvider,
+    environments: selectedEnvironments,
+  });
+  const budgetAssessment = useMemo(
+    () =>
+      assessSpendBudget({
+        monthlyBudgetUsd,
+        thirtyDayCostUsd: velocity?.thirtyDayCostUsd,
+        comparisonCoverage,
+      }),
+    [monthlyBudgetUsd, velocity?.thirtyDayCostUsd, comparisonCoverage],
   );
 
   const [refreshingUsage, setRefreshingUsage] = useState(false);
@@ -285,6 +382,8 @@ export function UsageRouteScreen() {
         </>
       ) : null}
       <ScrollView
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         className="flex-1"
@@ -344,6 +443,143 @@ export function UsageRouteScreen() {
                   className="w-36"
                 />
               </View>
+              <View className="flex-row items-center gap-2">
+                <View className="min-w-0 flex-1">
+                  <ControlPillMenu
+                    title="Usage harness"
+                    actions={[
+                      {
+                        id: "all",
+                        title: "All harnesses",
+                        state: selectedProvider === null ? "on" : "off",
+                      },
+                      ...PROVIDER_ORDER.map((provider) => ({
+                        id: provider,
+                        title: PROVIDER_LABEL[provider],
+                        state: selectedProvider === provider ? ("on" as const) : ("off" as const),
+                      })),
+                    ]}
+                    onPressAction={({ nativeEvent }) => {
+                      const provider = PROVIDER_ORDER.find((value) => value === nativeEvent.event);
+                      if (provider !== undefined || nativeEvent.event === "all")
+                        savePreferences({ usageProvider: provider ?? null });
+                    }}
+                  >
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Filter usage harness, ${selectedProvider === null ? "All harnesses" : PROVIDER_LABEL[selectedProvider]}`}
+                      className="h-9 flex-row items-center justify-between rounded-full bg-foreground/5 px-3"
+                    >
+                      <Text className="text-xs font-medium text-foreground truncate">
+                        {selectedProvider === null
+                          ? "All harnesses"
+                          : PROVIDER_LABEL[selectedProvider]}
+                      </Text>
+                      <SymbolView name="chevron.down" size={10} tintColorClassName="accent-icon" />
+                    </Pressable>
+                  </ControlPillMenu>
+                </View>
+                <ControlPillMenu
+                  title="30-day API-equivalent cost target"
+                  actions={[
+                    {
+                      id: "none",
+                      title: "No target",
+                      state: monthlyBudgetUsd === null ? "on" : "off",
+                    },
+                    {
+                      id: "25",
+                      title: "$25 / 30 days",
+                      state: monthlyBudgetUsd === 25 ? "on" : "off",
+                    },
+                    {
+                      id: "50",
+                      title: "$50 / 30 days",
+                      state: monthlyBudgetUsd === 50 ? "on" : "off",
+                    },
+                    {
+                      id: "100",
+                      title: "$100 / 30 days",
+                      state: monthlyBudgetUsd === 100 ? "on" : "off",
+                    },
+                    {
+                      id: "250",
+                      title: "$250 / 30 days",
+                      state: monthlyBudgetUsd === 250 ? "on" : "off",
+                    },
+                    {
+                      id: "500",
+                      title: "$500 / 30 days",
+                      state: monthlyBudgetUsd === 500 ? "on" : "off",
+                    },
+                  ]}
+                  onPressAction={({ nativeEvent }) => {
+                    if (nativeEvent.event === "none") {
+                      savePreferences({ monthlyBudgetUsd: null });
+                    } else {
+                      const amount = Number(nativeEvent.event);
+                      if (Number.isFinite(amount) && amount > 0) {
+                        savePreferences({ monthlyBudgetUsd: amount });
+                      }
+                    }
+                  }}
+                >
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`30-day API-equivalent cost target, ${monthlyBudgetUsd ? `$${monthlyBudgetUsd}/30d` : "Target"}`}
+                    className="h-9 flex-row items-center gap-1.5 rounded-full bg-foreground/5 px-3"
+                  >
+                    <Text className="text-xs font-medium text-foreground">
+                      {monthlyBudgetUsd ? `$${monthlyBudgetUsd}/30d` : "Target"}
+                    </Text>
+                    <SymbolView name="chevron.down" size={10} tintColorClassName="accent-icon" />
+                  </Pressable>
+                </ControlPillMenu>
+                <ControlPillMenu
+                  title="Export usage report"
+                  actions={[
+                    {
+                      id: "json",
+                      title: "Export as JSON",
+                      attributes: {
+                        disabled: exporting || isPending || selectedEnvironments.length === 0,
+                      },
+                    },
+                    {
+                      id: "csv",
+                      title: "Export as CSV",
+                      attributes: {
+                        disabled: exporting || isPending || selectedEnvironments.length === 0,
+                      },
+                    },
+                  ]}
+                  onPressAction={({ nativeEvent }) => {
+                    if (nativeEvent.event === "json" || nativeEvent.event === "csv")
+                      exportReport(nativeEvent.event);
+                  }}
+                >
+                  <Pressable
+                    nativeID={exportSourceIdentifier}
+                    disabled={exporting || isPending || selectedEnvironments.length === 0}
+                    accessibilityRole="button"
+                    accessibilityLabel="Export usage report"
+                    accessibilityState={{
+                      busy: exporting,
+                      disabled: exporting || isPending || selectedEnvironments.length === 0,
+                    }}
+                    className="h-9 flex-row items-center justify-center gap-2 rounded-full bg-foreground/5 px-3"
+                  >
+                    <SymbolView
+                      name="square.and.arrow.up"
+                      size={14}
+                      tintColorClassName="accent-icon"
+                    />
+                    <Text className="text-sm font-medium text-foreground">
+                      {exporting ? "Opening share sheet…" : "Export"}
+                    </Text>
+                  </Pressable>
+                </ControlPillMenu>
+              </View>
               {merged.duplicateSources.length > 0 ? (
                 <Text className="text-sm text-foreground-muted">
                   Counted once across environments sharing a transcript directory:{" "}
@@ -371,10 +607,20 @@ export function UsageRouteScreen() {
                     untilDay={window.untilDay}
                     isPast24Hours={isHourlyWindow}
                     timeZone={window.timeZone}
+                    listedProviders={listedProviders}
                   />
-                  <ProviderSection merged={merged} metric={metric} />
-                  <TotalsSection merged={merged} isPast24Hours={isHourlyWindow} />
-                  <ModelsSection merged={merged} />
+                  <ProviderSection
+                    merged={merged}
+                    metric={metric}
+                    listedProviders={listedProviders}
+                  />
+                  <TotalsSection
+                    merged={merged}
+                    isPast24Hours={isHourlyWindow}
+                    velocity={velocity}
+                    budgetAssessment={budgetAssessment}
+                  />
+                  <ModelsSection merged={merged} metric={metric} />
                 </>
               )}
             </>
@@ -465,8 +711,9 @@ function ChartCard(props: {
   readonly untilDay: string;
   readonly isPast24Hours: boolean;
   readonly timeZone: string;
+  readonly listedProviders: readonly UsageProviderKind[];
 }) {
-  const { merged, metric } = props;
+  const { merged, metric, listedProviders } = props;
   const colors = useProviderColors();
   const hasActivity = props.daily.some((period) => period.totalTokens > 0);
 
@@ -506,15 +753,10 @@ function ChartCard(props: {
             : formatDayShort(props.sinceDay)}
         </Text>
         <View className="flex-row items-center gap-4">
-          {merged.providers.map((provider) => (
-            <View key={provider.provider} className="flex-row items-center gap-1.5">
-              <View
-                className="size-2 rounded-full"
-                style={{ backgroundColor: colors[provider.provider] }}
-              />
-              <Text className="text-xs text-foreground-muted">
-                {PROVIDER_LABEL[provider.provider]}
-              </Text>
+          {listedProviders.map((provider) => (
+            <View key={provider} className="flex-row items-center gap-1.5">
+              <View className="size-2 rounded-full" style={{ backgroundColor: colors[provider] }} />
+              <Text className="text-xs text-foreground-muted">{PROVIDER_LABEL[provider]}</Text>
             </View>
           ))}
         </View>
@@ -531,14 +773,27 @@ function ChartCard(props: {
 function ProviderSection(props: {
   readonly merged: MergedUsage;
   readonly metric: UsageChartMetric;
+  readonly listedProviders: readonly UsageProviderKind[];
 }) {
-  const { merged, metric } = props;
+  const { merged, metric, listedProviders } = props;
   const colors = useProviderColors();
-  if (merged.providers.length === 0) return null;
+  if (listedProviders.length === 0) return null;
+
+  const existingMap = new Map(merged.providers.map((p) => [p.provider, p]));
+  const rows = listedProviders.map((provider) => {
+    const existing = existingMap.get(provider);
+    return {
+      provider,
+      costUsd: existing?.costUsd ?? 0,
+      totalTokens: existing?.totalTokens ?? 0,
+      costShare: existing?.costShare ?? 0,
+      tokenShare: existing?.tokenShare ?? 0,
+    };
+  });
 
   // Ranked by whatever the toggle is showing, so the rows always descend.
   // .sort() on a copy, not .toSorted(): Hermes doesn't ship the ES2023 method.
-  const ordered = [...merged.providers].sort((a, b) =>
+  const ordered = [...rows].sort((a, b) =>
     metric === "cost" ? b.costUsd - a.costUsd : b.totalTokens - a.totalTokens,
   );
 
@@ -568,9 +823,9 @@ function ProviderSection(props: {
             <View className="h-1 flex-row overflow-hidden rounded-full bg-subtle">
               <View
                 className="h-full rounded-full"
-                style={{ flex: share, backgroundColor: colors[provider.provider] }}
+                style={{ flex: Math.max(share, 0.001), backgroundColor: colors[provider.provider] }}
               />
-              <View style={{ flex: 1 - share }} />
+              <View style={{ flex: Math.max(1 - share, 0) }} />
             </View>
             <Text className="text-sm text-foreground-muted">
               {metric === "cost"
@@ -584,8 +839,13 @@ function ProviderSection(props: {
   );
 }
 
-function TotalsSection(props: { readonly merged: MergedUsage; readonly isPast24Hours: boolean }) {
-  const { merged } = props;
+function TotalsSection(props: {
+  readonly merged: MergedUsage;
+  readonly isPast24Hours: boolean;
+  readonly velocity: UsageVelocityMetrics | null;
+  readonly budgetAssessment: BudgetAssessment | null;
+}) {
+  const { merged, velocity, budgetAssessment } = props;
   const activePeriods = (props.isPast24Hours ? merged.hourly : merged.daily).filter(
     (period) => period.totalTokens > 0,
   ).length;
@@ -631,6 +891,102 @@ function TotalsSection(props: { readonly merged: MergedUsage; readonly isPast24H
           detail="of records, excluded from cost"
         />
       </View>
+      {budgetAssessment ? (
+        <View className="gap-2.5 border-t border-border-subtle p-4">
+          <View className="flex-row items-center justify-between">
+            <View className="min-w-0 flex-1 flex-row items-center gap-1.5">
+              <View
+                className={cn(
+                  "size-2 rounded-full",
+                  budgetAssessment.status === "exceeded"
+                    ? "bg-red-500"
+                    : budgetAssessment.status === "warning" || budgetAssessment.status === "unknown"
+                      ? "bg-amber-500"
+                      : "bg-emerald-500",
+                )}
+              />
+              <Text className="flex-1 text-xs font-t3-medium text-foreground">
+                30-day API-equivalent target
+              </Text>
+            </View>
+            <View
+              className={cn(
+                "rounded-full px-2 py-0.5",
+                budgetAssessment.status === "exceeded"
+                  ? "bg-red-500/15"
+                  : budgetAssessment.status === "warning" || budgetAssessment.status === "unknown"
+                    ? "bg-amber-500/15"
+                    : "bg-emerald-500/15",
+              )}
+            >
+              <Text
+                className={cn(
+                  "text-[10px] font-t3-bold",
+                  budgetAssessment.status === "exceeded"
+                    ? "text-red-500"
+                    : budgetAssessment.status === "warning" || budgetAssessment.status === "unknown"
+                      ? "text-amber-500"
+                      : "text-emerald-500",
+                )}
+              >
+                {budgetAssessment.status === "unknown"
+                  ? "Unknown"
+                  : `${budgetAssessment.percentOfBudget}%`}
+              </Text>
+            </View>
+          </View>
+          {budgetAssessment.status !== "unknown" ? (
+            <View className="h-1.5 flex-row overflow-hidden rounded-full bg-subtle">
+              <View
+                className={cn(
+                  "h-full rounded-full",
+                  budgetAssessment.status === "exceeded"
+                    ? "bg-red-500"
+                    : budgetAssessment.status === "warning"
+                      ? "bg-amber-500"
+                      : "bg-emerald-500",
+                )}
+                style={{ flex: Math.min(budgetAssessment.percentOfBudget, 100) }}
+              />
+              <View style={{ flex: Math.max(100 - budgetAssessment.percentOfBudget, 0) }} />
+            </View>
+          ) : null}
+          <View className="flex-row flex-wrap items-baseline justify-between gap-1 pt-0.5">
+            <Text className="text-xs text-foreground-muted">{budgetAssessment.label}</Text>
+            <Text className="text-xs font-t3-medium tabular-nums text-foreground">
+              {formatUsd(budgetAssessment.thirtyDayCostUsd)} /{" "}
+              {formatUsd(budgetAssessment.monthlyBudgetUsd)}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+      <View className="gap-2 border-t border-border-subtle p-4">
+        <Text className="text-xs font-t3-medium text-foreground">Recorded usage rate</Text>
+        <Text className="text-xs text-foreground-tertiary">
+          Recorded history including quiet periods. API-equivalent cost, not a subscription bill or
+          forecast. All uses the first through last recorded day.
+        </Text>
+        <View className="flex-row flex-wrap items-center justify-between gap-y-2">
+          <View className="gap-0.5">
+            <Text className="text-xs text-foreground-muted">API-equivalent average</Text>
+            <Text className="text-sm font-t3-medium tabular-nums text-foreground">
+              {velocity ? formatUsd(velocity.dailyCostVelocity) : "—"}/day
+            </Text>
+          </View>
+          <View className="gap-0.5">
+            <Text className="text-xs text-foreground-muted">30 days at this rate</Text>
+            <Text className="text-sm font-t3-medium tabular-nums text-foreground">
+              {velocity ? formatUsd(velocity.thirtyDayCostUsd) : "—"}
+            </Text>
+          </View>
+          <View className="gap-0.5">
+            <Text className="text-xs text-foreground-muted">Daily token average</Text>
+            <Text className="text-sm font-t3-medium tabular-nums text-foreground">
+              {velocity ? formatTokens(velocity.dailyTokenVelocity) : "—"}/day
+            </Text>
+          </View>
+        </View>
+      </View>
     </SettingsSection>
   );
 }
@@ -649,21 +1005,43 @@ function MetricCell(props: {
   );
 }
 
-function ModelsSection(props: { readonly merged: MergedUsage }) {
-  const { merged } = props;
+function ModelsSection(props: { readonly merged: MergedUsage; readonly metric: UsageChartMetric }) {
+  const { merged, metric } = props;
   const colors = useProviderColors();
+  const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState(20);
+  const models = selectUsageModels(merged.models, { metric, query });
   if (merged.models.length === 0) return null;
 
   return (
     <SettingsSection title="By model" card>
-      {merged.models.map((model, index) => (
+      <View className="gap-2 p-4">
+        <TextInput
+          accessibilityLabel="Search usage models"
+          placeholder="Search model or provider"
+          autoCapitalize="none"
+          autoCorrect={false}
+          clearButtonMode="while-editing"
+          returnKeyType="search"
+          value={query}
+          onChangeText={(value) => {
+            setQuery(value);
+            setLimit(20);
+          }}
+        />
+        <Text className="text-xs text-foreground-tertiary">
+          {models.length} matching {models.length === 1 ? "model" : "models"} · ranked by {metric}
+        </Text>
+      </View>
+      {models.length === 0 ? (
+        <Text className="p-4 text-sm text-foreground-muted">
+          No matching models. Clear the search to see all models.
+        </Text>
+      ) : null}
+      {models.slice(0, limit).map((model) => (
         <View
           key={`${model.provider}:${model.model}`}
-          className={
-            index === 0
-              ? "flex-row items-center gap-3 p-4"
-              : "flex-row items-center gap-3 border-t border-border-subtle p-4"
-          }
+          className="flex-row items-center gap-3 border-t border-border-subtle p-4"
         >
           <View
             className="size-2.5 shrink-0 rounded-full"
@@ -674,12 +1052,32 @@ function ModelsSection(props: { readonly merged: MergedUsage }) {
               {model.model}
             </Text>
             <Text className="text-sm text-foreground-muted">
-              {formatPercent(model.costShare)} of cost · {formatTokens(model.totalTokens)} tokens
+              {PROVIDER_LABEL[model.provider]} · {formatPercent(model.costShare)} of cost ·{" "}
+              {formatTokens(model.totalTokens)} tokens
             </Text>
           </View>
           <Text className="text-base tabular-nums text-foreground">{formatUsd(model.costUsd)}</Text>
         </View>
       ))}
+      {models.length > limit ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setLimit((current) => current + 20)}
+          className="border-t border-border-subtle p-4"
+        >
+          <Text className="text-sm text-foreground">
+            Show more ({models.length - limit} remaining)
+          </Text>
+        </Pressable>
+      ) : limit > 20 ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setLimit(20)}
+          className="border-t border-border-subtle p-4"
+        >
+          <Text className="text-sm text-foreground">Show fewer</Text>
+        </Pressable>
+      ) : null}
     </SettingsSection>
   );
 }

@@ -1,3 +1,4 @@
+/* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 // @effect-diagnostics nodeBuiltinImport:off
 /**
  * Raw filesystem access for transcript scanning.
@@ -20,6 +21,7 @@ import * as NodePath from "node:path";
 
 import type { UsageProviderKind } from "@t3tools/contracts";
 
+import { readSqliteUsageRecords } from "./usageSqliteSources.ts";
 import {
   initialCodexScanState,
   mightCarryUsage,
@@ -100,10 +102,33 @@ function fnv1a(buffer: Buffer): number {
 export async function listTranscriptFiles(
   root: string,
   sinceMs: number,
-  options?: { readonly fileName?: string },
+  options?: {
+    readonly fileName?: string;
+    /** Match this suffix instead of `.jsonl`. Used for Antigravity `*.db`. */
+    readonly extension?: string;
+    /**
+     * Stat one file in `root` and do not walk. OpenCode's data directory holds
+     * large snapshot trees that never carry usage.
+     */
+    readonly shallowFile?: string;
+  },
 ): Promise<readonly TranscriptFile[]> {
   const found: TranscriptFile[] = [];
   const fileName = options?.fileName;
+  const extension = options?.extension;
+
+  if (options?.shallowFile !== undefined) {
+    const child = NodePath.join(root, options.shallowFile);
+    try {
+      const stats = await NodeFSP.stat(child);
+      if (stats.isFile() && stats.mtimeMs >= sinceMs) {
+        found.push({ path: child, size: stats.size, mtimeMs: stats.mtimeMs });
+      }
+    } catch {
+      // The store directory can exist before the first session database.
+    }
+    return found;
+  }
 
   const walk = async (dir: string): Promise<void> => {
     let entries;
@@ -120,6 +145,8 @@ export async function listTranscriptFiles(
       }
       if (fileName !== undefined) {
         if (entry.name !== fileName) continue;
+      } else if (extension !== undefined) {
+        if (!entry.name.endsWith(extension)) continue;
       } else if (!entry.name.endsWith(".jsonl")) {
         continue;
       }
@@ -195,6 +222,27 @@ export async function readTranscriptRecords(
   provider: UsageProviderKind,
   resumeFrom?: TranscriptParsePosition,
 ): Promise<TranscriptParseResult | null> {
+  if (provider === "opencode" || provider === "antigravity") {
+    try {
+      const records = readSqliteUsageRecords(filePath, provider);
+      if (records === null) return null;
+      const stats = await NodeFSP.stat(filePath);
+      return {
+        records,
+        tailRecords: [],
+        resumed: false,
+        position: {
+          resumeOffset: stats.size,
+          guardLength: 0,
+          guardHash: 0,
+          codexState: null,
+        },
+      };
+    } catch {
+      return null;
+    }
+  }
+
   let handle: NodeFSP.FileHandle;
   try {
     handle = await NodeFSP.open(filePath, "r");

@@ -1,4 +1,4 @@
-/* agent-watermark: model=opus-5.5; effort=high; duration=40m; seat=claude-code; date=2026-10-05 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-05 */
 /**
  * Handoff continues a thread on another provider. A thread's provider is fixed
  * once its session starts, so a handoff is a new thread in the same checkout
@@ -27,6 +27,18 @@ export interface HandoffChangedFile {
   readonly path: string;
   readonly insertions: number;
   readonly deletions: number;
+}
+
+// VCS status counts lines from `git diff`, which never sees untracked files, so a
+// new file arrives as +0 −0. Printing that would tell the next agent it is empty.
+function hasLineCounts(file: HandoffChangedFile): boolean {
+  return file.insertions > 0 || file.deletions > 0;
+}
+
+function changedFileLine(file: HandoffChangedFile): string {
+  return hasLineCounts(file)
+    ? `- \`${file.path}\` +${file.insertions} −${file.deletions}`
+    : `- \`${file.path}\` (no line counts: new, binary or mode-only)`;
 }
 
 export interface HandoffBriefInput {
@@ -139,11 +151,13 @@ export function buildHandoffBrief(input: HandoffBriefInput): string {
   if (files.length > 0) {
     const insertions = files.reduce((sum, file) => sum + file.insertions, 0);
     const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
+    // A total that silently leaves out new files would understate the work.
+    const total = files.every(hasLineCounts) ? ` (+${insertions} −${deletions})` : "";
     checkout.push(
-      `${files.length} uncommitted file${files.length === 1 ? "" : "s"} changed (+${insertions} −${deletions}):`,
+      `${files.length} uncommitted file${files.length === 1 ? "" : "s"} changed${total}:`,
     );
     for (const file of files.slice(0, MAX_CHANGED_FILES)) {
-      checkout.push(`- \`${file.path}\` +${file.insertions} −${file.deletions}`);
+      checkout.push(changedFileLine(file));
     }
     if (files.length > MAX_CHANGED_FILES) {
       checkout.push(`- …and ${files.length - MAX_CHANGED_FILES} more`);
@@ -316,13 +330,13 @@ export function buildReviewBrief(input: ReviewBriefInput): string {
   const files = input.changedFiles;
   if (files && files.length > 0) {
     for (const file of files.slice(0, MAX_CHANGED_FILES)) {
-      lines.push(`- \`${file.path}\` +${file.insertions} −${file.deletions}`);
+      lines.push(changedFileLine(file));
     }
     if (files.length > MAX_CHANGED_FILES)
       lines.push(`- …and ${files.length - MAX_CHANGED_FILES} more`);
   }
   lines.push(
-    "Read the changes with `git diff`, `git diff --staged` and `git log -5 -p` for anything already committed. Run read-only checks (tests, type checks) if they help.",
+    "Read the changes with `git status` (new files appear only there), `git diff`, `git diff --staged` and `git log -5 -p` for anything already committed. Run read-only checks (tests, type checks) if they help.",
     "",
     "## Your report",
     "A numbered list of findings, most severe first. For each: severity (blocker, major or minor), `file:line`, what is wrong and why it matters, and the fix. Skip style nits unless they hide a bug. If nothing needs changing, say so plainly.",
@@ -336,11 +350,15 @@ export function buildFindingsMessage(input: {
   readonly reviewThreadId: string;
   readonly reviewerLabel: string;
   readonly findings: string;
+  /** Set when the review turn errored or was interrupted before finishing. */
+  readonly stoppedEarly?: boolean;
 }): string {
   return [
     `[Review findings from thread ${input.reviewThreadId}]`,
     "",
-    `Another agent (${input.reviewerLabel}) reviewed your changes in this checkout. Its findings:`,
+    input.stoppedEarly
+      ? `Another agent (${input.reviewerLabel}) started reviewing your changes in this checkout but stopped before finishing, so these findings may be incomplete:`
+      : `Another agent (${input.reviewerLabel}) reviewed your changes in this checkout. Its findings:`,
     "",
     quote(clip(input.findings, FINDINGS_CLIP_CHARS)),
     "",

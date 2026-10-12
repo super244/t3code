@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
 import {
   type EnvironmentId,
   type VcsListRefsInput,
@@ -314,6 +315,13 @@ export function createVcsEnvironmentAtoms<R, E>(
     removeWorktree: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:remove-worktree",
       tag: WS_METHODS.vcsRemoveWorktree,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+      onSettled: invalidateRefs,
+    }),
+    integrateWorktree: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:integrate-worktree",
+      tag: WS_METHODS.vcsIntegrateWorktree,
       scheduler: vcsCommandScheduler,
       concurrency: vcsCommandConcurrency,
       onSettled: invalidateRefs,

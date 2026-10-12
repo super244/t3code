@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
@@ -96,6 +97,7 @@ export const executeAuthenticatedEnvironmentHttpRequest = Effect.fn(
   readonly request: (input: {
     readonly client: Effect.Success<ReturnType<typeof makeEnvironmentHttpApiClient>>;
     readonly headers: EnvironmentHttpAuthHeaders;
+    readonly url: string;
   }) => Effect.Effect<A, E, R>;
   /** Some endpoints report rejected credentials in a successful response. */
   readonly isUnauthorizedResponse?: (response: NoInfer<A>) => boolean;
@@ -142,7 +144,10 @@ export const executeAuthenticatedEnvironmentHttpRequest = Effect.fn(
       const result = yield* executeEnvironmentHttpRequest(
         requestUrl,
         input.timeoutMs,
-        withEnvironmentCredentials(authorization, input.request({ client, headers })),
+        withEnvironmentCredentials(
+          authorization,
+          input.request({ client, headers, url: requestUrl }),
+        ),
       ).pipe(Effect.result);
 
       if (Result.isFailure(result)) {

@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=13m; seat=codex; date=2026-10-01 */
 import { useAuth, useUser } from "@clerk/expo";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import Constants from "expo-constants";
@@ -585,6 +586,7 @@ function GeneralSettingsSection() {
         label="Skills"
         target="SettingsSkills"
       />
+      <SettingsRow icon="calendar.badge.clock" label="Routines" target="SettingsRoutines" />
       <SettingsRow icon="chart.bar.xaxis" label="Usage" target="SettingsUsage" />
     </SettingsSection>
   );

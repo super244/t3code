@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-01 */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
@@ -325,9 +326,12 @@ function makeMutableServerSettingsService(
       start: Effect.void,
       ready: Effect.void,
       getSettings: Ref.get(settingsRef),
-      updateSettings: (patch) =>
+      updateSettings: (patchOrUpdate) =>
         Effect.gen(function* () {
           const current = yield* Ref.get(settingsRef);
+          const patch =
+            typeof patchOrUpdate === "function" ? patchOrUpdate(current) : patchOrUpdate;
+          if (patch === null) return current;
           const next = applyServerSettingsPatch(current, patch);
           encodeServerSettings(next);
           yield* Ref.set(settingsRef, next);

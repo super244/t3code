@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 */
 /**
  * Merges per-environment usage summaries into the single view the page renders.
  *
@@ -38,6 +39,33 @@ export interface ModelTotals {
   readonly totalTokens: number;
   readonly records: number;
   readonly costShare: number;
+}
+
+/** Focus model rows without changing the selected window's totals or cost shares. */
+export function selectUsageModels(
+  models: readonly ModelTotals[],
+  options: {
+    readonly metric: "cost" | "tokens";
+    readonly query?: string;
+    readonly provider?: string | null;
+  },
+): ModelTotals[] {
+  const query = options.query?.trim().toLowerCase() ?? "";
+  return models
+    .filter(
+      (model) =>
+        (!options.provider || model.provider === options.provider) &&
+        (!query || model.model.toLowerCase().includes(query) || model.provider.includes(query)),
+    )
+    .sort(
+      (left, right) =>
+        (options.metric === "tokens"
+          ? right.totalTokens - left.totalTokens
+          : right.costUsd - left.costUsd) ||
+        right.costUsd - left.costUsd ||
+        left.provider.localeCompare(right.provider) ||
+        left.model.localeCompare(right.model),
+    );
 }
 
 export interface DailyTotals {
@@ -214,6 +242,7 @@ const EMPTY_MERGED: MergedUsage = {
 export function mergeUsage(
   environments: readonly EnvironmentUsage[],
   expectedContractVersion: number,
+  selectedProvider: UsageProviderKind | null = null,
 ): MergedUsage {
   if (environments.length === 0) return EMPTY_MERGED;
 
@@ -223,7 +252,24 @@ export function mergeUsage(
     if (
       isCompatibleUsageContractVersion(environment.summary.contractVersion, expectedContractVersion)
     ) {
-      current.push(environment);
+      // Scope physical sources as well as buckets: sessions and duplicate
+      // diagnostics belong to the focused harness, not the hidden providers.
+      current.push(
+        selectedProvider === null
+          ? environment
+          : {
+              ...environment,
+              summary: {
+                ...environment.summary,
+                sources: environment.summary.sources.filter(
+                  (source) => source.fingerprint.provider === selectedProvider,
+                ),
+                buckets: environment.summary.buckets.filter(
+                  (bucket) => bucket.provider === selectedProvider,
+                ),
+              },
+            },
+      );
     } else {
       staleEnvironments.push(environment.environmentId);
     }

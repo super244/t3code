@@ -1,3 +1,5 @@
+/* agent-watermark: model=opus-5; effort=high; duration=12m; seat=claude-code; date=2026-10-04 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=95m; seat=claude-code; date=2026-10-04 */
 import {
   parseScopedThreadKey,
   scopeProjectRef,
@@ -7,6 +9,7 @@ import {
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { canSnooze, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
 import { EnvironmentId, type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import { parseRaceBranchName } from "@t3tools/shared/race";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -311,7 +314,14 @@ export function useThreadActions() {
   );
 
   const deleteThread = useCallback(
-    async (target: ScopedThreadRef, opts: { deletedThreadKeys?: ReadonlySet<string> } = {}) => {
+    async (
+      target: ScopedThreadRef,
+      opts: {
+        deletedThreadKeys?: ReadonlySet<string>;
+        /** "delete" removes an orphaned worktree without asking, for callers that already confirmed. */
+        worktree?: "confirm" | "delete";
+      } = {},
+    ) => {
       const resolved = resolveThreadTarget(target);
       if (!resolved) {
         // Thread not in main store (e.g. archived thread) — dispatch delete directly.
@@ -355,8 +365,8 @@ export function useThreadActions() {
         : null;
       const canDeleteWorktree = orphanedWorktreePath !== null && threadProject !== null;
       const localApi = readLocalApi();
-      let shouldDeleteWorktree = false;
-      if (canDeleteWorktree && localApi) {
+      let shouldDeleteWorktree = canDeleteWorktree && opts.worktree === "delete";
+      if (canDeleteWorktree && localApi && opts.worktree !== "delete") {
         const confirmationResult = await settlePromise(() =>
           localApi.dialogs.confirm(
             [
@@ -434,12 +444,18 @@ export function useThreadActions() {
         return deleteResult;
       }
 
+      // A race entrant's branch exists only to hold that attempt, so discarding
+      // it should not leave `t3code/race-*` behind. Every other thread keeps its
+      // branch: those are the user's own work.
+      const raceBranch =
+        opts.worktree === "delete" && parseRaceBranchName(thread.branch) ? thread.branch : null;
       const removeResult = await removeWorktree({
         environmentId: threadRef.environmentId,
         input: {
           cwd: threadProject.workspaceRoot,
           path: orphanedWorktreePath,
           force: true,
+          ...(raceBranch ? { deleteBranch: raceBranch } : {}),
         },
       });
       const refreshResult =
@@ -478,6 +494,11 @@ export function useThreadActions() {
         );
         // The thread was deleted. Cleanup has its own toast; returning its
         // failure would make callers incorrectly report a thread deletion error.
+        // Callers that asked for the worktree to go ("delete") need to know it
+        // did not, so they get the removal failure instead.
+        if (opts.worktree === "delete" && removalFailed) {
+          return removeResult;
+        }
       }
       return deleteResult;
     },

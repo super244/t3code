@@ -1,3 +1,4 @@
+/* agent-watermark: model=muse-spark; effort=high; duration=25m; seat=opencode; date=2026-10-10 */
 import { GitPullRequestIcon } from "lucide-react";
 import {
   type AssistantCitation,
@@ -262,12 +263,13 @@ function TimelineLoadEarlierHeader({
 }) {
   return (
     <div className={fade ? "pt-[var(--workspace-titlebar-scroll-fade-height)]" : "pt-3 sm:pt-4"}>
-      <div className="mx-auto w-full max-w-3xl pb-2">
+      <div className="mx-auto flex w-full max-w-3xl justify-center pb-2">
         <button
           type="button"
           onClick={onLoadEarlier}
           disabled={loading}
-          className="w-full py-1.5 text-xs text-muted-foreground/60 hover:text-foreground disabled:cursor-default"
+          aria-label={loading ? "Loading earlier turns" : "Load earlier turns"}
+          className="rounded-full border border-border/60 bg-card/70 px-4 py-1.5 text-xs font-medium text-muted-foreground tabular-nums transition-colors hover:border-border hover:text-foreground disabled:cursor-default disabled:opacity-60"
         >
           {loading ? "Loading earlier turns…" : "Load earlier turns"}
         </button>
@@ -814,8 +816,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       return null;
     }
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-placeholder text-sm">Send a message to start the conversation.</p>
+      <div className="flex h-full items-center justify-center px-6">
+        <div className="mx-auto w-full max-w-sm rounded-2xl border border-border/60 bg-card/50 px-6 py-8 text-center">
+          <span className="mx-auto flex size-10 items-center justify-center rounded-full bg-muted/60 text-muted-foreground">
+            <MessageCircleIcon aria-hidden="true" className="size-5" />
+          </span>
+          <p className="mt-4 text-sm font-medium text-foreground">Start the conversation</p>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
+            Send a message below. Tool calls, diffs, and approvals will appear here as the
+            turn unfolds.
+          </p>
+        </div>
       </div>
     );
   }
@@ -1427,17 +1438,17 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
 
   return (
     <div className="group flex flex-col items-end gap-1">
-      <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
+      <div className="relative max-w-[min(80%,44rem)] rounded-2xl border border-border/30 bg-message p-3.5 text-message-foreground text-sm leading-relaxed shadow-xs transition-colors hover:border-border/60">
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
             {regularImages.map((image) => (
               <div
                 key={image.id}
                 className={cn(
-                  "bg-background/70",
+                  "group relative overflow-hidden rounded-lg border border-border/80 bg-background/70 transition-all duration-200 hover:border-primary/50 hover:shadow-md",
                   image.source?.kind === "snap-shot" && image.previewUrl
                     ? SNAP_SHOT_ATTACHMENT_FRAME_CLASS
-                    : "aspect-[4/3] overflow-hidden rounded-lg border border-border/80",
+                    : "aspect-[4/3]",
                 )}
               >
                 {image.previewUrl ? (
@@ -1454,7 +1465,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
                     <img
                       src={image.previewUrl}
                       alt={image.name}
-                      className="block size-full object-cover"
+                      className="block size-full object-cover transition-transform duration-300 group-hover:scale-105"
                     />
                   </button>
                 ) : (
@@ -1642,7 +1653,8 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
         aria-expanded={row.expanded}
         data-scroll-anchor-ignore
         onClick={() => ctx.onToggleTurnFold(row.turnId)}
-        className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-sm leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        title={row.label}
+        className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-[13px] font-medium leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
         <span>{row.label}</span>
         <Icon className="size-3.5" />
@@ -1657,7 +1669,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
 
   return (
     <>
-      <div className="relative min-w-0 px-1 py-0.5">
+      <div className="relative min-w-0 max-w-[68ch] px-1 py-0.5 text-[15px] leading-relaxed text-foreground/90">
         <AssistantCitationSource
           messageId={row.message.id}
           {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
@@ -2190,7 +2202,12 @@ function LiveActivityContent({
           />
         </span>
       ) : null}
-      <span className={cn("min-w-0 flex-1 truncate", active && "live-tool-shine")}>{label}</span>
+      <span
+        className={cn("min-w-0 flex-1 truncate", active && "live-tool-shine")}
+        title={label}
+      >
+        {label}
+      </span>
       {showTrailingFailureMark ? (
         <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
       ) : null}
@@ -2281,7 +2298,9 @@ function WorkGroupToggleTimelineRow({
           muted
         />
       </span>
-      <span className="min-w-0 flex-1 truncate text-secondary-label">{row.summary}</span>
+      <span className="min-w-0 flex-1 truncate text-secondary-label" title={row.summary}>
+        {row.summary}
+      </span>
     </button>
   );
 }
@@ -3407,6 +3426,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
                   expanded ? "whitespace-pre-wrap break-words select-text" : "truncate",
                   headingClass,
                 )}
+                title={expanded ? undefined : previewText}
                 onClick={expanded ? stopRowToggle : undefined}
                 onPointerDown={expanded ? stopRowToggle : undefined}
               >

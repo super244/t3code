@@ -1,5 +1,6 @@
-import { UsageDay, type UsageSummaryInput } from "@t3tools/contracts";
-import { makeWindow } from "@t3tools/shared/usageFormat";
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=5m; seat=codex; date=2026-10-02 */
+import type { UsageSummaryInput } from "@t3tools/contracts";
+import { makeAllHistoryWindow, makeWindow } from "@t3tools/shared/usageFormat";
 
 import type { UsagePagePreferences } from "./usagePagePreferences";
 
@@ -29,11 +30,5 @@ export function makeUsageWindow(value: UsageWindowPreset, now = new Date()): Usa
   const option = usageWindowOption(value);
   if (option.amount !== null) return makeWindow(option.amount, now, option.resolution);
 
-  const currentDay = makeWindow(1, now, "day");
-  return {
-    ...currentDay,
-    // Provider transcript timestamps are Unix-era. This is a real all-time
-    // boundary rather than an arbitrary rolling approximation.
-    sinceDay: UsageDay.make("1970-01-01"),
-  };
+  return makeAllHistoryWindow(now);
 }

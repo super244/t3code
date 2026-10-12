@@ -1,3 +1,5 @@
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=10m; seat=codex; date=2026-10-03 -->
+
 # Messages and context
 
 Give the agent a task in the composer. Add files, quote a previous response, or
@@ -5,6 +7,17 @@ include a skill when the task needs more context.
 
 Messages can contain up to 120,000 characters. Longer drafts stay in the composer
 so you can shorten them or split them into several messages.
+
+## Save reusable prompts on mobile
+
+Open **Prompts and presets** in the composer, then save the current draft to
+reuse its text in another thread. The library is local to this device and keeps
+the 30 most recent distinct prompts. Saving the same text moves it to the front.
+Attachments remain in the composer and are not included in the mobile library.
+
+Wait for **Saved to library** before relying on the saved copy. A storage failure
+shows an error and keeps your draft. Choose **Use prompt** to replace the current
+text, or **Append** to add a saved prompt to it. Delete entries you no longer need.
 
 ## Attach files
 
@@ -75,6 +88,13 @@ On web and desktop, press `Cmd+S` on macOS or `Ctrl+S` on Windows and Linux to s
 the current prompt and its attachments for later. Wait for uploads to finish first.
 With an empty composer, the same shortcut restores a single stash or opens the
 stash menu when there are several.
+
+Search the stash menu by prompt text or attachment name. The **Presets** tab
+also searches titles, descriptions, and categories. Each word must match; word
+order does not matter. Arrow keys move through matching results and Enter
+restores the selected prompt. Enter on a button activates that button. Escape
+closes the menu. Search on mobile uses the same matching rules for its text-only
+saved library and presets.
 
 Stashes containing uploaded files must be restored in their original environment.
 Those files are retained for 24 hours. After an upload expires, restore the prompt

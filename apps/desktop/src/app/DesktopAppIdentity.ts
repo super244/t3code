@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=34m; seat=codex; date=2026-10-04 */
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -61,6 +62,13 @@ export const resolveUserDataPath = Effect.gen(function* () {
         }),
     ),
   );
+  // Concurrent release channels must never share Chromium database locks.
+  if (!environment.isDevelopment && environment.platform === "darwin") {
+    return environment.path.join(
+      environment.appDataDirectory,
+      `t3code-v2-${environment.branding.stageLabel === "Nightly" ? "nightly" : "alpha"}`,
+    );
+  }
   return legacyPathExists
     ? legacyPath
     : environment.path.join(environment.appDataDirectory, environment.userDataDirName);

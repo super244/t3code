@@ -1,3 +1,6 @@
+/* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=5m; seat=antigravity; date=2026-10-02 */
+import { cn } from "../../lib/utils";
 import {
   type EnvironmentId,
   type ProviderConsumeResetCreditOutcome,
@@ -47,7 +50,17 @@ const PACE: Record<LimitPace, { readonly label: string; readonly icon: typeof Ga
 /** The series colour the cost chart uses for this driver, so the two views read as one. */
 export function barColor(driver: ServerProvider["driver"]): string {
   const kind: UsageProviderKind | undefined =
-    driver === "codex" ? "codex" : driver === "claudeAgent" ? "claude" : undefined;
+    driver === "codex"
+      ? "codex"
+      : driver === "claudeAgent"
+        ? "claude"
+        : driver === "grok"
+          ? "grok"
+          : driver === "opencode"
+            ? "opencode"
+            : driver === "antigravity"
+              ? "antigravity"
+              : undefined;
   return kind ? PROVIDER_PRESENTATION[kind].color : "var(--foreground)";
 }
 
@@ -115,8 +128,11 @@ function WindowBar({
         <div className="absolute inset-x-0 inset-y-1.5 rounded-full bg-muted" />
         {remaining > 0 ? (
           <div
-            className="absolute inset-y-1.5 left-0 rounded-full"
-            style={{ width: `${remaining}%`, backgroundColor: color }}
+            className="absolute inset-y-1.5 left-0 rounded-full transition-all"
+            style={{
+              width: `${remaining}%`,
+              backgroundColor: remaining <= 10 ? "#ef4444" : remaining <= 30 ? "#f59e0b" : color,
+            }}
           />
         ) : null}
         {timeLeft !== null ? (
@@ -174,12 +190,22 @@ export function LimitWindows({
       {windows.map((window) => {
         const pace = paceOf(window, now);
         const resetsIn = formatResetsIn(window, now);
+        const rem = remainingPercent(window);
         return (
           <Fragment key={window.id}>
             <span className="flex min-w-0 items-center gap-2 text-xs">
               <span className="truncate text-muted-foreground">{window.label}</span>
-              <span className="ms-auto shrink-0 font-medium text-foreground tabular-nums">
-                {remainingPercent(window)}% left
+              <span
+                className={cn(
+                  "ms-auto shrink-0 font-medium tabular-nums",
+                  rem <= 10
+                    ? "font-semibold text-destructive"
+                    : rem <= 30
+                      ? "font-semibold text-amber-500"
+                      : "text-foreground",
+                )}
+              >
+                {rem}% left
               </span>
             </span>
             <WindowBar color={color} window={window} now={now} />

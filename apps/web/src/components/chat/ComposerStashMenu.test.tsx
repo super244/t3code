@@ -1,3 +1,4 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=4m; seat=antigravity; date=2026-10-02 */
 import { renderToStaticMarkup } from "react-dom/server";
 import { EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -46,6 +47,8 @@ describe("ComposerStashMenu", () => {
     expect(markup).toContain('src="data:image/png;base64,AA=="');
     expect(markup).toContain("1 image dropped");
     expect(markup).toContain("saving 1 image");
+    expect(markup).toContain("Stash (2)");
+    expect(markup).toContain("Presets (7)");
   });
 
   it("labels mixed file and image stashes without treating images as files", () => {
@@ -87,5 +90,23 @@ describe("ComposerStashMenu", () => {
 
     expect(markup).toContain("(2 attachments)");
     expect(markup).not.toContain("(2 files)");
+  });
+
+  it("displays curated prompt presets when stash is empty", () => {
+    const markup = renderToStaticMarkup(
+      <ComposerStashMenu
+        entries={[]}
+        stashShortcutLabel="Cmd+S"
+        onRestore={() => {}}
+        onDelete={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(markup).toContain("Stash (0)");
+    expect(markup).toContain("Presets (7)");
+    expect(markup).toContain("Clean &amp; Modernize");
+    expect(markup).toContain("Comprehensive Unit Tests");
+    expect(markup).toContain("Security &amp; Vulnerability Audit");
   });
 });

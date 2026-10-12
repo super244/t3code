@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 /**
  * ProjectionSnapshotQuery - Read-model snapshot query service interface.
  *

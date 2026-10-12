@@ -1,0 +1,4 @@
+# agent-watermark: model=gpt-6.1-sol; effort=high; duration=16m; seat=codex; date=2026-10-08
+[toolchain]
+channel = "1.95.0"
+profile = "minimal"

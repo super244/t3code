@@ -1,14 +1,47 @@
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 -->
+<!-- agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 -->
+<!-- agent-watermark: model=gemini-3.8-flash; effort=high; duration=8m; seat=antigravity; date=2026-10-01 -->
+
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-02 -->
+
 # Usage and limits
 
 ## Understand your usage
 
-**Usage** combines Codex, Claude Code, and Grok Build session history from your connected
-environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
-cost. These estimates are not your subscription bill.
+**Usage** combines Codex, Claude Code, Grok Build, OpenCode, and Antigravity session history from your connected environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent cost. These estimates are not your subscription bill.
+
+A connected harness stays on the page even when the selected window has no tokens. OpenCode is read from its local database. Antigravity is read from the IDE, CLI, and T3 Code conversation stores. Switch to **All** when recent windows look empty.
 
 Move the period slider from 1 hour through 5 years, or choose **All**, to compare exact rolling
 hourly activity with longer calendar-day trends. **Cost** always means what the same tokens would
 cost at configured API rates. It does not mean T3 Code charged your subscription that amount.
+
+Choose a harness on web, desktop, or mobile to focus every usage total, chart, model, and cache metric on that provider. Choose **All harnesses** to restore the combined view. Your choice is saved on the device. This filter applies to usage history; subscription Limits continue to show the accounts in your selected environments.
+
+## Usage by project
+
+Choose **Project** under **Breakdown** to see cost and tokens per project for the selected window and harness. Claude Code records which project each session ran in; other harnesses' usage appears as **Not recorded**. A project whose folder no longer exists keeps its usage under its last folder name.
+
+## Compare usage rates
+
+The recorded usage rate shows average tokens and API-equivalent cost per day, plus the cost of 30 days at the same rate. Hourly windows use their exact rolling duration. Longer windows include every selected calendar day, including quiet days; **All** uses the span from the first through last recorded day. An empty history has no rate.
+
+These rates describe available history. Missing or unpriced records reduce the totals, and the current calendar day may be incomplete. The 30-day amount is a comparison at the same rate, not a bill or forecast.
+
+Set a **Target** to compare the 30-day API-equivalent amount against your chosen amount. It follows the selected window, environments, and harness; it does not limit agent runs or track subscription payments. Incomplete history or unpriced usage shows **Unknown** instead of a target status. Add missing model prices or refresh unavailable environments to complete the comparison.
+
+Search the model breakdown by model name or harness on web, desktop, and mobile. Rows follow the selected cost or token metric. On mobile, use **Show more** to expand long model lists. The harness filter above the chart focuses the entire report; web and desktop also offer a provider filter within the model table.
+
+## Export usage data
+
+Open **Export** in the Usage view to export the current period and selected environments and harness:
+
+- **Export as JSON**: Full structured export of the current window, including total metrics, cache performance, per-provider shares, pricing coverage, model usage, and chronological timeline buckets with provider totals.
+- **Export as CSV**: Spreadsheet-ready summary, provider and model breakdowns, and timeline with token counts and estimated USD costs.
+
+On mobile, Export opens the device share sheet so you can save the report to Files or send it to another app.
+
+Totalling and timestamps automatically adjust to the active period and time zone.
 
 Totals depend on the history available on each server. Grok turns without a saved completed-turn
 record are missing from the totals.
@@ -79,7 +112,3 @@ account and choose **Use reset** to redeem one. No hub plugin is required.
 This connection supplies usage information; configure
 the provider separately to send agent requests through the hub. Remove the hub from the same
 settings section when you no longer need it.
-
-## Usage by project
-
-Choose **Project** under **Breakdown** to see cost and tokens per project for the selected window. Claude Code records which project each session ran in; other harnesses' usage appears as **Not recorded**. A project whose folder no longer exists keeps its usage under its last folder name.

@@ -1,4 +1,10 @@
-import { EnvironmentId, UsageDay, USAGE_CONTRACT_VERSION } from "@t3tools/contracts";
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=10m; seat=codex; date=2026-10-01 */
+import {
+  EnvironmentId,
+  UsageDay,
+  USAGE_CONTRACT_VERSION,
+  type UsageProviderKind,
+} from "@t3tools/contracts";
 import { act, useLayoutEffect } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -75,8 +81,14 @@ function environment(id: string, cost: number | null, hostId = id): EnvironmentU
 let renderer: ReactTestRenderer | undefined;
 let latest: UsageView;
 
-function Probe({ selected }: { selected: ReadonlySet<EnvironmentId> | null }) {
-  const usage = useUsage(input, selected);
+function Probe({
+  selected,
+  provider = null,
+}: {
+  selected: ReadonlySet<EnvironmentId> | null;
+  provider?: UsageProviderKind | null;
+}) {
+  const usage = useUsage(input, selected, provider);
   useLayoutEffect(() => {
     latest = usage;
   }, [usage]);
@@ -163,4 +175,17 @@ describe("usage environment selection", () => {
     expect(latest.isPending).toBe(false);
     expect(latest.isPartial).toBe(false);
   });
+});
+
+it("switches harness focus without changing environment coverage and restores All", async () => {
+  await act(() => renderer?.update(<Probe selected={null} provider="claude" />));
+  expect(latest.merged.totalTokens).toBe(0);
+  expect(latest.merged.sessions).toBe(0);
+  expect(latest.selectedEnvironments).toHaveLength(3);
+  expect(latest.isPartial).toBe(true);
+  await act(() => renderer?.update(<Probe selected={null} provider="codex" />));
+  expect(latest.merged.costUsd).toBe(30);
+  expect(latest.merged.sessions).toBe(2);
+  await act(() => renderer?.update(<Probe selected={null} />));
+  expect(latest.merged.costUsd).toBe(30);
 });

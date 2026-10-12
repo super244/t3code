@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=56m; seat=codex; date=2026-10-07 */
 /**
  * AgentSessionScanner - discovery of projects a user already works on.
  *
@@ -625,8 +626,14 @@ export const make = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-  const baseDir = path.resolve(serverConfig.baseDir);
-  const worktreesDir = path.resolve(serverConfig.worktreesDir);
+  const configuredBaseDir = path.resolve(serverConfig.baseDir);
+  const configuredWorktreesDir = path.resolve(serverConfig.worktreesDir);
+  const baseDir = yield* fileSystem
+    .realPath(configuredBaseDir)
+    .pipe(Effect.orElseSucceed(() => configuredBaseDir));
+  const worktreesDir = yield* fileSystem
+    .realPath(configuredWorktreesDir)
+    .pipe(Effect.orElseSucceed(() => configuredWorktreesDir));
   // Windows filesystems are case-insensitive, so path prefix checks there
   // must case fold.
   const foldWorktreeCase = (yield* HostProcessPlatform) === "win32";

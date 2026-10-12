@@ -31,6 +31,14 @@
       "types": "./src/git.ts",
       "import": "./src/git.ts"
     },
+    "./race": {
+      "types": "./src/race.ts",
+      "import": "./src/race.ts"
+    },
+    "./handoff": {
+      "types": "./src/handoff.ts",
+      "import": "./src/handoff.ts"
+    },
     "./sourceControl": {
       "types": "./src/sourceControl.ts",
       "import": "./src/sourceControl.ts"
@@ -87,6 +95,10 @@
       "types": "./src/Struct.ts",
       "import": "./src/Struct.ts"
     },
+    "./routines": {
+      "types": "./src/routines.ts",
+      "import": "./src/routines.ts"
+    },
     "./serverSettings": {
       "types": "./src/serverSettings.ts",
       "import": "./src/serverSettings.ts"
@@ -94,10 +106,6 @@
     "./backgroundActivitySettings": {
       "types": "./src/backgroundActivitySettings.ts",
       "import": "./src/backgroundActivitySettings.ts"
-    },
-    "./handoff": {
-      "types": "./src/handoff.ts",
-      "import": "./src/handoff.ts"
     },
     "./String": {
       "types": "./src/String.ts",
@@ -267,6 +275,10 @@
       "types": "./src/usageProjects.ts",
       "import": "./src/usageProjects.ts"
     },
+    "./usageExport": {
+      "types": "./src/usageExport.ts",
+      "import": "./src/usageExport.ts"
+    },
     "./usageFormat": {
       "types": "./src/usageFormat.ts",
       "import": "./src/usageFormat.ts"
@@ -294,6 +306,30 @@
     "./dateTime": {
       "types": "./src/dateTime.ts",
       "import": "./src/dateTime.ts"
+    },
+    "./usageVelocity": {
+      "types": "./src/usageVelocity.ts",
+      "import": "./src/usageVelocity.ts"
+    },
+    "./prismPalettes": {
+      "types": "./src/prismPalettes.ts",
+      "import": "./src/prismPalettes.ts"
+    },
+    "./soundDesign": {
+      "types": "./src/soundDesign.ts",
+      "import": "./src/soundDesign.ts"
+    },
+    "./upstream": {
+      "types": "./src/upstream.ts",
+      "import": "./src/upstream.ts"
+    },
+    "./prismBridge": {
+      "types": "./src/prismBridge.ts",
+      "import": "./src/prismBridge.ts"
+    },
+    "./sync": {
+      "types": "./src/sync.ts",
+      "import": "./src/sync.ts"
     }
   },
   "scripts": {
@@ -304,6 +340,7 @@
     "@noble/curves": "catalog:",
     "@noble/hashes": "catalog:",
     "@t3tools/contracts": "workspace:*",
+    "croner": "^10.0.1",
     "effect": "catalog:",
     "jose": "catalog:",
     "yaml": "catalog:"

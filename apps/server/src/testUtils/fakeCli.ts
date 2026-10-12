@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=56m; seat=codex; date=2026-10-07 */
 // @effect-diagnostics nodeBuiltinImport:off preferSchemaOverJson:off - synchronous fixture writer used from plain and Effect tests alike.
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -60,7 +61,11 @@ export function writeFakeCli(options: FakeCliOptions): string {
   const launcherPath = NodePath.join(options.directory, options.name);
   NodeFS.writeFileSync(
     launcherPath,
-    ["#!/bin/sh", `exec node "$(dirname "$0")/${options.name}-stub.mjs" "$@"`, ""].join("\n"),
+    [
+      "#!/bin/sh",
+      `exec '${process.execPath.replaceAll("'", "'\\''")}' "$(dirname "$0")/${options.name}-stub.mjs" "$@"`,
+      "",
+    ].join("\n"),
     "utf8",
   );
   NodeFS.chmodSync(launcherPath, 0o755);

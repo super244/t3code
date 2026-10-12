@@ -2,6 +2,8 @@ import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3
 import { describe, expect, it } from "vite-plus/test";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
 import {
+  deriveCacheEfficiency,
+  deriveDetailedTokenBreakdown,
   formatContextWindowCompactionMessage,
   hasAvailableCompactionProvider,
   hasDismissedResumeCompaction,
@@ -284,5 +286,45 @@ describe("shouldReserveContextWindowMeter", () => {
     expect(shouldReserveContextWindowMeter({ ...loadingStartedThread, meterEnabled: false })).toBe(
       false,
     );
+  });
+});
+
+describe("deriveCacheEfficiency", () => {
+  it("returns null when no cache or total input is present", () => {
+    expect(deriveCacheEfficiency({})).toBeNull();
+    expect(deriveCacheEfficiency({ inputTokens: 1000, cachedInputTokens: 0 })).toBeNull();
+    expect(deriveCacheEfficiency({ inputTokens: 0, cachedInputTokens: 500 })).toBeNull();
+  });
+
+  it("calculates percentage and savings ratio correctly", () => {
+    const result = deriveCacheEfficiency({ inputTokens: 100_000, cachedInputTokens: 80_000 });
+    expect(result).not.toBeNull();
+    expect(result?.hitRatePercentage).toBe(80);
+    expect(result?.label).toBe("80% cached");
+    expect(result?.savingsEstimateRatio).toBeCloseTo(0.68);
+  });
+
+  it("handles low single-digit percentage formatting", () => {
+    const result = deriveCacheEfficiency({ inputTokens: 10_000, cachedInputTokens: 450 });
+    expect(result?.label).toBe("4.5% cached");
+  });
+});
+
+describe("deriveDetailedTokenBreakdown", () => {
+  it("splits input tokens into cached and uncached portions", () => {
+    const breakdown = deriveDetailedTokenBreakdown({
+      inputTokens: 10_000,
+      cachedInputTokens: 7_500,
+      outputTokens: 1_200,
+      reasoningOutputTokens: 400,
+      totalProcessedTokens: 11_200,
+    });
+
+    expect(breakdown.inputTokens).toBe(10_000);
+    expect(breakdown.cachedInputTokens).toBe(7_500);
+    expect(breakdown.uncachedInputTokens).toBe(2_500);
+    expect(breakdown.outputTokens).toBe(1_200);
+    expect(breakdown.reasoningTokens).toBe(400);
+    expect(breakdown.totalProcessedTokens).toBe(11_200);
   });
 });

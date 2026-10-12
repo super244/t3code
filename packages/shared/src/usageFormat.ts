@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=5m; seat=codex; date=2026-10-02 */
 // @effect-diagnostics globalDate:off -- Usage windows are calendar days in the viewer's zone, derived from wall-clock "now" via Intl.
 /**
  * Display formatting for the usage page.
@@ -229,4 +230,9 @@ export function makeWindow(
     timeZone,
     resolution,
   };
+}
+
+/** Provider transcripts use Unix-era timestamps; All has no rolling cutoff. */
+export function makeAllHistoryWindow(now = new Date()): UsageSummaryInput {
+  return { ...makeWindow(1, now, "day"), sinceDay: UsageDay.make("1970-01-01") };
 }

@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
 import Mime from "@effect/platform-node/Mime";
 import {
   AuthOrchestrationOperateScope,
@@ -7,6 +8,7 @@ import {
 import { isDevProxiedPath } from "@t3tools/shared/devProxy";
 import { decodeOtlpTraceRecords } from "@t3tools/shared/observability";
 import * as Data from "effect/Data";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -46,6 +48,8 @@ import {
   failEnvironmentInternal,
 } from "./auth/http.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
+import * as PrismBridge from "./prismBridge.ts";
+import * as UpstreamMonitor from "./upstreamMonitor.ts";
 import { browserApiCorsAllowedHeaders, browserApiCorsAllowedMethods } from "./httpCors.ts";
 
 const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
@@ -627,6 +631,64 @@ const handleStaticAndDevRequest = Effect.fn("handleStaticAndDevRequest")(
 );
 
 // Read the installed build's manifest once. Unknown files use revalidation.
+
+export const prismRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/prism/status",
+  Effect.gen(function* () {
+    yield* authenticateRawRouteWithScope(AuthOrchestrationReadScope);
+    const service = yield* Effect.serviceOption(PrismBridge.PrismBridgeService);
+    if (Option.isNone(service))
+      return HttpServerResponse.text("Theme sync is unavailable.", { status: 503 });
+    const bridge = service.value;
+    return yield* bridge.status.pipe(Effect.flatMap(HttpServerResponse.json), Effect.orDie);
+  }),
+).pipe(
+  Layer.merge(
+    HttpRouter.add(
+      "POST",
+      "/api/prism/sync",
+      Effect.gen(function* () {
+        yield* authenticateRawRouteWithScope(AuthOrchestrationOperateScope);
+        const service = yield* Effect.serviceOption(PrismBridge.PrismBridgeService);
+        if (Option.isNone(service))
+          return HttpServerResponse.text("Theme sync is unavailable.", { status: 503 });
+        const bridge = service.value;
+        return yield* bridge.syncNow.pipe(Effect.flatMap(HttpServerResponse.json), Effect.orDie);
+      }),
+    ),
+  ),
+);
+
+export const upstreamRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/upstream/status",
+  Effect.gen(function* () {
+    yield* authenticateRawRouteWithScope(AuthOrchestrationReadScope);
+    const service = yield* Effect.serviceOption(UpstreamMonitor.UpstreamMonitorService);
+    if (Option.isNone(service))
+      return HttpServerResponse.text("Upstream checks are unavailable.", { status: 503 });
+    const monitor = service.value;
+    return yield* monitor.status.pipe(Effect.flatMap(HttpServerResponse.json), Effect.orDie);
+  }),
+).pipe(
+  Layer.merge(
+    HttpRouter.add(
+      "POST",
+      "/api/upstream/check",
+      Effect.gen(function* () {
+        yield* authenticateRawRouteWithScope(AuthOrchestrationOperateScope);
+        const service = yield* Effect.serviceOption(UpstreamMonitor.UpstreamMonitorService);
+        if (Option.isNone(service))
+          return HttpServerResponse.text("Upstream checks are unavailable.", { status: 503 });
+        const monitor = service.value;
+        return yield* monitor.checkNow.pipe(Effect.flatMap(HttpServerResponse.json), Effect.orDie);
+      }),
+    ),
+  ),
+);
+
+
 export const staticAndDevRouteLayer = Layer.unwrap(
   loadImmutableBuildAssets.pipe(
     Effect.map((assets) => HttpRouter.add("GET", "*", handleStaticAndDevRequest(assets))),

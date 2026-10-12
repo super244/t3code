@@ -1,14 +1,27 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-10 */
+/* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=6m; seat=codex; date=2026-10-01 */
+/* agent-watermark: model=grok-4.7; effort=default; duration=58m; seat=cursor; date=2026-09-30 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-09-30 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-01 */
 import { Link } from "@tanstack/react-router";
 import { formatTokens, formatUsd, makeWindow } from "@t3tools/shared/usageFormat";
-import type { RoutineDefinition, ServerProvider } from "@t3tools/contracts";
+import {
+  isProviderAvailable,
+  type RoutineDefinition,
+  type ServerProvider,
+  type UsageProviderKind,
+} from "@t3tools/contracts";
+import { groupRaces } from "../race/race.logic";
 import {
   CalendarClockIcon,
   ChartNoAxesColumnIcon,
   LayoutDashboardIcon,
   PlayIcon,
   SparklesIcon,
+  ActivityIcon,
 } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
@@ -16,6 +29,13 @@ import { useEnvironments } from "../../state/environments";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useUsage } from "../../state/usage";
 import { mergeUsageProjects } from "@t3tools/shared/usageProjects";
+import {
+  PROVIDER_PRESENTATION,
+  providersOnUsageScreen,
+  usageKindForDriver,
+} from "../usage/usageProviders";
+import { MissionLauncher } from "./MissionLauncher";
+import { Input } from "../ui/input";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
@@ -29,6 +49,8 @@ import {
   formatConnectionSummary,
   formatHarnessReadiness,
   sortUpcomingRoutines,
+  selectMissionQueue,
+  type MissionQueueFilter,
   type CommandCenterThreadStatus,
 } from "./commandCenter.logic";
 
@@ -60,7 +82,8 @@ type CommandCenterDestination =
   | "/settings/providers"
   | "/settings/skills"
   | "/routines"
-  | "/usage";
+  | "/usage"
+  | "/race";
 
 function relativeTime(value: string): string {
   const delta = Date.parse(value) - Date.now();
@@ -82,6 +105,11 @@ export function CommandCenterPage() {
   const { environments } = useEnvironments();
   const projects = useProjects();
   const threads = useThreadShells();
+  const [launcherOpen, setLauncherOpen] = useState(false);
+  const [queueFilter, setQueueFilter] = useState<MissionQueueFilter>("active");
+  const [projectFilter, setProjectFilter] = useState<string>("all");
+  const [queueSearch, setQueueSearch] = useState("");
+  const [queueLimit, setQueueLimit] = useState(10);
   const usageWindow = useMemo(() => makeWindow(7), []);
   const usage = useUsage(usageWindow);
   const topProjects = useMemo(
@@ -97,6 +125,50 @@ export function CommandCenterPage() {
         .slice(0, 4),
     [usage.selectedEnvironments],
   );
+  const usageByKind = useMemo(() => {
+    const totals = new Map<string, { readonly totalTokens: number; readonly costUsd: number }>();
+    for (const provider of usage.merged.providers) {
+      totals.set(provider.provider, {
+        totalTokens: provider.totalTokens,
+        costUsd: provider.costUsd,
+      });
+    }
+    return totals;
+  }, [usage.merged.providers]);
+  const providers = useMemo(
+    () => environments.flatMap((environment) => environment.serverConfig?.providers ?? []),
+    [environments],
+  );
+  const connectedProviders = useMemo(() => {
+    const found = new Set<UsageProviderKind>();
+    for (const provider of providers) {
+      const kind = usageKindForDriver(provider.driver);
+      if (
+        kind &&
+        (provider.enabled ||
+          provider.installed ||
+          provider.status === "ready" ||
+          isProviderAvailable(provider))
+      ) {
+        found.add(kind);
+      }
+    }
+    return Array.from(found);
+  }, [providers]);
+  const harnessUsage = useMemo(
+    () =>
+      providersOnUsageScreen(
+        usage.merged.providers,
+        usage.selectedEnvironments.flatMap((environment) =>
+          (environment.summary?.sources ?? []).map((source) => ({
+            provider: source.fingerprint.provider,
+            status: source.status,
+          })),
+        ),
+        connectedProviders,
+      ),
+    [connectedProviders, usage.merged.providers, usage.selectedEnvironments],
+  );
   const projectsByKey = useMemo(
     () =>
       new Map(
@@ -107,10 +179,6 @@ export function CommandCenterPage() {
   const environmentsById = useMemo(
     () =>
       new Map(environments.map((environment) => [environment.environmentId, environment] as const)),
-    [environments],
-  );
-  const providers = useMemo(
-    () => environments.flatMap((environment) => environment.serverConfig?.providers ?? []),
     [environments],
   );
   const enabledProviderRows = useMemo(
@@ -154,16 +222,60 @@ export function CommandCenterPage() {
       }),
     [providers, routines, threads],
   );
-  const activeThreads = useMemo(
+  const queueProjects = useMemo(() => {
+    const seen = new Set<string>();
+    const list: Array<{ readonly key: string; readonly title: string }> = [];
+    for (const thread of threads) {
+      if (thread.archivedAt !== null) continue;
+      const key = `${thread.environmentId}\0${thread.projectId}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        const project = projectsByKey.get(`${thread.environmentId}\0${thread.projectId}`);
+        list.push({
+          key,
+          title: project?.title ?? "Unknown project",
+        });
+      }
+    }
+    return list.sort((a, b) => a.title.localeCompare(b.title));
+  }, [projectsByKey, threads]);
+  const missionQueue = useMemo(
     () =>
-      threads
-        .filter(
-          (thread) => thread.archivedAt === null && commandCenterThreadStatus(thread) !== "ready",
-        )
-        .toSorted((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
-        .slice(0, 10),
-    [threads],
+      selectMissionQueue(
+        threads,
+        queueFilter,
+        queueSearch,
+        (thread) => {
+          const project = projectsByKey.get(`${thread.environmentId}\0${thread.projectId}`);
+          const provider = providersByEnvironmentAndInstance.get(
+            `${thread.environmentId}\0${thread.modelSelection.instanceId}`,
+          );
+          return [
+            thread.title,
+            project?.title,
+            environmentsById.get(thread.environmentId)?.label,
+            provider?.displayName,
+            thread.modelSelection.instanceId,
+          ]
+            .filter(Boolean)
+            .join(" ");
+        },
+        projectFilter === "all"
+          ? undefined
+          : (thread) => `${thread.environmentId}\0${thread.projectId}` === projectFilter,
+      ),
+    [
+      threads,
+      queueFilter,
+      queueSearch,
+      projectsByKey,
+      providersByEnvironmentAndInstance,
+      environmentsById,
+      projectFilter,
+    ],
   );
+  const activeThreads = missionQueue.slice(0, queueLimit);
+  const activeRaces = useMemo(() => groupRaces(threads), [threads]);
   const upcomingRoutines = useMemo(() => sortUpcomingRoutines(routines).slice(0, 6), [routines]);
   const enabledSkills = enabledProviderRows.reduce(
     (total, { provider }) => total + provider.skills.filter((skill) => skill.enabled).length,
@@ -202,7 +314,7 @@ export function CommandCenterPage() {
               />
               {formatConnectionSummary(connectedEnvironments, environments.length)}
             </Link>
-            <Button size="sm" variant="outline" render={<Link to="/" />}>
+            <Button size="sm" variant="outline" onClick={() => setLauncherOpen(true)}>
               <PlayIcon /> New task
             </Button>
           </div>
@@ -235,6 +347,7 @@ export function CommandCenterPage() {
                     value={String(enabledSkills)}
                     to="/settings/skills"
                   />
+                  <Metric label="Active races" value={String(activeRaces.length)} to="/race" />
                 </div>
                 <Link
                   to="/usage"
@@ -247,6 +360,25 @@ export function CommandCenterPage() {
                     {formatTokens(usage.merged.totalTokens)} · API-equivalent · past 7 days · not
                     billed
                   </span>
+                  {harnessUsage.length > 0 ? (
+                    <span className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                      {harnessUsage.map((provider) => {
+                        const totals = usage.merged.providers.find(
+                          (entry) => entry.provider === provider,
+                        );
+                        const quiet =
+                          (totals?.totalTokens ?? 0) === 0 && (totals?.costUsd ?? 0) === 0;
+                        return (
+                          <span key={provider} className="text-[11px] text-muted-foreground">
+                            {PROVIDER_PRESENTATION[provider].label}
+                            {quiet
+                              ? " · no activity"
+                              : ` · ${formatTokens(totals?.totalTokens ?? 0)}`}
+                          </span>
+                        );
+                      })}
+                    </span>
+                  ) : null}
                 </Link>
                 {topProjects.length > 0 ? (
                   <Link
@@ -279,13 +411,111 @@ export function CommandCenterPage() {
                     All threads
                   </Link>
                 </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    aria-label="Search missions"
+                    type="search"
+                    size="compact"
+                    className="min-w-0 flex-1"
+                    placeholder="Search missions, projects, computers…"
+                    value={queueSearch}
+                    onChange={(event) => {
+                      setQueueSearch(event.currentTarget.value);
+                      setQueueLimit(10);
+                    }}
+                  />
+                  <select
+                    aria-label="Mission queue filter"
+                    className="h-7 rounded-md border border-input bg-background px-2 text-xs"
+                    value={queueFilter}
+                    onChange={(event) => {
+                      setQueueFilter(event.currentTarget.value as MissionQueueFilter);
+                      setQueueLimit(10);
+                    }}
+                  >
+                    <option value="active">Active</option>
+                    <option value="attention">Needs attention</option>
+                    <option value="all">All missions</option>
+                  </select>
+                  {queueSearch.trim() || queueFilter !== "active" || projectFilter !== "all" ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label="Reset mission filters"
+                      onClick={() => {
+                        setQueueSearch("");
+                        setQueueFilter("active");
+                        setProjectFilter("all");
+                        setQueueLimit(10);
+                      }}
+                    >
+                      Reset
+                    </Button>
+                  ) : null}
+                </div>
+                {queueProjects.length > 1 ? (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    <span className="text-xs text-muted-foreground">Project:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProjectFilter("all");
+                        setQueueLimit(10);
+                      }}
+                      className={cn(
+                        "rounded-md px-2 py-0.5 text-xs transition-colors",
+                        projectFilter === "all"
+                          ? "bg-muted font-medium text-foreground shadow-xs"
+                          : "text-muted-foreground hover:bg-muted/40",
+                      )}
+                    >
+                      All
+                    </button>
+                    {queueProjects.map(({ key, title }) => {
+                      const active = projectFilter === key;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => {
+                            setProjectFilter(key);
+                            setQueueLimit(10);
+                          }}
+                          className={cn(
+                            "rounded-md px-2 py-0.5 text-xs transition-colors",
+                            active
+                              ? "bg-muted font-medium text-foreground shadow-xs"
+                              : "text-muted-foreground hover:bg-muted/40",
+                          )}
+                        >
+                          {title}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
                 <div className="min-w-0 border-y border-border">
                   {activeThreads.length === 0 ? (
-                    <div className="flex items-center justify-center gap-1.5 py-6 text-sm text-muted-foreground">
-                      <span>No active missions.</span>
-                      <Link to="/" className="text-foreground hover:underline">
-                        Start a task
-                      </Link>
+                    <div className="flex flex-wrap items-center justify-center gap-1.5 px-2 py-6 text-sm text-muted-foreground">
+                      <span>
+                        {queueSearch.trim() || projectFilter !== "all"
+                          ? "No matching missions."
+                          : queueFilter === "attention"
+                            ? "No missions need attention."
+                            : queueFilter === "all"
+                              ? "No missions yet."
+                              : "No active missions."}
+                      </span>
+                      {!queueSearch.trim() &&
+                      projectFilter === "all" &&
+                      queueFilter === "active" ? (
+                        <button
+                          className="text-foreground hover:underline"
+                          onClick={() => setLauncherOpen(true)}
+                        >
+                          Start a task
+                        </button>
+                      ) : null}
                     </div>
                   ) : (
                     activeThreads.map((thread) => {
@@ -323,6 +553,22 @@ export function CommandCenterPage() {
                     })
                   )}
                 </div>
+                {missionQueue.length > 0 ? (
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span aria-live="polite">
+                      {Math.min(queueLimit, missionQueue.length)} of {missionQueue.length} missions
+                    </span>
+                    {missionQueue.length > queueLimit ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setQueueLimit((limit) => limit + 10)}
+                      >
+                        Show more
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
               </section>
             </section>
 
@@ -337,20 +583,21 @@ export function CommandCenterPage() {
                 </Link>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[42rem] table-fixed text-sm">
+                <table className="w-full min-w-[48rem] table-fixed text-sm">
                   <thead>
                     <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                      <th className="w-1/4 py-2 font-normal">Harness / subscription</th>
-                      <th className="w-1/5 py-2 font-normal">Environment</th>
-                      <th className="w-1/4 py-2 font-normal">Authentication</th>
-                      <th className="w-1/5 py-2 font-normal">Default model</th>
+                      <th className="w-[22%] py-2 font-normal">Harness / subscription</th>
+                      <th className="w-[16%] py-2 font-normal">Environment</th>
+                      <th className="w-[22%] py-2 font-normal">Authentication</th>
+                      <th className="w-[16%] py-2 font-normal">Default model</th>
+                      <th className="w-[14%] py-2 text-right font-normal">7 days</th>
                       <th className="py-2 text-right font-normal">Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {enabledProviderRows.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="border-b border-border py-6">
+                        <td colSpan={6} className="border-b border-border py-6">
                           <div className="flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
                             <span>No enabled harnesses.</span>
                             <Link
@@ -392,6 +639,9 @@ export function CommandCenterPage() {
                               provider.models[0]?.shortName ??
                               provider.models[0]?.name ??
                               "—"}
+                          </td>
+                          <td className="py-2.5 pr-3 text-right text-xs tabular-nums text-muted-foreground">
+                            <HarnessWeekUsage driver={provider.driver} usageByKind={usageByKind} />
                           </td>
                           <td className="py-2.5 text-right">
                             <Badge
@@ -441,11 +691,21 @@ export function CommandCenterPage() {
                       <span className="block truncate text-sm">{routine.name}</span>
                       <span className="block truncate text-xs text-muted-foreground">
                         {environmentLabel} · {routine.enabled ? routine.cron : "Paused"}
+                        {routine.lastRunStatus === "failed" && routine.lastError ? (
+                          <span className="ml-1 text-destructive">· {routine.lastError}</span>
+                        ) : null}
                       </span>
                     </span>
-                    <span className="mr-2 shrink-0 text-xs tabular-nums text-muted-foreground">
-                      {routine.enabled && routine.nextRunAt ? relativeTime(routine.nextRunAt) : "—"}
-                    </span>
+                    <div className="mr-2 flex shrink-0 items-center gap-2">
+                      {routine.lastRunStatus === "failed" ? (
+                        <Badge variant="error">Failed</Badge>
+                      ) : null}
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {routine.enabled && routine.nextRunAt
+                          ? relativeTime(routine.nextRunAt)
+                          : "—"}
+                      </span>
+                    </div>
                   </Link>
                 ))}
               </ListSection>
@@ -477,8 +737,28 @@ export function CommandCenterPage() {
           </WorkspacePageContainer>
         </ScrollArea>
       </div>
+      {launcherOpen ? <MissionLauncher open onOpenChange={setLauncherOpen} /> : null}
     </SidebarInset>
   );
+}
+
+function HarnessWeekUsage({
+  driver,
+  usageByKind,
+}: {
+  readonly driver: string;
+  readonly usageByKind: ReadonlyMap<
+    string,
+    { readonly totalTokens: number; readonly costUsd: number }
+  >;
+}) {
+  const kind = usageKindForDriver(driver);
+  if (kind === null) return <span>—</span>;
+  const totals = usageByKind.get(kind);
+  if (totals === undefined || (totals.totalTokens === 0 && totals.costUsd === 0)) {
+    return <span>No activity</span>;
+  }
+  return <span>{formatTokens(totals.totalTokens)}</span>;
 }
 
 function Metric({

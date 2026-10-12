@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=56m; seat=codex; date=2026-10-07 */
+/* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
 // @effect-diagnostics nodeBuiltinImport:off - realpathSync.native resolves Windows 8.3 short names, which the Effect realPath does not.
 import * as NodeFS from "node:fs";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -1637,6 +1639,70 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect("deletes the branch a removed worktree leaves behind", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const worktreePath = pathService.join(yield* makeTmpDir("git-worktrees-"), "entrant");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const branch = "t3code/race-1pmy4h-2of2";
+        yield* driver.createWorktree({
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: branch,
+        });
+        assert.include(yield* git(cwd, ["branch", "--list", branch]), branch);
+
+        yield* driver.removeWorktree({
+          cwd,
+          path: worktreePath,
+          force: true,
+          deleteBranch: branch,
+        });
+
+        assert.equal(yield* git(cwd, ["branch", "--list", branch]), "");
+        assert.include(yield* git(cwd, ["branch", "--list", initialBranch]), initialBranch);
+      }),
+    );
+
+    it.effect("keeps a worktree removal successful when the branch cannot go", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const worktreePath = pathService.join(yield* makeTmpDir("git-worktrees-"), "entrant");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* driver.createWorktree({
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: "t3code/race-1pmy4h-1of2",
+        });
+
+        // The checkout's own branch must survive, and a branch that is already
+        // gone is not a failure either.
+        yield* driver.removeWorktree({
+          cwd,
+          path: worktreePath,
+          force: true,
+          deleteBranch: initialBranch,
+        });
+        assert.equal(yield* fileSystem.exists(worktreePath), false);
+        assert.include(yield* git(cwd, ["branch", "--list", initialBranch]), initialBranch);
+
+        yield* driver.removeWorktree({
+          cwd,
+          path: worktreePath,
+          force: true,
+          deleteBranch: "t3code/race-1pmy4h-9of9",
+        });
+        assert.equal(yield* git(cwd, ["branch", "--list", "t3code/race-1pmy4h-9of9"]), "");
+      }),
+    );
+
     it.effect("prunes stale registrations when removing an already-gone worktree", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
@@ -1663,6 +1729,480 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
 
         const registered = yield* git(cwd, ["worktree", "list", "--porcelain"]);
         assert.notInclude(registered, "stale");
+      }),
+    );
+  });
+
+  describe("worktree integration", () => {
+    const makeEntrant = (branch: string) =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const worktreePath = pathService.join(yield* makeTmpDir("git-worktrees-"), "entrant");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* driver.createWorktree({
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: branch,
+        });
+        return { cwd, worktreePath, initialBranch, driver };
+      });
+
+    it.effect("commits what the worktree still holds and squashes it into the checkout", () =>
+      Effect.gen(function* () {
+        const branch = "t3code/race-k3f9a2-2of3";
+        const { cwd, worktreePath, driver } = yield* makeEntrant(branch);
+        yield* writeTextFile(worktreePath, "feature.md", "# feature\n");
+        yield* writeTextFile(worktreePath, "docs/notes.md", "notes\n");
+
+        const result = yield* driver.integrateWorktree({
+          cwd,
+          worktreePath,
+          branch,
+          commitMessage: "race: add the feature",
+        });
+
+        if (result.status !== "merged") {
+          return assert.fail(`expected a merged integration, got ${result.status}`);
+        }
+        assert.equal(result.filesChanged, 2);
+        assert.equal(result.commitSha, yield* git(cwd, ["rev-parse", "HEAD"]));
+        assert.equal(yield* git(cwd, ["log", "-1", "--pretty=%s"]), "race: add the feature");
+        // The attempt's own branch keeps the work as a commit of its own.
+        assert.equal(
+          yield* git(worktreePath, ["log", "-1", "--pretty=%s"]),
+          "race: add the feature",
+        );
+        assert.equal(yield* git(cwd, ["status", "--porcelain"]), "");
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        assert.isTrue(yield* fileSystem.exists(pathService.join(cwd, "feature.md")));
+        assert.isTrue(yield* fileSystem.exists(pathService.join(cwd, "docs/notes.md")));
+        assert.isFalse(yield* fileSystem.exists(pathService.join(cwd, ".git", "SQUASH_MSG")));
+      }),
+    );
+
+    it.effect("reports nothing to merge when the branch sits on the base commit", () =>
+      Effect.gen(function* () {
+        const branch = "t3code/race-k3f9a2-1of3";
+        const { cwd, worktreePath, driver } = yield* makeEntrant(branch);
+        const headBefore = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        const result = yield* driver.integrateWorktree({
+          cwd,
+          worktreePath,
+          branch,
+          commitMessage: "race: keep an attempt that did nothing",
+        });
+
+        assert.deepStrictEqual(result, { status: "nothing_to_merge" });
+        assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), headBefore);
+      }),
+    );
+
+    it.effect("reports nothing to merge when commits ahead cancel each other out", () =>
+      Effect.gen(function* () {
+        const branch = "t3code/race-k3f9a2-3of3";
+        const { cwd, worktreePath, driver } = yield* makeEntrant(branch);
+        const headBefore = yield* git(cwd, ["rev-parse", "HEAD"]);
+        yield* writeTextFile(worktreePath, "temp.md", "temp\n");
+        yield* git(worktreePath, ["add", "-A"]);
+        yield* git(worktreePath, ["commit", "-m", "add temp"]);
+        yield* git(worktreePath, ["rm", "temp.md"]);
+        yield* git(worktreePath, ["commit", "-m", "drop temp"]);
+        assert.equal(yield* git(cwd, ["rev-list", "--count", `HEAD..${branch}`]), "2");
+
+        const result = yield* driver.integrateWorktree({
+          cwd,
+          worktreePath,
+          branch,
+          commitMessage: "race: keep a no-op attempt",
+        });
+
+        assert.deepStrictEqual(result, { status: "nothing_to_merge" });
+        assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), headBefore);
+        assert.equal(yield* git(cwd, ["status", "--porcelain"]), "");
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        assert.isFalse(yield* fileSystem.exists(pathService.join(cwd, ".git", "SQUASH_MSG")));
+      }),
+    );
+
+    it.effect("refuses a checkout with tracked changes and leaves it untouched", () =>
+      Effect.gen(function* () {
+        const branch = "t3code/race-p0p0p0-1of2";
+        const { cwd, worktreePath, driver } = yield* makeEntrant(branch);
+        yield* writeTextFile(worktreePath, "feature.md", "# feature\n");
+        yield* writeTextFile(cwd, "README.md", "# edited by hand\n");
+        const headBefore = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        const result = yield* driver.integrateWorktree({
+          cwd,
+          worktreePath,
+          branch,
+          commitMessage: "race: add the feature",
+        });
+
+        assert.deepStrictEqual(result, { status: "base_dirty", files: ["README.md"] });
+        assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), headBefore);
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        assert.equal(
+          yield* fileSystem.readFileString(pathService.join(cwd, "README.md")),
+          "# edited by hand\n",
+        );
+        assert.isFalse(yield* fileSystem.exists(pathService.join(cwd, "feature.md")));
+        // The refusal comes before the attempt is committed, so its work is
+        // still exactly where it was and Keep can be pressed again unchanged.
+        assert.equal(yield* git(worktreePath, ["status", "--porcelain"]), "?? feature.md");
+        assert.notEqual(
+          yield* git(worktreePath, ["log", "-1", "--pretty=%s"]),
+          "race: add the feature",
+        );
+      }),
+    );
+
+    it.effect("merges past untracked files in the checkout", () =>
+      Effect.gen(function* () {
+        const branch = "t3code/race-p0p0p0-2of2";
+        const { cwd, worktreePath, driver } = yield* makeEntrant(branch);
+        yield* writeTextFile(worktreePath, "feature.md", "# feature\n");
+        yield* writeTextFile(cwd, "scratch.log", "local noise\n");
+
+        const result = yield* driver.integrateWorktree({
+          cwd,
+          worktreePath,
+          branch,
+          commitMessage: "race: add the feature",
+        });
+
+        assert.equal(result.status, "merged");
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        assert.equal(
+          yield* fileSystem.readFileString(pathService.join(cwd, "scratch.log")),
+          "local noise\n",
+        );
+        assert.equal(yield* git(cwd, ["status", "--porcelain"]), "?? scratch.log");
+      }),
+    );
+
+    it.effect("restores the checkout exactly when the squash merge conflicts", () =>
+      Effect.gen(function* () {
+        const branch = "t3code/race-zz99zz-1of2";
+        const { cwd, worktreePath, driver } = yield* makeEntrant(branch);
+        yield* writeTextFile(worktreePath, "README.md", "# the attempt's take\n");
+        yield* writeTextFile(cwd, "README.md", "# the checkout's take\n");
+        yield* git(cwd, ["add", "-A"]);
+        yield* git(cwd, ["commit", "-m", "diverge on the base branch"]);
+        const headBefore = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        const result = yield* driver.integrateWorktree({
+          cwd,
+          worktreePath,
+          branch,
+          commitMessage: "race: add the attempt's take",
+        });
+
+        assert.deepStrictEqual(result, { status: "conflict", files: ["README.md"] });
+        assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), headBefore);
+        assert.equal(yield* git(cwd, ["status", "--porcelain"]), "");
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        assert.equal(
+          yield* fileSystem.readFileString(pathService.join(cwd, "README.md")),
+          "# the checkout's take\n",
+        );
+        for (const leftover of ["SQUASH_MSG", "MERGE_MSG", "MERGE_HEAD"]) {
+          assert.isFalse(
+            yield* fileSystem.exists(pathService.join(cwd, ".git", leftover)),
+            `${leftover} outlived the restore`,
+          );
+        }
+      }),
+    );
+
+    it.effect("refuses when the worktree moved off the branch being integrated", () =>
+      Effect.gen(function* () {
+        const branch = "t3code/race-zz99zz-2of2";
+        const { cwd, worktreePath, driver } = yield* makeEntrant(branch);
+        yield* git(worktreePath, ["switch", "--quiet", "-c", "somewhere-else"]);
+        yield* writeTextFile(worktreePath, "feature.md", "# feature\n");
+        const headBefore = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        const result = yield* driver.integrateWorktree({
+          cwd,
+          worktreePath,
+          branch,
+          commitMessage: "race: add the feature",
+        });
+
+        assert.deepStrictEqual(result, { status: "branch_mismatch", current: "somewhere-else" });
+        assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), headBefore);
+        assert.equal(yield* git(worktreePath, ["status", "--porcelain"]), "?? feature.md");
+      }),
+    );
+
+    it.effect("reports a detached worktree as having no branch", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const worktreePath = pathService.join(yield* makeTmpDir("git-worktrees-"), "detached");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["worktree", "add", "--detach", worktreePath]);
+
+        const result = yield* driver.integrateWorktree({
+          cwd,
+          worktreePath,
+          branch: "t3code/race-d3t4ch-1of2",
+          commitMessage: "race: keep a detached worktree",
+        });
+
+        assert.deepStrictEqual(result, { status: "branch_mismatch", current: null });
+      }),
+    );
+
+    it.effect("refuses when the checkout left the branch the attempt was cut from", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const worktreePath = pathService.join(yield* makeTmpDir("git-worktrees-"), "entrant");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const branch = "t3code/race-m0v3d0-1of2";
+        yield* driver.createWorktree({
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: branch,
+          baseRefName: initialBranch,
+        });
+        yield* writeTextFile(worktreePath, "feature.md", "# feature\n");
+        yield* git(cwd, ["switch", "--quiet", "-c", "release/1.0"]);
+        const headBefore = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        const moved = yield* driver.integrateWorktree({
+          cwd,
+          worktreePath,
+          branch,
+          commitMessage: "race: add the feature",
+        });
+
+        assert.deepStrictEqual(moved, {
+          status: "base_moved",
+          expected: initialBranch,
+          current: "release/1.0",
+        });
+        assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), headBefore);
+        assert.equal(yield* git(worktreePath, ["status", "--porcelain"]), "?? feature.md");
+
+        // A detached checkout is refused even when no base was recorded.
+        yield* git(cwd, ["switch", "--quiet", "--detach", "HEAD"]);
+        const detached = yield* driver.integrateWorktree({
+          cwd,
+          worktreePath,
+          branch,
+          commitMessage: "race: add the feature",
+        });
+        assert.deepStrictEqual(detached, {
+          status: "base_moved",
+          expected: initialBranch,
+          current: null,
+        });
+      }),
+    );
+
+    it.effect("hands back the hook's own words when it rejects the squashed commit", () =>
+      Effect.gen(function* () {
+        const branch = "t3code/race-h00k5x-1of2";
+        const { cwd, worktreePath, driver } = yield* makeEntrant(branch);
+        const pathService = yield* Path.Path;
+        const fileSystem = yield* FileSystem.FileSystem;
+        yield* writeTextFile(worktreePath, "feature.md", "# feature\n");
+        const headBefore = yield* git(cwd, ["rev-parse", "HEAD"]);
+        const hookPath = pathService.join(cwd, ".git", "hooks", "pre-commit");
+        yield* fileSystem.writeFileString(
+          hookPath,
+          '#!/bin/sh\necho "lint failed: feature.md has no owner" >&2\nexit 1\n',
+        );
+        NodeFS.chmodSync(hookPath, 0o755);
+
+        const result = yield* driver.integrateWorktree({
+          cwd,
+          worktreePath,
+          branch,
+          commitMessage: "race: add the feature",
+        });
+
+        if (result.status !== "rejected") {
+          return assert.fail(`expected a rejected integration, got ${result.status}`);
+        }
+        assert.include(result.reason, "lint failed: feature.md has no owner");
+        // Nothing of the staged merge survives the rejection.
+        assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), headBefore);
+        assert.equal(yield* git(cwd, ["status", "--porcelain"]), "");
+        for (const leftover of ["SQUASH_MSG", "MERGE_MSG", "MERGE_HEAD"]) {
+          assert.isFalse(
+            yield* fileSystem.exists(pathService.join(cwd, ".git", leftover)),
+            `${leftover} outlived the rejection`,
+          );
+        }
+        // The attempt's commit still happened: the worktree skips hooks.
+        assert.equal(
+          yield* git(worktreePath, ["log", "-1", "--pretty=%s"]),
+          "race: add the feature",
+        );
+      }),
+    );
+
+    it.effect("restores the checkout when the commit itself cannot be made", () =>
+      Effect.gen(function* () {
+        const branch = "t3code/race-g0g0g0-1of2";
+        const { cwd, worktreePath, driver } = yield* makeEntrant(branch);
+        const pathService = yield* Path.Path;
+        const fileSystem = yield* FileSystem.FileSystem;
+        // The attempt commits its own work first, so the only commit left for
+        // the integration to make is the squashed one on the base branch.
+        yield* writeTextFile(worktreePath, "feature.md", "# feature\n");
+        yield* git(worktreePath, ["add", "-A"]);
+        yield* git(worktreePath, ["commit", "-m", "the attempt's own commit"]);
+        // A failing hook rejects the squashed commit after the merge is staged.
+        // It remains effective when the test harness disables host signing.
+        const hooksDir = pathService.join(cwd, ".git", "hooks");
+        yield* fileSystem.makeDirectory(hooksDir, { recursive: true });
+        const hookPath = pathService.join(hooksDir, "pre-commit");
+        yield* fileSystem.writeFileString(hookPath, "#!/bin/sh\nexit 1\n");
+        yield* fileSystem.chmod(hookPath, 0o755);
+        yield* git(cwd, ["config", "core.hooksPath", hooksDir]);
+        const headBefore = yield* git(cwd, ["rev-parse", "HEAD"]);
+        const branchHeadBefore = yield* git(cwd, ["rev-parse", branch]);
+
+        const result = yield* driver.integrateWorktree({
+          cwd,
+          worktreePath,
+          branch,
+          commitMessage: "race: add the feature",
+        });
+
+        assert.equal(result.status, "rejected");
+        assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), headBefore);
+        assert.equal(yield* git(cwd, ["status", "--porcelain"]), "");
+        assert.isFalse(yield* fileSystem.exists(pathService.join(cwd, ".git", "SQUASH_MSG")));
+        assert.isFalse(yield* fileSystem.exists(pathService.join(cwd, "feature.md")));
+        // The attempt is still intact, so Keep can be retried once signing works.
+        assert.equal(yield* git(cwd, ["rev-parse", branch]), branchHeadBefore);
+      }),
+    );
+
+    const makeLockedConfigHandle = () =>
+      ChildProcessSpawner.makeHandle({
+        pid: ChildProcessSpawner.ProcessId(1),
+        exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(255)),
+        isRunning: Effect.succeed(false),
+        kill: () => Effect.void,
+        unref: Effect.succeed(Effect.void),
+        stdin: Sink.drain,
+        stdout: Stream.empty,
+        stderr: Stream.encodeText(
+          Stream.make("error: could not lock config file .git/config: File exists"),
+        ),
+        all: Stream.empty,
+        getInputFd: () => Sink.drain,
+        getOutputFd: () => Stream.empty,
+      });
+
+    it.effect("waits out a held Git config lock instead of losing the worktree", () =>
+      Effect.gen(function* () {
+        const delegate = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const configAttempts = yield* Ref.make(0);
+        const lockedConfigSpawner = ChildProcessSpawner.make((command) =>
+          Effect.gen(function* () {
+            if (ChildProcess.isStandardCommand(command) && command.args[0] === "config") {
+              const attempt = yield* Ref.updateAndGet(configAttempts, (count) => count + 1);
+              if (attempt === 1) {
+                return makeLockedConfigHandle();
+              }
+            }
+            return yield* delegate.spawn(command);
+          }),
+        );
+        const driver = yield* makeGitVcsDriverCore().pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, lockedConfigSpawner),
+          Effect.provide(ServerConfigLayer),
+        );
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const worktreePath = pathService.join(yield* makeTmpDir("git-worktrees-"), "locked-config");
+
+        const created = yield* driver.createWorktree({
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: "t3code/race-l0ck3d-1of2",
+          baseRefName: initialBranch,
+        });
+
+        assert.equal(created.worktree.refName, "t3code/race-l0ck3d-1of2");
+        assert.equal(yield* Ref.get(configAttempts), 2);
+        assert.equal(
+          yield* git(cwd, ["config", "--get", "branch.t3code/race-l0ck3d-1of2.gh-merge-base"]),
+          initialBranch,
+        );
+      }),
+    );
+
+    // `git config` fails outright when another process holds `.git/config.lock`,
+    // and every worktree bootstrap writes its branch's merge base, so the
+    // parallel starts of one best-of-N race used to kill entrants at random.
+    it.effect("creates every worktree when a repository is bootstrapped in parallel", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const worktreesRoot = yield* makeTmpDir("git-worktrees-");
+        const pathService = yield* Path.Path;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const slots = [1, 2, 3, 4] as const;
+
+        const created = yield* Effect.all(
+          slots.map((slot) =>
+            driver.createWorktree({
+              cwd,
+              path: pathService.join(worktreesRoot, `entrant-${slot}`),
+              refName: initialBranch,
+              newRefName: `t3code/race-c0nc0n-${slot}of4`,
+              baseRefName: initialBranch,
+            }),
+          ),
+          { concurrency: "unbounded" },
+        );
+
+        assert.deepStrictEqual(
+          created.map((result) => result.worktree.refName),
+          slots.map((slot) => `t3code/race-c0nc0n-${slot}of4`),
+        );
+        const fileSystem = yield* FileSystem.FileSystem;
+        for (const slot of slots) {
+          assert.isTrue(
+            yield* fileSystem.exists(pathService.join(worktreesRoot, `entrant-${slot}`)),
+          );
+        }
+        // Every branch keeps its merge base: the config writes all landed
+        // instead of one losing the lock race to another.
+        const mergeBases = yield* git(cwd, [
+          "config",
+          "--get-regexp",
+          "^branch\\.t3code/race-c0nc0n-.*\\.gh-merge-base$",
+        ]);
+        assert.deepStrictEqual(
+          mergeBases.split("\n").toSorted(),
+          slots
+            .map((slot) => `branch.t3code/race-c0nc0n-${slot}of4.gh-merge-base ${initialBranch}`)
+            .toSorted(),
+        );
       }),
     );
   });

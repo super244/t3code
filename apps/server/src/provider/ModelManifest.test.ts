@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-01 */
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderDriverKind, type ServerProviderModel } from "@t3tools/contracts";
@@ -440,4 +441,30 @@ describe("ModelManifest service", () => {
       ),
     ),
   );
+});
+
+describe("manifest default recovery", () => {
+  it("assigns an available manifest default when discovery reports no default flag", () => {
+    const driver = ProviderDriverKind.make("synthetic");
+    const manifest: ModelManifestData = {
+      version: 1,
+      currentModels: {},
+      providers: {
+        synthetic: {
+          defaults: { chat: "model-preferred" },
+          profiles: {},
+          models: [{ slug: "model-preferred", name: "Preferred", status: "current" }],
+        },
+      },
+    };
+    const models = [
+      model({ slug: "model-first" }),
+      model({ slug: "model-preferred", aliases: ["preferred-alias"] }),
+    ];
+    assert.deepStrictEqual(applyManifestDefault(models, manifest, driver), [
+      model({ slug: "model-first" }),
+      model({ slug: "model-preferred", aliases: ["preferred-alias"], isDefault: true }),
+    ]);
+    assert.deepStrictEqual(models[1]?.isDefault, undefined);
+  });
 });

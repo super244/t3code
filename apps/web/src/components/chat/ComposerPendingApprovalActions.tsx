@@ -1,3 +1,4 @@
+/* agent-watermark: model=muse-spark; effort=high; duration=25m; seat=opencode; date=2026-10-10 */
 import {
   type ApprovalRequestId,
   type ProviderApprovalDecision,
@@ -35,22 +36,23 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
   return (
     <>
       {options.map((option) => {
+        const isPrimary = option.decision === "accept";
         const button = (
           <Button
             key={option.decision}
             size="micro"
-            variant="ghost-muted"
+            variant={isPrimary ? "default" : "ghost-muted"}
             className={`${APPROVAL_ACTION_CLASS_NAME}${
               option.decision === "decline"
                 ? " text-destructive-foreground [:hover,[data-pressed]]:text-destructive-foreground"
-                : option.decision === "accept"
-                  ? " text-foreground"
-                  : option.warning
-                    ? " text-warning"
-                    : ""
+                : !isPrimary && option.warning
+                  ? " text-warning"
+                  : ""
             }`}
             disabled={isResponding}
             aria-description={option.warning}
+            aria-label={option.label}
+            title={option.warning ?? option.label}
             onClick={() => void onRespondToApproval(requestId, option.decision)}
           >
             {option.warning ? <TriangleAlertIcon className="size-3 shrink-0" /> : null}

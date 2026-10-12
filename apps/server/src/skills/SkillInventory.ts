@@ -1,3 +1,4 @@
+/* agent-watermark: model=grok-4.7; effort=default; duration=15m; seat=cursor; date=2026-09-30 */
 import type {
   ProviderInstanceConfig,
   ServerProviderSkill,
@@ -10,6 +11,7 @@ import {
   CodexSettings,
   CursorSettings,
   GrokSettings,
+  OpenCodeSettings,
   ProviderInstanceId,
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -25,6 +27,7 @@ import { discoverClaudeSkills } from "../provider/Drivers/ClaudeSkills.ts";
 import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
 import { discoverCursorSkills } from "../provider/Drivers/CursorSkills.ts";
 import { discoverGrokSkills } from "../provider/Drivers/GrokSkills.ts";
+import { discoverOpenCodeSkills } from "../provider/Drivers/OpenCodeSkills.ts";
 import {
   discoverAntigravitySkills,
   resolveAntigravityUserHome,
@@ -38,6 +41,7 @@ const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
 const decodeCursorSettings = Schema.decodeUnknownOption(CursorSettings);
 const decodeGrokSettings = Schema.decodeUnknownOption(GrokSettings);
 const decodeAntigravitySettings = Schema.decodeUnknownOption(AntigravitySettings);
+const decodeOpenCodeSettings = Schema.decodeUnknownOption(OpenCodeSettings);
 
 function harnessDisplayName(instance: ProviderInstanceConfig, fallback: string): string {
   return instance.displayName?.trim() || fallback;
@@ -164,7 +168,18 @@ const discoverInstanceSkills = Effect.fn("SkillInventory.discoverInstanceSkills"
     });
   }
 
-  // OpenCode does not expose a compatible global skill source yet.
+  if (instance.driver === "opencode") {
+    const decoded = decodeOpenCodeSettings(config);
+    if (decoded._tag === "None" || !(instance.enabled ?? decoded.value.enabled)) return [];
+    const skills = yield* discoverOpenCodeSkills(processEnv);
+    return yield* readSkillInstallations({
+      instanceId,
+      instance,
+      fallbackDisplayName: "OpenCode",
+      skills,
+    });
+  }
+
   return [];
 });
 

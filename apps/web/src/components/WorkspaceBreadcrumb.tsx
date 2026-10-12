@@ -35,7 +35,8 @@ export function WorkspaceBreadcrumbItem({
     <li
       aria-current={current ? "page" : undefined}
       className={cn(
-        "flex min-w-0 items-center font-medium",
+        // gap: an icon beside the title must not touch it.
+        "flex min-w-0 items-center gap-1.5 font-medium",
         current ? "text-foreground" : "shrink-0 text-muted-foreground",
         className,
       )}

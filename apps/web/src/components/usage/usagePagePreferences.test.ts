@@ -1,3 +1,6 @@
+/* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=10m; seat=codex; date=2026-10-01 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=5m; seat=antigravity; date=2026-10-02 */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { readUsagePagePreferences, saveUsagePagePreferences } from "./usagePagePreferences";
@@ -81,4 +84,23 @@ describe("Usage page preferences", () => {
     expect(readUsagePagePreferences()).toEqual({ metric: "cost", windowPreset: "30d" });
     expect(() => saveUsagePagePreferences({ metric: "tokens", windowPreset: "7d" })).not.toThrow();
   });
+});
+
+it("retains legacy metric/range preferences and persists focused harness or All", () => {
+  values.set(key, '{"metric":"tokens","windowPreset":"7d"}');
+  const legacy = readUsagePagePreferences();
+  expect(legacy).toEqual({ metric: "tokens", windowPreset: "7d" });
+  for (const provider of ["codex", "claude", "grok", "opencode", "antigravity", null] as const) {
+    saveUsagePagePreferences({ ...legacy, provider });
+    expect(readUsagePagePreferences()).toEqual({ ...legacy, provider });
+  }
+});
+
+it("persists and updates monthly budget target", () => {
+  const prefs = readUsagePagePreferences();
+  saveUsagePagePreferences({ ...prefs, monthlyBudgetUsd: 100 });
+  expect(readUsagePagePreferences().monthlyBudgetUsd).toBe(100);
+
+  saveUsagePagePreferences({ ...prefs, monthlyBudgetUsd: null });
+  expect(readUsagePagePreferences().monthlyBudgetUsd).toBeNull();
 });

@@ -1,3 +1,4 @@
+/* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 import { useAtomValue } from "@effect/atom-react";
 import type {
   EnvironmentId,
@@ -34,7 +35,17 @@ type Driver = ServerProvider["driver"];
 function useBarColor(driver: Driver): string | null {
   const colors = useProviderColors();
   const kind: UsageProviderKind | null =
-    driver === "codex" ? "codex" : driver === "claudeAgent" ? "claude" : null;
+    driver === "codex"
+      ? "codex"
+      : driver === "claudeAgent"
+        ? "claude"
+        : driver === "grok"
+          ? "grok"
+          : driver === "opencode"
+            ? "opencode"
+            : driver === "antigravity"
+              ? "antigravity"
+              : null;
   return kind ? colors[kind] : null;
 }
 

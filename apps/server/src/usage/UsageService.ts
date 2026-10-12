@@ -1,8 +1,11 @@
+/* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-09-30 */
 /**
  * UsageService - scans provider transcripts and returns priced usage buckets.
  *
- * The scan reads the provider CLIs' own session files (Claude Code, Codex, and
- * Grok Build) rather than T3 Code's orchestration projections, so usage covers
+ * The scan reads the provider CLIs' own session files (Claude Code, Codex,
+ * Grok Build, OpenCode, and Antigravity) rather than T3 Code's orchestration
+ * projections, so usage covers
  * turns driven outside T3 Code too. This is the approach `ccusage` takes.
  *
  * Transcripts are append-only, so parsed records are memoised per file by
@@ -110,6 +113,12 @@ export class UsageService extends Context.Service<
     readonly refreshRates: Effect.Effect<UsagePricing>;
   }
 >()("t3/usage/UsageService") {}
+
+/** Home for stores that follow the user, not a provider setting. Tests pin `HOME`. */
+function resolveUsageUserHome(environment: NodeJS.ProcessEnv): string {
+  const explicit = environment["HOME"]?.trim() || environment["USERPROFILE"]?.trim() || "";
+  return explicit.length > 0 ? expandHomePath(explicit) : NodeOS.homedir();
+}
 
 const EMPTY_PRICING: UsagePricing = {
   status: "unavailable",
@@ -265,8 +274,15 @@ export const make = Effect.gen(function* () {
       grokHomeEnv.length > 0
         ? path.resolve(expandHomePath(grokHomeEnv))
         : path.join(NodeOS.homedir(), ".grok");
+    const userHome = path.resolve(resolveUsageUserHome(hostEnvironment));
+    const dataHomeEnv = hostEnvironment["XDG_DATA_HOME"]?.trim() ?? "";
+    const dataHome =
+      dataHomeEnv.length > 0
+        ? path.resolve(expandHomePath(dataHomeEnv))
+        : path.join(userHome, ".local", "share");
+    const geminiHome = path.join(userHome, ".gemini");
 
-    return [
+    const candidates = [
       { provider: "claude" as const, dir: claudeDir },
       { provider: "codex" as const, dir: path.join(codexLayout.sharedHomePath, "sessions") },
       {
@@ -274,7 +290,49 @@ export const make = Effect.gen(function* () {
         dir: path.join(grokHome, "sessions"),
         fileName: "updates.jsonl",
       },
+      {
+        provider: "opencode" as const,
+        dir: path.join(dataHome, "opencode"),
+        shallowFile: "opencode.db",
+      },
+      {
+        provider: "opencode" as const,
+        dir: path.join(userHome, "Library", "Application Support", "opencode"),
+        shallowFile: "opencode.db",
+      },
+      {
+        provider: "opencode" as const,
+        dir: path.join(userHome, ".config", "opencode"),
+        shallowFile: "opencode.db",
+      },
+      {
+        provider: "antigravity" as const,
+        dir: path.join(geminiHome, "antigravity", "conversations"),
+        extension: ".db",
+      },
+      {
+        provider: "antigravity" as const,
+        dir: path.join(geminiHome, "antigravity-cli", "conversations"),
+        extension: ".db",
+      },
+      {
+        provider: "antigravity" as const,
+        dir: path.join(userHome, ".antigravity", "conversations"),
+        extension: ".db",
+      },
+      {
+        provider: "antigravity" as const,
+        dir: path.join(config.stateDir, "providers", "antigravity"),
+        extension: ".db",
+      },
     ];
+
+    const seenDirs = new Set<string>();
+    return candidates.filter((candidate) => {
+      if (seenDirs.has(candidate.dir)) return false;
+      seenDirs.add(candidate.dir);
+      return true;
+    });
   });
 
   /**
@@ -394,7 +452,7 @@ export const make = Effect.gen(function* () {
       Effect.provideService(Path.Path, path),
     );
     const scanned: ScannedDir[] = [];
-    for (const { provider, dir, fileName } of dirs) {
+    for (const { provider, dir, fileName, extension, shallowFile } of dirs) {
       const volumeId = yield* Effect.promise(() => readDirectoryVolumeId(dir));
       const exists = yield* fileSystem
         .exists(dir)
@@ -403,8 +461,22 @@ export const make = Effect.gen(function* () {
         scanned.push({ provider, dir, volumeId, files: null });
         continue;
       }
+      const listOptions: {
+        fileName?: string;
+        extension?: string;
+        shallowFile?: string;
+      } = {};
+      if (fileName !== undefined) listOptions.fileName = fileName;
+      if (extension !== undefined) listOptions.extension = extension;
+      if (shallowFile !== undefined) listOptions.shallowFile = shallowFile;
       const files = yield* Effect.promise(() =>
-        listTranscriptFiles(dir, windowStartMs, fileName === undefined ? undefined : { fileName }),
+        listTranscriptFiles(
+          dir,
+          windowStartMs,
+          fileName === undefined && extension === undefined && shallowFile === undefined
+            ? undefined
+            : listOptions,
+        ),
       );
       const parsedFiles: { path: string; records: readonly UsageRecord[] }[] = [];
       for (const file of files) {
@@ -497,8 +569,7 @@ export const make = Effect.gen(function* () {
               return slug === null ? [] : [slug];
             }),
       ),
-      (path) =>
-        fileSystem.readDirectory(path).pipe(Effect.orElseSucceed(() => [] as readonly string[])),
+      (path) => fileSystem.readDirectory(path).pipe(Effect.orElseSucceed(() => [] as readonly string[])),
     );
 
     const sources: UsageSource[] = [];

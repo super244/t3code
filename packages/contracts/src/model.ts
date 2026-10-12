@@ -1,3 +1,4 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=medium; duration=20m; seat=antigravity; date=2026-10-08 */
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
@@ -197,7 +198,14 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Partial<
     "5.3-spark": "gpt-5.3-codex-spark",
     "gpt-5.3-spark": "gpt-5.3-codex-spark",
   },
-  [CLAUDE_DRIVER_KIND]: {},
+  [CLAUDE_DRIVER_KIND]: {
+    "claude-3-7-sonnet": "claude-sonnet-5",
+    "claude-3.7-sonnet": "claude-sonnet-5",
+    "sonnet-3.7": "claude-sonnet-5",
+    sonnet: "claude-sonnet-5",
+    haiku: "claude-haiku-4-5",
+    opus: "claude-opus-5",
+  },
   [CURSOR_DRIVER_KIND]: {
     composer: "composer-2",
     "composer-1.5": "composer-1.5",
@@ -210,6 +218,20 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Partial<
     "opus-4.5": "claude-opus-4-5",
   },
   [OPENCODE_DRIVER_KIND]: {},
+  [ProviderDriverKind.make("antigravity")]: {
+    "gemini-3.8-flash": "gemini-3.8-flash-medium",
+    "gemini-3.8-flash-med": "gemini-3.8-flash-medium",
+    "gemini-3.8-pro": "gemini-3.8-pro",
+    "gemini-3.8": "gemini-3.8-pro",
+    "gemini-flash": "gemini-3.8-flash-medium",
+    "gemini-pro": "gemini-3.8-pro",
+    flash: "gemini-3.8-flash-medium",
+    pro: "gemini-3.8-pro",
+    "3.8-flash": "gemini-3.8-flash-medium",
+    "3.8-pro": "gemini-3.8-pro",
+    "2.5-flash": "gemini-2.5-flash",
+    "2.5-pro": "gemini-2.5-pro",
+  },
 };
 
 // ── Provider display names ────────────────────────────────────────────

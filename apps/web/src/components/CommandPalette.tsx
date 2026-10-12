@@ -1,11 +1,18 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
+/* agent-watermark: model=muse-spark; effort=high; duration=35m; seat=opencode; date=2026-10-10 */
 "use client";
+/* agent-watermark: model=opus-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-04 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=19m; seat=codex; date=2026-10-04 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=35m; seat=codex; date=2026-10-02 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=20m; seat=antigravity; date=2026-10-03 */
 
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   canCreateProjectInEnvironment,
+  getAddProjectInitialQuery,
   getCloneDestinationBrowsePath,
   getCloneDestinationPath,
   getCloneDirectoryName,
@@ -40,23 +47,29 @@ import {
 } from "@t3tools/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { openHandoffDialog, openReviewDialog } from "../handoffDialog";
+import { copyThreadReport, exportThreadReport } from "../threadReportActions";
 import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
+  CalendarClockIcon,
+  ChartNoAxesColumnIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
+  FlagIcon,
+  KeyboardIcon,
   FolderIcon,
   FolderPlusIcon,
   GitPullRequestArrowIcon,
   LinkIcon,
-  KeyboardIcon,
   LayoutDashboardIcon,
   MessageSquareIcon,
   PaletteIcon,
   SettingsIcon,
+  SparklesIcon,
   SquarePenIcon,
   TextSearchIcon,
   ArrowRightLeftIcon,
+  FileDownIcon,
   ScanSearchIcon,
 } from "lucide-react";
 import {
@@ -94,7 +107,6 @@ import { useThreadSearch } from "../state/queries";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import {
   appendBrowsePathSegment,
-  ensureBrowseDirectoryPath,
   findProjectByPath,
   getBrowseDirectoryPath,
   hasTrailingPathSeparator,
@@ -132,15 +144,21 @@ import {
   ADDON_ICON_CLASS,
   browseInputEndPaddingClass,
   buildBrowseGroups,
+  buildGoAnywhereItems,
   buildProjectActionItems,
   buildRootGroups,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
   enumerateCommandPaletteItems,
+  orderByRecentKeys,
+  readRecentProjectKeys,
+  recordRecentDestinationKey,
+  recordRecentProjectKey,
   type CommandPaletteActionItem,
   type CommandPaletteOpenIntent,
   type CommandPaletteSubmenuItem,
   type CommandPaletteView,
+  type GoAnywhereDestination,
   filterCommandPaletteGroups,
   filterPinnedBrowseEntries,
   getCommandPaletteInputPlaceholder,
@@ -664,7 +682,7 @@ function OpenCommandPaletteDialog(props: {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const { theme, themeHalves, resolvedTheme } = useTheme();
+  const { theme, themeHalves, resolvedTheme, setTheme } = useTheme();
   const providers = useAtomValue(primaryServerProvidersAtom);
   const providerEntryByEnvironmentAndInstanceId = useMemo(() => {
     const map = new Map<string, ProviderInstanceEntry>();
@@ -930,11 +948,7 @@ function OpenCommandPaletteDialog(props: {
         (candidate) => candidate.environmentId === environmentId,
       );
       const environmentSettings = environment?.serverConfig?.settings ?? null;
-      const baseDirectory = environmentSettings?.addProjectBaseDirectory?.trim() ?? "";
-      if (baseDirectory.length === 0) {
-        return "~/";
-      }
-      return ensureBrowseDirectoryPath(baseDirectory);
+      return getAddProjectInitialQuery(environmentSettings?.addProjectBaseDirectory);
     },
     [environments],
   );
@@ -964,11 +978,6 @@ function OpenCommandPaletteDialog(props: {
     browseEnvironmentId && currentProjectEnvironmentId === browseEnvironmentId
       ? currentProjectCwd
       : null;
-  const getBrowseCwdForEnvironment = useCallback(
-    (environmentId: EnvironmentId | null): string | null =>
-      environmentId && currentProjectEnvironmentId === environmentId ? currentProjectCwd : null,
-    [currentProjectCwd, currentProjectEnvironmentId],
-  );
   const relativePathNeedsActiveProject =
     isExplicitRelativeProjectPath(query.trim()) && currentProjectCwdForBrowse === null;
   const browseQuery = useEnvironmentQuery(
@@ -1037,6 +1046,7 @@ function OpenCommandPaletteDialog(props: {
 
   const openProjectFromSearch = useMemo(
     () => async (project: (typeof projects)[number]) => {
+      recordRecentProjectKey(`${project.environmentId}:${project.id}`);
       const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
       const groupedProjectKeys = group
         ? new Set(
@@ -1082,18 +1092,23 @@ function OpenCommandPaletteDialog(props: {
 
   const projectSearchItems = useMemo(
     () =>
-      buildProjectActionItems({
-        projects: pickerProjects,
-        valuePrefix: "project",
-        searchTerms: (project) => {
-          const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
-          return (
-            group?.memberProjects.flatMap((member) => [member.title, member.workspaceRoot]) ?? []
-          );
-        },
-        icon: projectFavicon,
-        runProject: openProjectFromSearch,
-      }),
+      // Recent-first: projects opened from the palette float to the top.
+      orderByRecentKeys(
+        buildProjectActionItems({
+          projects: pickerProjects,
+          valuePrefix: "project",
+          searchTerms: (project) => {
+            const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
+            return (
+              group?.memberProjects.flatMap((member) => [member.title, member.workspaceRoot]) ?? []
+            );
+          },
+          icon: projectFavicon,
+          runProject: openProjectFromSearch,
+        }),
+        readRecentProjectKeys(),
+        (item) => item.value,
+      ),
     [openProjectFromSearch, pickerProjects, projectGroupByTargetKey],
   );
 
@@ -1262,7 +1277,7 @@ function OpenCommandPaletteDialog(props: {
     }
     setViewStack((previousViews) => previousViews.slice(0, -1));
     setHighlightedItemValue(null);
-    setQuery("");
+    setQuery(viewStack.at(-2)?.initialQuery ?? "");
   }
 
   function handleQueryChange(nextQuery: string): void {
@@ -1277,33 +1292,19 @@ function OpenCommandPaletteDialog(props: {
   const startAddProjectBrowse = useCallback(
     async (environmentId: EnvironmentId): Promise<void> => {
       const initialQuery = getAddProjectInitialQueryForEnvironment(environmentId);
-      const initialBrowsePath = getBrowseDirectoryPath(initialQuery);
-      const browseCwd = getBrowseCwdForEnvironment(environmentId);
       const view: CommandPaletteView = {
         addonIcon: <FolderPlusIcon className={ADDON_ICON_CLASS} />,
         groups: [],
         initialQuery,
       };
 
-      await browseNavigation.run(
-        () =>
-          initialBrowsePath.length > 0
-            ? prefetchBrowsePath(initialBrowsePath, environmentId, browseCwd)
-            : Promise.resolve(),
-        () => {
-          setAddProjectEnvironmentId(environmentId);
-          setAddProjectCloneFlow(null);
-          pushPaletteView(view);
-        },
-      );
+      // Open immediately; the browse query owns loading and error feedback.
+      // Waiting for a directory listing here strands Add Project on slow hosts.
+      setAddProjectEnvironmentId(environmentId);
+      setAddProjectCloneFlow(null);
+      pushPaletteView(view);
     },
-    [
-      browseNavigation,
-      getAddProjectInitialQueryForEnvironment,
-      getBrowseCwdForEnvironment,
-      prefetchBrowsePath,
-      pushPaletteView,
-    ],
+    [getAddProjectInitialQueryForEnvironment, pushPaletteView],
   );
 
   const startAddProjectClone = useCallback(
@@ -1334,8 +1335,8 @@ function OpenCommandPaletteDialog(props: {
           kind: "action",
           value: `action:add-project:${environmentId}:local`,
           searchTerms: ["local", "folder", "directory", "browse"],
-          title: "Local folder",
-          description: "Browse a folder on disk",
+          title: "Browse folders",
+          description: "Select an existing project on this environment",
           icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
           keepOpen: true,
           run: async () => {
@@ -1469,7 +1470,7 @@ function OpenCommandPaletteDialog(props: {
       icon: <EnvironmentMachineIcon kind={option.machine} className={ITEM_ICON_CLASS} />,
       keepOpen: true,
       run: async () => {
-        startAddProjectSourceSelection(option.environmentId);
+        await startAddProjectBrowse(option.environmentId);
       },
     }),
   );
@@ -1506,13 +1507,13 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
 
-    void startAddProjectSourceSelection(environmentId);
+    void startAddProjectBrowse(environmentId);
   }, [
     addProjectEnvironmentGroups,
     addProjectEnvironmentOptions.length,
     defaultAddProjectEnvironmentId,
     pushPaletteView,
-    startAddProjectSourceSelection,
+    startAddProjectBrowse,
   ]);
 
   useLayoutEffect(() => {
@@ -1656,6 +1657,7 @@ function OpenCommandPaletteDialog(props: {
       kind: "action",
       value: "action:review",
       searchTerms: [
+        "review with",
         "review",
         "code review",
         "second opinion",
@@ -1668,6 +1670,28 @@ function OpenCommandPaletteDialog(props: {
       icon: <ScanSearchIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         openReviewDialog(handoffRef);
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:export-report",
+      searchTerms: ["export", "markdown", "report", "download", "share", "transcript", "save thread"],
+      title: "Export thread as Markdown",
+      description: activeThread.title,
+      icon: <FileDownIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await exportThreadReport(handoffRef);
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:copy-pr-description",
+      searchTerms: ["pr description", "pull request", "copy", "summary", "changelog"],
+      title: "Copy thread as PR description",
+      description: activeThread.title,
+      icon: <GitPullRequestArrowIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await copyThreadReport(handoffRef, "pr");
       },
     });
   }
@@ -1723,12 +1747,55 @@ function OpenCommandPaletteDialog(props: {
 
   actionItems.push({
     kind: "action",
-    value: "action:keyboard-shortcuts",
-    searchTerms: ["keyboard", "shortcuts", "keybindings", "hotkeys", "cheat sheet", "help"],
-    title: "Show keyboard shortcuts",
-    icon: <KeyboardIcon className={ITEM_ICON_CLASS} />,
+    value: "action:usage",
+    searchTerms: [
+      "usage",
+      "cost",
+      "tokens",
+      "spend",
+      "analytics",
+      "consumption",
+      "pricing",
+      "harnesses",
+      "providers",
+    ],
+    title: "Open Usage & Costs",
+    icon: <ChartNoAxesColumnIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
-      window.dispatchEvent(new Event(OPEN_SHORTCUTS_EVENT));
+      await navigate({ to: "/usage" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:routines",
+    searchTerms: ["routines", "automation", "scheduled", "cron", "jobs", "tasks", "background"],
+    title: "Open Automated Routines",
+    icon: <CalendarClockIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/routines" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:race",
+    searchTerms: ["race", "best of", "compare", "parallel", "agents", "models", "worktrees"],
+    title: "Open Race",
+    icon: <FlagIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/race" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:skills",
+    searchTerms: ["skills", "rules", "instructions", "capabilities", "prompts"],
+    title: "Open Skills & Rules",
+    icon: <SparklesIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/settings/skills" });
     },
   });
 
@@ -1805,6 +1872,105 @@ function OpenCommandPaletteDialog(props: {
 
   actionItems.push({
     kind: "action",
+    value: "action:theme-prism-tide",
+    searchTerms: ["theme", "prism", "tide", "dark", "palette", "blue", "ocean", "switch"],
+    title: "Switch Theme: Prism Tide (Ocean Dark)",
+    icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      setTheme("prism-tide");
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:theme-prism-aurora",
+    searchTerms: ["theme", "prism", "aurora", "dark", "palette", "emerald", "green", "switch"],
+    title: "Switch Theme: Prism Aurora (Emerald Mint)",
+    icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      setTheme("prism-aurora");
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:theme-prism-solstice",
+    searchTerms: [
+      "theme",
+      "prism",
+      "solstice",
+      "dark",
+      "palette",
+      "amber",
+      "sunset",
+      "coral",
+      "switch",
+    ],
+    title: "Switch Theme: Prism Solstice (Warm Amber)",
+    icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      setTheme("prism-solstice");
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:theme-prism-nocturne",
+    searchTerms: ["theme", "prism", "nocturne", "dark", "oled", "black", "palette", "switch"],
+    title: "Switch Theme: Prism Nocturne (OLED Pitch Black)",
+    icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      setTheme("prism-nocturne");
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:theme-prism-nord",
+    searchTerms: ["theme", "prism", "nord", "glacier", "arctic", "cyan", "palette", "switch"],
+    title: "Switch Theme: Prism Nord (Arctic Ice)",
+    icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      setTheme("prism-nord");
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:theme-prism-porcelain",
+    searchTerms: ["theme", "prism", "porcelain", "light", "palette", "white", "daylight", "switch"],
+    title: "Switch Theme: Prism Porcelain (Warm Light)",
+    icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      setTheme("prism-porcelain");
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:diagnostics",
+    searchTerms: ["diagnostics", "debug", "processes", "trace", "health", "system", "performance"],
+    title: "Inspect System & Process Diagnostics",
+    icon: <SparklesIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/settings/diagnostics" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:upstream-updates",
+    searchTerms: ["update", "releases", "download", "upstream", "github", "t3code", "check"],
+    title: "Check Upstream Releases & Downloads",
+    icon: <SparklesIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      const pill = document.querySelector<HTMLElement>("[data-upstream-pill]");
+      pill?.click();
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
     value: "action:theme-editor",
     searchTerms: ["theme", "appearance", "colors", "palette", "customize"],
     title: "Toggle theme editor",
@@ -1868,6 +2034,110 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+
+  // Enterprise v1 premium: go-anywhere. One "Go to …" action per main
+  // route and settings panel, so the palette navigates anywhere by name.
+  // Runs record a recent-destination history (localStorage, capped).
+  const runGoAnywhereDestination = useCallback(
+    async (destination: GoAnywhereDestination) => {
+      recordRecentDestinationKey(destination.value);
+      switch (destination.value) {
+        case "go:command-center":
+          await navigate({ to: "/command-center" });
+          return;
+        case "go:usage":
+          await navigate({ to: "/usage" });
+          return;
+        case "go:shortcuts":
+          window.dispatchEvent(new Event(OPEN_SHORTCUTS_EVENT));
+          return;
+        case "go:routines":
+          await navigate({ to: "/routines" });
+          return;
+        case "go:race":
+          await navigate({ to: "/race" });
+          return;
+        case "go:settings:general":
+          await navigate({ to: "/settings/general" });
+          return;
+        case "go:settings:appearance":
+          await navigate({ to: "/settings/appearance" });
+          return;
+        case "go:settings:projects":
+          await navigate({ to: "/settings/projects", search: { project: undefined, machine: undefined } });
+          return;
+        case "go:settings:keybindings":
+          await navigate({ to: "/settings/keybindings" });
+          return;
+        case "go:settings:providers":
+          await navigate({ to: "/settings/providers" });
+          return;
+        case "go:settings:integrations":
+          await navigate({ to: "/settings/integrations" });
+          return;
+        case "go:settings:skills":
+          await navigate({ to: "/settings/skills" });
+          return;
+        case "go:settings:source-control":
+          await navigate({ to: "/settings/source-control" });
+          return;
+        case "go:settings:connections":
+          await navigate({ to: "/settings/connections" });
+          return;
+        case "go:settings:diagnostics":
+          await navigate({ to: "/settings/diagnostics" });
+          return;
+        default:
+          await navigate({ to: "/settings" });
+          return;
+      }
+    },
+    [navigate],
+  );
+  const goAnywhereIconFor = useCallback(
+    (destination: GoAnywhereDestination) => {
+      if (destination.value === "go:command-center")
+        return <LayoutDashboardIcon className={ITEM_ICON_CLASS} />;
+      if (destination.value === "go:usage")
+        return <ChartNoAxesColumnIcon className={ITEM_ICON_CLASS} />;
+      if (destination.value === "go:routines")
+        return <CalendarClockIcon className={ITEM_ICON_CLASS} />;
+      if (destination.value === "go:race") return <FlagIcon className={ITEM_ICON_CLASS} />;
+      if (destination.value === "go:shortcuts")
+        return <KeyboardIcon className={ITEM_ICON_CLASS} />;
+      return <SettingsIcon className={ITEM_ICON_CLASS} />;
+    },
+    [],
+  );
+  // Build once; icons resolve per item via the mapper.
+  // Only settings panels get dedicated "Go to" rows — main routes already
+  // have "Open …" actions above, and duplicating them doubles palette noise.
+  const goAnywhereItems = useMemo(() => {
+    const wanted = new Set([
+      "go:settings:general",
+      "go:settings:appearance",
+      "go:settings:projects",
+      "go:settings:keybindings",
+      "go:settings:providers",
+      "go:settings:integrations",
+      "go:settings:skills",
+      "go:settings:source-control",
+      "go:settings:connections",
+      "go:settings:diagnostics",
+    ]);
+    return buildGoAnywhereItems({ icon: null, runDestination: runGoAnywhereDestination })
+      .filter((item) => wanted.has(item.value))
+      .map((item) => ({
+        ...item,
+        icon: goAnywhereIconFor({
+          value: item.value,
+          title: "",
+          searchTerms: [],
+          description: "",
+        }),
+      }));
+  }, [goAnywhereIconFor, runGoAnywhereDestination]);
+  for (const item of goAnywhereItems) actionItems.push(item);
 
   const rootGroups = buildRootGroups({ actionItems, recentThreadItems });
   const settingsSearchItems: CommandPaletteActionItem[] = searchSettings(
@@ -2514,8 +2784,14 @@ function OpenCommandPaletteDialog(props: {
       pickedPath = await api.dialogs.pickFolder(
         Object.keys(pickerOptions).length > 0 ? pickerOptions : undefined,
       );
-    } catch {
-      // Ignore picker failures and leave the palette open.
+    } catch (cause) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not open the folder picker",
+          description: errorMessage(cause),
+        }),
+      );
       setIsPickingProjectFolder(false);
       return;
     }
@@ -2684,7 +2960,7 @@ function OpenCommandPaletteDialog(props: {
   return (
     <CommandPaletteContent
       key={`${viewStack.length}-${browseGeneration}-${isBrowsing}-${addProjectCloneFlow?.step ?? "none"}`}
-      aria-label="Command palette"
+      aria-label={isBrowsing ? "Choose a project folder" : "Command palette"}
       autoHighlight={isBrowsing || isRemoteProjectCloneFlow ? false : "always"}
       footerActionLabel={footerActionLabel}
       footerTrailing={footerTrailing}
@@ -2744,6 +3020,81 @@ function OpenCommandPaletteDialog(props: {
               </span>
             </span>
           </div>
+        </div>
+      ) : null}
+      {isBrowsing && addProjectEnvironmentId !== null && !addProjectCloneFlow ? (
+        <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium">Browse project folders</div>
+            <div className="truncate text-xs text-muted-foreground">
+              {browseEnvironment?.label} · {browseResult?.parentPath ?? browseDirectoryPath}
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => {
+              browseNavigation.invalidate();
+              setHighlightedItemValue(null);
+              setQuery("~/");
+            }}
+          >
+            Home
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={!canBrowseUp || isBrowsePending}
+            onClick={() => void browseUp()}
+          >
+            Up
+          </Button>
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={
+              !canSubmitBrowsePath ||
+              isBrowsePending ||
+              browseQuery.error !== null ||
+              !browseResult?.parentPath
+            }
+            onClick={() => {
+              if (browseResult?.parentPath) void handleAddProject(browseResult.parentPath);
+            }}
+          >
+            Add this folder
+          </Button>
+          {canOpenProjectFromFileManager ? (
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={isPickingProjectFolder}
+              onClick={() => void handleOpenProjectFromFileManager()}
+            >
+              <FolderIcon className="size-3.5" />
+              {isPickingProjectFolder ? "Choosing…" : "Choose folder…"}
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => startAddProjectSourceSelection(addProjectEnvironmentId)}
+          >
+            Clone repository…
+          </Button>
+        </div>
+      ) : null}
+      {isBrowsing && isBrowsePending && browseResult === null ? (
+        <div className="px-4 py-3 text-xs text-muted-foreground" role="status">
+          Loading folders…
+        </div>
+      ) : null}
+      {isBrowsing && browseQuery.error ? (
+        <div className="flex items-center gap-2 px-4 py-3 text-xs text-destructive" role="alert">
+          <span className="min-w-0 flex-1">{browseQuery.error}</span>
+          <Button variant="outline" size="xs" onClick={browseQuery.refresh}>
+            Retry
+          </Button>
         </div>
       ) : null}
       <CommandPaletteResults

@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=35m; seat=codex; date=2026-10-02 */
 import type { EnvironmentConnectionPhase } from "../connection/presentation.ts";
 import type {
   CommandId,
@@ -17,6 +18,7 @@ import {
   ensureBrowseDirectoryPath,
   findProjectByPath,
   inferProjectTitleFromPath,
+  isFilesystemBrowseQuery,
   isExplicitRelativeProjectPath,
   isUnsupportedWindowsProjectPath,
   resolveProjectPathForDispatch,
@@ -192,7 +194,11 @@ export function buildAddProjectRemoteSourceReadiness(
 
 export function getAddProjectInitialQuery(baseDirectory: string | null | undefined): string {
   const trimmed = baseDirectory?.trim() ?? "";
-  return trimmed.length === 0 ? "~/" : ensureBrowseDirectoryPath(trimmed);
+  // Adding the first project has no active workspace to resolve relative paths.
+  // A stale base-directory preference must not leave the picker in search mode.
+  return !isFilesystemBrowseQuery(trimmed, "Windows") || isExplicitRelativeProjectPath(trimmed)
+    ? "~/"
+    : ensureBrowseDirectoryPath(trimmed);
 }
 
 /**

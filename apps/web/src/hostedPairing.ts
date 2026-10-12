@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=19m; seat=codex; date=2026-10-04 */
 import { DEFAULT_HOSTED_APP_URL } from "@t3tools/shared/connectAuth";
 
 import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "./pairingUrl";
@@ -32,6 +33,11 @@ function originFromUrl(value: string): string | null {
 }
 
 export function isHostedStaticApp(url?: URL): boolean {
+  // The Electron bridge owns startup and local authentication. Hosted build
+  // settings must not redirect an installed app into browser-only pairing.
+  if (typeof window !== "undefined" && window.desktopBridge !== undefined) {
+    return false;
+  }
   if (configuredBackendUrl()) {
     return false;
   }

@@ -1,3 +1,4 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-02 */
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useAtomValue } from "@effect/atom-react";
 import type {
@@ -48,7 +49,10 @@ import { armAgentAwarenessLiveActivityForLocalWork } from "../agent-awareness/re
 import { scopedThreadKey } from "../../lib/scopedEntities";
 
 import { AppText as Text } from "../../components/AppText";
+import { SymbolView } from "../../components/AppSymbol";
 import { ComposerAttachmentButton } from "../../components/ComposerAttachmentButton";
+import { PromptStashModal } from "./PromptStashModal";
+import { useMobilePromptStash } from "./useMobilePromptStash";
 import {
   ComposerAttachmentStrip,
   ComposerAttachmentThumbnail,
@@ -260,6 +264,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
   const [previewFile, setPreviewFile] = useState<FilePreviewSource | null>(null);
   const [previewVideo, setPreviewVideo] = useState<VideoPreviewSource | null>(null);
+  const [isStashModalVisible, setIsStashModalVisible] = useState(false);
+  const { stashCount } = useMobilePromptStash();
   const hasContent = props.draftMessage.trim().length > 0 || props.draftAttachments.length > 0;
   const showStopAction =
     !hasContent &&
@@ -773,13 +779,37 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   />
                 ) : (
                   <View className="min-w-0 flex-1 flex-row items-center justify-between">
-                    <ComposerAttachmentButton
-                      supportsFiles={Boolean(
-                        props.serverConfig?.environment.capabilities.fileAttachments,
-                      )}
-                      onPickMedia={props.onPickDraftMedia}
-                      onPickFiles={props.onPickDraftFiles}
-                    />
+                    <View className="flex-row items-center gap-1">
+                      <ComposerAttachmentButton
+                        supportsFiles={Boolean(
+                          props.serverConfig?.environment.capabilities.fileAttachments,
+                        )}
+                        onPickMedia={props.onPickDraftMedia}
+                        onPickFiles={props.onPickDraftFiles}
+                      />
+                      <Pressable
+                        accessibilityLabel={
+                          stashCount > 0
+                            ? `Prompts and presets (${stashCount} saved)`
+                            : "Prompts and presets"
+                        }
+                        accessibilityRole="button"
+                        onPress={() => setIsStashModalVisible(true)}
+                        className="size-11 items-center justify-center rounded-full active:bg-subtle"
+                      >
+                        <SymbolView name="doc.text" size={17} tintColorClassName="accent-icon" />
+                        {stashCount > 0 ? (
+                          <View
+                            pointerEvents="none"
+                            className="absolute top-2 right-2 min-w-[14px] h-[14px] items-center justify-center rounded-full bg-primary px-0.5"
+                          >
+                            <Text className="text-[9px] font-t3-bold text-primary-foreground leading-none">
+                              {stashCount > 9 ? "9+" : stashCount}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </Pressable>
+                    </View>
                     <View className="min-w-0 shrink">
                       <ComposerInlineControl
                         accessibilityLabel="Model and reasoning settings"
@@ -828,6 +858,18 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
       <VideoPreviewModal source={previewVideo} onRequestClose={closePreview} />
       <FilePreviewModal source={previewFile} onRequestClose={closePreview} />
+      <PromptStashModal
+        visible={isStashModalVisible}
+        onRequestClose={() => setIsStashModalVisible(false)}
+        currentDraft={props.draftMessage}
+        onSelectPrompt={(selectedText, mode) => {
+          if (mode === "append" && props.draftMessage.trim().length > 0) {
+            props.onChangeDraftMessage(`${props.draftMessage.trim()}\n\n${selectedText}`);
+          } else {
+            props.onChangeDraftMessage(selectedText);
+          }
+        }}
+      />
     </Animated.View>
   );
 });

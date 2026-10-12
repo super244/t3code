@@ -1,5 +1,8 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 */
+/* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 import {
   USAGE_CONTRACT_VERSION,
+  USAGE_MERGE_COMPATIBLE_SINCE,
   type EnvironmentId,
   type UsageBucket,
   type UsageDay,
@@ -8,7 +11,12 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { mergeUsage, type EnvironmentUsage } from "./usageMerge.ts";
+import {
+  mergeUsage,
+  selectUsageModels,
+  type EnvironmentUsage,
+  type ModelTotals,
+} from "./usageMerge.ts";
 
 function bucket(overrides: Partial<UsageBucket> = {}): UsageBucket {
   return {
@@ -158,7 +166,7 @@ describe("mergeUsage", () => {
           summary(
             [bucket()],
             [{ provider: "claude", hostId: "linux", homePath: "/b" }],
-            USAGE_CONTRACT_VERSION - 2,
+            USAGE_MERGE_COMPATIBLE_SINCE - 1,
           ),
         ),
       ],
@@ -337,5 +345,140 @@ describe("mergeUsage", () => {
     ]);
     expect(merged.daily).toHaveLength(1);
     expect(merged.daily[0]?.costUsd).toBe(10);
+  });
+});
+
+describe("provider-focused usage", () => {
+  const sources = [
+    { provider: "claude" as const, hostId: "mac", homePath: "/claude", distinctSessions: 3 },
+    { provider: "codex" as const, hostId: "mac", homePath: "/codex", distinctSessions: 7 },
+  ];
+  const data = [
+    environment(
+      "a",
+      summary(
+        [
+          bucket({ hourStart: "2026-08-07T12:00:00Z" }),
+          bucket({
+            provider: "codex",
+            model: "gpt",
+            costUsd: 20,
+            cacheSavingsUsd: 8,
+            records: 2,
+            unpricedRecords: 1,
+          }),
+        ],
+        sources,
+      ),
+    ),
+  ];
+
+  it("scopes tokens, unique sessions, cache savings and pricing quality before deriving shares", () => {
+    const result = mergeUsage(data, USAGE_CONTRACT_VERSION, "claude");
+    expect(result.costUsd).toBe(10);
+    expect(result.totalTokens).toBe(1160);
+    expect(result.sessions).toBe(3);
+    expect(result.cachedInputTokens).toBe(1000);
+    expect(result.cacheCreationTokens).toBe(10);
+    expect(result.costQuality).toEqual({
+      cacheSavingsUsd: 2,
+      providerReportedShare: 0,
+      modelPricedShare: 1,
+      unpricedShare: 0,
+    });
+    expect(
+      result.providers.map((entry) => [entry.provider, entry.costShare, entry.tokenShare]),
+    ).toEqual([["claude", 1, 1]]);
+    expect(result.models.map((entry) => entry.model)).toEqual(["claude-fable-5"]);
+    expect([...result.hourly[0]!.byProvider.keys()]).toEqual(["claude"]);
+    expect([...result.daily[0]!.byProvider.keys()]).toEqual(["claude"]);
+  });
+
+  it("deduplicates selected sources and hides duplicate diagnostics from excluded harnesses", () => {
+    const environments = [...data, environment("b", summary([bucket()], [sources[0]!]))];
+    expect(mergeUsage(environments, USAGE_CONTRACT_VERSION, "claude").sessions).toBe(3);
+    expect(
+      mergeUsage(environments, USAGE_CONTRACT_VERSION, "claude").duplicateSources,
+    ).toHaveLength(1);
+    expect(mergeUsage(environments, USAGE_CONTRACT_VERSION, "codex").duplicateSources).toEqual([]);
+  });
+
+  it("restores all providers without mutating source summaries", () => {
+    mergeUsage(data, USAGE_CONTRACT_VERSION, "claude");
+    const all = mergeUsage(data, USAGE_CONTRACT_VERSION, null);
+    expect(all.costUsd).toBe(30);
+    expect(all.sessions).toBe(10);
+    expect(data[0]!.summary.buckets).toHaveLength(2);
+    expect(data[0]!.summary.sources).toHaveLength(2);
+  });
+
+  it("returns honest empty totals when the selected harness has no sources", () => {
+    const result = mergeUsage(data, USAGE_CONTRACT_VERSION, "grok");
+    expect(result.totalTokens).toBe(0);
+    expect(result.sessions).toBe(0);
+    expect(result.contributingEnvironments).toEqual([]);
+    expect(result.models).toEqual([]);
+  });
+
+  it.each(["claude", "codex", "grok", "opencode", "antigravity"] as const)(
+    "supports %s without a contract change",
+    (provider) => {
+      const environmentUsage = environment(
+        "a",
+        summary([bucket({ provider })], [{ provider, hostId: "mac", homePath: `/${provider}` }]),
+      );
+      expect(mergeUsage([environmentUsage], USAGE_CONTRACT_VERSION, provider).costUsd).toBe(10);
+    },
+  );
+});
+
+describe("model breakdown focus", () => {
+  const models: readonly ModelTotals[] = [
+    {
+      provider: "claude",
+      model: "capable",
+      costUsd: 10,
+      totalTokens: 200,
+      records: 1,
+      costShare: 0.8,
+    },
+    {
+      provider: "codex",
+      model: "fast",
+      costUsd: 2,
+      totalTokens: 1000,
+      records: 1,
+      costShare: 0.16,
+    },
+    {
+      provider: "codex",
+      model: "small",
+      costUsd: 0.5,
+      totalTokens: 100,
+      records: 1,
+      costShare: 0.04,
+    },
+  ];
+  it("ranks tokens independently of cost without mutating the merged rows", () => {
+    expect(selectUsageModels(models, { metric: "tokens" }).map((row) => row.model)).toEqual([
+      "fast",
+      "capable",
+      "small",
+    ]);
+    expect(models[0]?.model).toBe("capable");
+    expect(selectUsageModels(models, { metric: "cost" })[0]?.model).toBe("capable");
+  });
+  it("searches model names and harnesses case-insensitively, retaining original cost shares", () => {
+    expect(selectUsageModels(models, { metric: "cost", query: "  CODEX  " })).toEqual([
+      models[1],
+      models[2],
+    ]);
+    expect(selectUsageModels(models, { metric: "cost", query: "FAST", provider: "codex" })).toEqual(
+      [models[1]],
+    );
+    expect(
+      selectUsageModels(models, { metric: "cost", query: "fast", provider: "claude" }),
+    ).toEqual([]);
+    expect(selectUsageModels(models, { metric: "cost", query: "missing" })).toEqual([]);
   });
 });

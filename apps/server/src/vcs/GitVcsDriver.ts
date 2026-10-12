@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
 import * as NodeCrypto from "node:crypto";
 
 import * as Context from "effect/Context";
@@ -23,6 +24,8 @@ import {
   type ReviewDiffFileContentsInput,
   type ReviewDiffFileContentsResult,
   type VcsInitInput,
+  type VcsIntegrateWorktreeInput,
+  type VcsIntegrateWorktreeResult,
   type VcsListRefsInput,
   type VcsListRefsResult,
   type VcsPullResult,
@@ -321,6 +324,16 @@ export class GitVcsDriver extends Context.Service<
     readonly removeWorktree: (
       input: VcsRemoveWorktreeInput,
     ) => Effect.Effect<void, GitCommandError>;
+    /**
+     * Squash-merges a worktree's branch into the project checkout, committing
+     * whatever the worktree still holds first. Refusals come back as results
+     * rather than failures: every check that can refuse runs before the
+     * worktree is committed, and a failure after the merge is staged unwinds it,
+     * so only a `merged` result changes either checkout.
+     */
+    readonly integrateWorktree: (
+      input: VcsIntegrateWorktreeInput,
+    ) => Effect.Effect<VcsIntegrateWorktreeResult, GitCommandError>;
     /** Drops worktree admin entries whose directory is already gone (`git worktree prune`). */
     readonly pruneWorktrees: (input: {
       readonly cwd: string;

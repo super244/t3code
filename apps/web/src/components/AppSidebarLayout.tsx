@@ -1,3 +1,6 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-04 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-10-01 */
+/* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
@@ -26,6 +29,7 @@ import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { MainAppLocationTracker } from "./sidebar/mainAppLocation";
 import {
   resolveSidebarStageFocusRingOffsetClass,
   useSidebarStageBackdropVariant,
@@ -212,6 +216,26 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         if (!isSettingsRoute) {
           void navigate({ to: "/settings" });
         }
+      } else if (action === "open-command-center") {
+        if (pathname !== "/command-center") {
+          void navigate({ to: "/command-center" });
+        }
+      } else if (action === "open-usage") {
+        if (pathname !== "/usage") {
+          void navigate({ to: "/usage" });
+        }
+      } else if (action === "open-routines") {
+        if (pathname !== "/routines") {
+          void navigate({ to: "/routines" });
+        }
+      } else if (action === "open-race") {
+        if (pathname !== "/race") {
+          void navigate({ to: "/race" });
+        }
+      } else if (action === "open-skills") {
+        if (pathname !== "/settings/skills") {
+          void navigate({ to: "/settings/skills" });
+        }
       }
     });
 
@@ -229,6 +253,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         style={sidebarProviderStyle}
       >
         <ProjectProjectionRetention />
+        <MainAppLocationTracker />
         <ShortcutsOverlay />
         <AgentNotifications />
         <Sidebar
