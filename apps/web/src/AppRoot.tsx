@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-09 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 import { RouterProvider } from "@tanstack/react-router";
@@ -5,6 +6,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { ElectronBrowserHost } from "./browser/ElectronBrowserHost";
 import { PreviewAutomationHosts } from "./components/preview/PreviewAutomationHosts";
 import { QuitHoldOverlay } from "./components/QuitHoldOverlay";
+import { UpstreamHubHost } from "./components/updates/UpstreamHubHost";
 import { EnterpriseThemeProvider } from "./enterpriseTheme";
 import { AppAtomRegistryProvider } from "./rpc/atomRegistry";
 import type { AppRouter } from "./router";
@@ -24,6 +26,7 @@ export function AppRoot({ router }: { readonly router: AppRouter }) {
         <PreviewAutomationHosts />
         <ElectronBrowserHost />
         <QuitHoldOverlay />
+        <UpstreamHubHost />
       </AppAtomRegistryProvider>
     </EnterpriseThemeProvider>
   );

@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 /* agent-watermark: model=muse-spark; effort=high; duration=35m; seat=opencode; date=2026-10-10 */
@@ -204,6 +205,7 @@ import {
 } from "../sidebarProjectGrouping";
 import type { Project } from "../types";
 import { OPEN_SHORTCUTS_EVENT } from "./shortcuts/shortcutsOverlay.logic";
+import { openUpstreamHub } from "./updates/upstreamHubStore";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -1675,7 +1677,15 @@ function OpenCommandPaletteDialog(props: {
     actionItems.push({
       kind: "action",
       value: "action:export-report",
-      searchTerms: ["export", "markdown", "report", "download", "share", "transcript", "save thread"],
+      searchTerms: [
+        "export",
+        "markdown",
+        "report",
+        "download",
+        "share",
+        "transcript",
+        "save thread",
+      ],
       title: "Export thread as Markdown",
       description: activeThread.title,
       icon: <FileDownIcon className={ITEM_ICON_CLASS} />,
@@ -1960,12 +1970,22 @@ function OpenCommandPaletteDialog(props: {
   actionItems.push({
     kind: "action",
     value: "action:upstream-updates",
-    searchTerms: ["update", "releases", "download", "upstream", "github", "t3code", "check"],
-    title: "Check Upstream Releases & Downloads",
+    searchTerms: [
+      "update",
+      "releases",
+      "download",
+      "upstream",
+      "nightly",
+      "github",
+      "t3code",
+      "check",
+    ],
+    title: "Upstream: Nightly and releases",
     icon: <SparklesIcon className={ITEM_ICON_CLASS} />,
+    // It clicked `[data-upstream-pill]`, an attribute the pill never had, so the
+    // action did nothing — and on a phone there is no pill to click.
     run: async () => {
-      const pill = document.querySelector<HTMLElement>("[data-upstream-pill]");
-      pill?.click();
+      openUpstreamHub();
     },
   });
 
@@ -2064,7 +2084,10 @@ function OpenCommandPaletteDialog(props: {
           await navigate({ to: "/settings/appearance" });
           return;
         case "go:settings:projects":
-          await navigate({ to: "/settings/projects", search: { project: undefined, machine: undefined } });
+          await navigate({
+            to: "/settings/projects",
+            search: { project: undefined, machine: undefined },
+          });
           return;
         case "go:settings:keybindings":
           await navigate({ to: "/settings/keybindings" });
@@ -2094,21 +2117,17 @@ function OpenCommandPaletteDialog(props: {
     },
     [navigate],
   );
-  const goAnywhereIconFor = useCallback(
-    (destination: GoAnywhereDestination) => {
-      if (destination.value === "go:command-center")
-        return <LayoutDashboardIcon className={ITEM_ICON_CLASS} />;
-      if (destination.value === "go:usage")
-        return <ChartNoAxesColumnIcon className={ITEM_ICON_CLASS} />;
-      if (destination.value === "go:routines")
-        return <CalendarClockIcon className={ITEM_ICON_CLASS} />;
-      if (destination.value === "go:race") return <FlagIcon className={ITEM_ICON_CLASS} />;
-      if (destination.value === "go:shortcuts")
-        return <KeyboardIcon className={ITEM_ICON_CLASS} />;
-      return <SettingsIcon className={ITEM_ICON_CLASS} />;
-    },
-    [],
-  );
+  const goAnywhereIconFor = useCallback((destination: GoAnywhereDestination) => {
+    if (destination.value === "go:command-center")
+      return <LayoutDashboardIcon className={ITEM_ICON_CLASS} />;
+    if (destination.value === "go:usage")
+      return <ChartNoAxesColumnIcon className={ITEM_ICON_CLASS} />;
+    if (destination.value === "go:routines")
+      return <CalendarClockIcon className={ITEM_ICON_CLASS} />;
+    if (destination.value === "go:race") return <FlagIcon className={ITEM_ICON_CLASS} />;
+    if (destination.value === "go:shortcuts") return <KeyboardIcon className={ITEM_ICON_CLASS} />;
+    return <SettingsIcon className={ITEM_ICON_CLASS} />;
+  }, []);
   // Build once; icons resolve per item via the mapper.
   // Only settings panels get dedicated "Go to" rows — main routes already
   // have "Open …" actions above, and duplicating them doubles palette noise.

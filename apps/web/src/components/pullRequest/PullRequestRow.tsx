@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-12 */
 import { SearchIcon, UserCheckIcon } from "lucide-react";
 import { PullRequestStackPopover } from "./PullRequestStackPopover";
 import { memo, type RefCallback } from "react";
@@ -41,7 +42,7 @@ function PullRequestRowLabels({ labels }: { labels: EnvironmentPullRequestEntry[
           <span
             key={label.name}
             className={cn(
-              "inline-flex max-w-40 min-w-0 items-center gap-1 rounded-full border border-border/70 bg-muted/40 py-0 pl-1 pr-1.5 text-[10px] leading-3.5 text-muted-foreground",
+              "inline-flex max-w-40 min-w-16 items-center gap-1 rounded-full border border-border/70 bg-muted/40 py-0 pl-1 pr-1.5 text-[10px] leading-3.5 text-muted-foreground",
               slot.pill,
             )}
           >
@@ -118,7 +119,8 @@ function PullRequestRowImpl({
         baseBranch={entry.baseBranch}
       />
       <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5">
-        <span className="col-start-1 row-start-1 block truncate text-sm font-medium text-foreground">
+        {/* Narrow rows let the title take two lines; a phone cut it at ~30 characters. */}
+        <span className="col-start-1 row-start-1 line-clamp-2 text-sm font-medium text-foreground @md/pr-row:line-clamp-1">
           {entry.title}
         </span>
         <span className="col-start-2 row-start-1 flex items-center justify-self-end gap-2 text-xs">

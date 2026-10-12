@@ -1,4 +1,6 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+/* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { MessageSquareOffIcon } from "lucide-react";
 import { useEffect } from "react";
 
 import ChatView from "../components/ChatView";
@@ -8,6 +10,16 @@ import { resolveThreadRouteRef, resolveThreadRouteRenderState } from "../threadR
 import { resolveThreadSyncPhase } from "../threadSync";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import { SidebarInset } from "~/components/ui/sidebar";
+import { Button } from "~/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "~/components/ui/empty";
+import { useEnvironments } from "../state/environments";
 import {
   useEnvironmentThreadRefs,
   useThreadDetail,
@@ -57,6 +69,14 @@ function ChatThreadRouteView() {
   });
   const serverThreadStarted = threadHasStarted(serverThreadDetail);
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
+  const { environments } = useEnvironments();
+  // An address whose environment this client does not know (a mistyped
+  // /settings/archive lands here as environment "settings") never bootstraps, so
+  // it used to render an empty pane forever.
+  const environmentUnknown =
+    threadRef !== null &&
+    environments.length > 0 &&
+    !environments.some((environment) => environment.environmentId === threadRef.environmentId);
 
   useEffect(() => {
     if (!threadRef || !bootstrapComplete) {
@@ -95,6 +115,25 @@ function ChatThreadRouteView() {
           routeKind="server"
           threadSyncPhase={threadSyncPhase}
         />
+      ) : environmentUnknown || (renderState === "missing" && !environmentHasAnyThreads) ? (
+        <Empty className="h-full">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <MessageSquareOffIcon />
+            </EmptyMedia>
+            <EmptyTitle>Thread not found</EmptyTitle>
+            <EmptyDescription>
+              {environmentUnknown
+                ? "This address does not point at a computer or thread this app knows."
+                : "This thread was deleted or never synced to this computer."}
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button size="sm" variant="outline" render={<Link to="/" />}>
+              Back to threads
+            </Button>
+          </EmptyContent>
+        </Empty>
       ) : null}
     </SidebarInset>
   );

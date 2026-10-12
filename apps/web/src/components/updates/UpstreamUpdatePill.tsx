@@ -1,16 +1,14 @@
-/* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
-import { useState } from "react";
 import { Zap } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { cn } from "../../lib/utils";
 import { SIDEBAR_STATUS_PILL } from "../sidebar/statusPill";
-import { UpstreamUpdateHub } from "./UpstreamUpdateHub";
+import { openUpstreamHub } from "./upstreamHubStore";
 import { useUpstreamTracker } from "./upstreamTracker";
 
 export function UpstreamUpdatePill({ className }: { className?: string }) {
-  const { status, checkNow } = useUpstreamTracker();
-  const [hubOpen, setHubOpen] = useState(false);
+  const { status } = useUpstreamTracker();
 
   const hasNew = status.hasNewRelease;
   const version = status.latestRelease?.tagName ?? `v${status.currentVersion}`;
@@ -23,7 +21,7 @@ export function UpstreamUpdatePill({ className }: { className?: string }) {
             <button
               aria-label="View upstream releases and downloads"
               data-slot="upstream-update-pill"
-              onClick={() => setHubOpen(true)}
+              onClick={openUpstreamHub}
               type="button"
               className={cn(
                 "group relative",
@@ -61,13 +59,6 @@ export function UpstreamUpdatePill({ className }: { className?: string }) {
                 : "Upstream releases have not been checked yet"}
         </TooltipPopup>
       </Tooltip>
-
-      <UpstreamUpdateHub
-        open={hubOpen}
-        onOpenChange={setHubOpen}
-        status={status}
-        onCheckNow={checkNow}
-      />
     </>
   );
 }

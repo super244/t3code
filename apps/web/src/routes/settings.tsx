@@ -1,5 +1,7 @@
-import { RotateCcwIcon } from "lucide-react";
+/* agent-watermark: model=opus-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-12 */
+import { RotateCcwIcon, SearchXIcon } from "lucide-react";
 import {
+  Link,
   Outlet,
   createFileRoute,
   redirect,
@@ -12,6 +14,14 @@ import { useCallback, useEffect, useState } from "react";
 import { useSettingsRestore } from "../components/settings/SettingsPanels";
 import { SettingsBreadcrumb } from "../components/settings/SettingsBreadcrumb";
 import { Button } from "../components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { isElectron } from "../env";
@@ -108,4 +118,29 @@ export const Route = createFileRoute("/settings")({
     }
   },
   component: SettingsRouteLayout,
+  // A mistyped settings address (/settings/archive) matched this layout with no
+  // page under it and rendered an empty pane; it now says so and offers a way back.
+  notFoundComponent: SettingsNotFound,
 });
+
+function SettingsNotFound() {
+  const location = useLocation();
+  return (
+    <Empty className="py-16">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <SearchXIcon />
+        </EmptyMedia>
+        <EmptyTitle>No settings page here</EmptyTitle>
+        <EmptyDescription>
+          Nothing lives at <span className="font-mono">{location.pathname}</span>.
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button size="sm" variant="outline" render={<Link to="/settings/general" />}>
+          Open General settings
+        </Button>
+      </EmptyContent>
+    </Empty>
+  );
+}

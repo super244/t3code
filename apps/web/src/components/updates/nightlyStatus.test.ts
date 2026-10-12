@@ -1,5 +1,5 @@
 /* agent-watermark: model=opus-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-12 */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { describeNightlyVersion } from "./nightlyStatus";
 

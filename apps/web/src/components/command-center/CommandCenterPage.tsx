@@ -1,4 +1,4 @@
-/* agent-watermark: model=opus-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-10 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=6m; seat=codex; date=2026-10-01 */
@@ -541,11 +541,11 @@ export function CommandCenterPage() {
                         {formatUsd(usage.merged.costUsd)}
                       </span>
                     )}
-                    {usage.isPending ? null : (
-                      <span className="text-xs tabular-nums text-muted-foreground">
-                        {formatTokens(usage.merged.totalTokens)} tokens
-                      </span>
-                    )}
+                    <span className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
+                      {usage.isPending
+                        ? "Reading usage…"
+                        : `${formatTokens(usage.merged.totalTokens)} tokens`}
+                    </span>
                   </span>
                   {harnessUsage.length > 0 ? (
                     <span className="flex flex-col border-t border-border pt-2">
@@ -563,14 +563,19 @@ export function CommandCenterPage() {
                             <span className={quiet ? "text-muted-foreground" : undefined}>
                               {PROVIDER_PRESENTATION[provider].label}
                             </span>
-                            <span
-                              className={cn(
-                                "tabular-nums",
-                                quiet ? "text-muted-foreground/60" : "text-muted-foreground",
-                              )}
-                            >
-                              {quiet ? "No activity" : formatTokens(totals?.totalTokens ?? 0)}
-                            </span>
+                            {/* While the scan runs nothing is known yet; "No activity" was a claim. */}
+                            {usage.isPending ? (
+                              <Skeleton className="h-3 w-12" />
+                            ) : (
+                              <span
+                                className={cn(
+                                  "tabular-nums",
+                                  quiet ? "text-muted-foreground/60" : "text-muted-foreground",
+                                )}
+                              >
+                                {quiet ? "No activity" : formatTokens(totals?.totalTokens ?? 0)}
+                              </span>
+                            )}
                           </span>
                         );
                       })}
@@ -584,10 +589,7 @@ export function CommandCenterPage() {
                   >
                     <span className="mb-1 text-sm font-medium">Top projects · 7 days</span>
                     {topProjects.map((project) => (
-                      <span
-                        key={project.key}
-                        className="flex items-baseline gap-2 text-xs"
-                      >
+                      <span key={project.key} className="flex items-baseline gap-2 text-xs">
                         <span className="min-w-0 flex-1 truncate">{project.name}</span>
                         <span className="tabular-nums text-muted-foreground">
                           {formatUsd(project.costUsd)}
@@ -668,7 +670,11 @@ export function CommandCenterPage() {
                               "—"}
                           </td>
                           <td className="py-2.5 pr-3 text-right text-xs tabular-nums text-muted-foreground">
-                            <HarnessWeekUsage driver={provider.driver} usageByKind={usageByKind} />
+                            <HarnessWeekUsage
+                              driver={provider.driver}
+                              usageByKind={usageByKind}
+                              pending={usage.isPending}
+                            />
                           </td>
                           <td className="py-2.5 text-right">
                             <Badge
@@ -772,7 +778,9 @@ export function CommandCenterPage() {
 function HarnessWeekUsage({
   driver,
   usageByKind,
+  pending,
 }: {
+  readonly pending: boolean;
   readonly driver: string;
   readonly usageByKind: ReadonlyMap<
     string,
@@ -781,6 +789,7 @@ function HarnessWeekUsage({
 }) {
   const kind = usageKindForDriver(driver);
   if (kind === null) return <span>—</span>;
+  if (pending) return <span>Reading…</span>;
   const totals = usageByKind.get(kind);
   if (totals === undefined || (totals.totalTokens === 0 && totals.costUsd === 0)) {
     return <span>No activity</span>;
