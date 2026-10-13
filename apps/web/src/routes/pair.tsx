@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=80m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=90m; seat=claude-code; date=2026-10-12 */
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
@@ -8,12 +8,12 @@ import {
   PairingPendingSurface,
   PairingRouteSurface,
 } from "../components/auth/PairingRouteSurface";
-import { readLinkRejected, writeLinkRejected } from "../components/auth/pairingLinkRejected";
+import {
+  isRejectedPairingLink,
+  readLinkRejected,
+  writeLinkRejected,
+} from "../components/auth/pairingLinkRejected";
 import { Button } from "../components/ui/button";
-
-// The gate reports a rejected credential as this message; it is the only signal that a
-// pairing link was already used or has expired.
-const REJECTED_PAIRING_MESSAGE = /^Invalid pairing token/i;
 
 export const Route = createFileRoute("/pair")({
   beforeLoad: async ({ context, location }) => {
@@ -23,9 +23,17 @@ export const Route = createFileRoute("/pair")({
       throw redirect({ to: "/", replace: true });
     }
 
-    // The router location still carries the hash the link arrived with.
+    // The router location still carries the hash the link arrived with. Only the first of the two
+    // runs has the gate's error message, so only that run records the rejection.
     const arrivedWithToken = new URLSearchParams(location.hash).has("token");
-    if (arrivedWithToken && authGateState.status === "requires-auth") {
+    if (
+      isRejectedPairingLink({
+        arrivedWithToken,
+        requiresAuth: authGateState.status === "requires-auth",
+        errorMessage:
+          authGateState.status === "requires-auth" ? authGateState.errorMessage : undefined,
+      })
+    ) {
       writeLinkRejected(true);
     }
     return {
@@ -49,11 +57,9 @@ function PairRouteView() {
     return <HostedPairingRouteSurface />;
   }
 
-  // A link that arrived with a token but still leaves this browser signed out did not work:
-  // the token was already used, or it expired.
-  const linkRejected =
-    REJECTED_PAIRING_MESSAGE.test(authGateState.errorMessage ?? "") || readLinkRejected();
-  if (!retrying && linkRejected) {
+  // The rejection was recorded by beforeLoad from the link's own token. Anything else the gate
+  // reports (a server error, a session that never established) shows in the token form.
+  if (!retrying && readLinkRejected()) {
     return (
       <ExpiredPairingLinkCard
         onRetry={() => {

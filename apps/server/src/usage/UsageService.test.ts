@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=2m; seat=antigravity; date=2026-10-02 */
 // @effect-diagnostics nodeBuiltinImport:off - the suite seeds and grows real
@@ -220,6 +221,26 @@ describe("UsageService", () => {
         assert.closeTo(updated.buckets[0]?.costUsd ?? -1, 0.00006, 1e-12);
       }).pipe(
         Effect.provide(serviceLayers({ prefix: "usage-service-price-race-test", home, settings })),
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("answers a home with nothing to read without waiting on the rate table", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      yield* Effect.gen(function* () {
+        // The rate fetch never answers: a window with no transcripts must not depend on it.
+        const service = yield* UsageService.make.pipe(
+          Effect.provideService(
+            HttpClient.HttpClient,
+            HttpClient.make(() => Effect.never),
+          ),
+        );
+        const summary = yield* service.readSummary(WINDOW).pipe(Effect.timeout(3_000));
+        assert.strictEqual(summary.buckets.length, 0);
+        assert.deepStrictEqual(summary.projects ?? [], []);
+      }).pipe(
+        Effect.provide(serviceLayers({ prefix: "usage-service-empty-home-test", home, settings })),
       );
     }).pipe(Effect.scoped),
   );

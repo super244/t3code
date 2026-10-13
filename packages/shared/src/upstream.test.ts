@@ -1,5 +1,5 @@
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
-/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-12 */
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   buildUpstreamNightlyStatus,
@@ -230,6 +230,28 @@ describe("upstream nightly status", () => {
       autoUpdateDisabled: false,
       isolated: false,
     });
+  });
+
+  it("compares resolved paths, so an alias of the shared home is not isolated", () => {
+    const aliases: Record<string, string> = { "/Users/luca/alias": "/Users/luca/.t3" };
+    const resolvePath = (path: string) => aliases[path] ?? path;
+    expect(
+      nightlyIsolation({
+        environment: { T3CODE_HOME: "/Users/luca/alias", T3CODE_DISABLE_AUTO_UPDATE: "true" },
+        sharedHome,
+        resolvePath,
+      }).isolated,
+    ).toBe(false);
+    expect(
+      nightlyIsolation({
+        environment: {
+          T3CODE_HOME: "/Users/luca/.t3-nightly",
+          T3CODE_DISABLE_AUTO_UPDATE: "true",
+        },
+        sharedHome,
+        resolvePath,
+      }).isolated,
+    ).toBe(true);
   });
 
   it("treats a T3CODE_HOME that resolves to the shared home as not isolated", () => {

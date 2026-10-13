@@ -8,6 +8,27 @@ const LINK_REJECTED_KEY = "t3code:pairing-link-rejected";
 // is stale, so a later visit to /pair without a link shows the plain token form, not "expired".
 const LINK_REJECTED_TTL_MS = 60_000;
 
+// The gate reports a rejected credential with this message. Any other failure (a server error,
+// a session cookie that never arrived) is not a rejected link and keeps its own message.
+const REJECTED_PAIRING_MESSAGE = /^Invalid pairing token/i;
+
+/**
+ * True only when a link's token was rejected: the page arrived with a token in its hash, the
+ * browser is still signed out, and the gate reported a credential rejection. A desktop bootstrap
+ * rejection has no link, so it never counts.
+ */
+export function isRejectedPairingLink(input: {
+  readonly arrivedWithToken: boolean;
+  readonly requiresAuth: boolean;
+  readonly errorMessage: string | undefined;
+}): boolean {
+  return (
+    input.arrivedWithToken &&
+    input.requiresAuth &&
+    REJECTED_PAIRING_MESSAGE.test(input.errorMessage ?? "")
+  );
+}
+
 export function readLinkRejected(): boolean {
   try {
     const stored = Number(window.sessionStorage.getItem(LINK_REJECTED_KEY));

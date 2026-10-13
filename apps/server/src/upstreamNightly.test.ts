@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-12 */
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -133,6 +133,32 @@ describe("parseNightlyInstallBody", () => {
   it("refuses malformed JSON instead of installing the latest nightly", () => {
     expect(parseNightlyInstallBody('{"seed":')).toBeNull();
     expect(parseNightlyInstallBody("not json")).toBeNull();
+  });
+});
+
+describe("nightlyInstallFromInfo with a symlinked home", () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    for (const root of roots.splice(0)) NodeFS.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("does not call a symlink to the shared home isolated, as the sidecar does", () => {
+    const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "nightly-alias-"));
+    roots.push(root);
+    const shared = NodePath.join(root, ".t3");
+    NodeFS.mkdirSync(shared);
+    const alias = NodePath.join(root, "nightly");
+    NodeFS.symlinkSync(shared, alias);
+    const info = (home: string) => ({
+      CFBundleShortVersionString: "0.0.46-nightly.20261012.3021",
+      CFBundleIdentifier: "com.t3tools.t3code.nightly-sidecar",
+      LSEnvironment: { T3CODE_HOME: home, T3CODE_DISABLE_AUTO_UPDATE: "true" },
+    });
+
+    expect(nightlyInstallFromInfo(info(alias), shared)).toMatchObject({ isolated: false });
+    expect(nightlyInstallFromInfo(info(NodePath.join(root, ".t3-nightly")), shared)).toMatchObject({
+      isolated: true,
+    });
   });
 });
 

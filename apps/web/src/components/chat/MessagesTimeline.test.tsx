@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-12 */
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -489,7 +489,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Worked for 8.0s");
   });
 
-  it("renders assistant changed-files as a card with a plain header and designed counts", () => {
+  it("keeps assistant changed-files headers sticky below the thread header", () => {
     const assistantMessageId = MessageId.make("message-assistant-with-files");
     const turnId = TurnId.make("turn-with-files");
     const markup = renderToStaticMarkup(
@@ -531,9 +531,8 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    // The card clips its own corners (overflow-hidden), so a sticky header inside it could never pin.
     expect(markup).toContain('data-changed-files-header=""');
-    expect(markup).not.toContain("sticky top-2 z-10");
+    expect(markup).toContain("sticky top-2 z-10");
     expect(markup).not.toContain("self-start");
     expect(markup).toContain("whitespace-nowrap");
     expect(markup).toContain("size-3");

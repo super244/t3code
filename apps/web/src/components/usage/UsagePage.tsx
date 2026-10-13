@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-02 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
@@ -378,7 +378,7 @@ export function UsagePage() {
         : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`;
   const topbarContent = (
     <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 py-2 xl:flex">
-      <WorkspaceBreadcrumb ariaLabel="Usage breadcrumb" className="col-span-2 min-w-0">
+      <WorkspaceBreadcrumb ariaLabel="Usage breadcrumb" className="col-span-2 min-w-0 xl:flex-1">
         <WorkspaceBreadcrumbItem>
           <h1>Usage</h1>
         </WorkspaceBreadcrumbItem>
@@ -437,7 +437,7 @@ export function UsagePage() {
           {windowLabel}
         </span>
       ) : null}
-      <div className="ms-auto hidden min-w-0 items-center justify-end gap-2 xl:flex">
+      <div className="ms-auto hidden shrink-0 items-center justify-end gap-2 xl:flex">
         <ToggleGroup
           aria-label="Usage metric"
           variant="segmented"
@@ -1122,7 +1122,7 @@ function UsagePeriodSlider({
   const optionLabels = USAGE_WINDOW_OPTIONS.map((option) => option.label).join(", ");
 
   return (
-    <label className="flex w-96 min-w-72 items-center gap-2 text-xs text-muted-foreground">
+    <label className="flex w-56 min-w-0 items-center gap-2 text-xs text-muted-foreground xl:w-64 2xl:w-96">
       <span className="sr-only">Usage period</span>
       <span id="usage-period-options" className="sr-only">
         Available periods: {optionLabels}
@@ -1433,7 +1433,9 @@ function UsageLoadingState({
           <span className="tabular-nums">
             · Showing last read {formatSnapshotAge(snapshot.savedAt, renderedAt)}
           </span>
-        ) : null}
+        ) : (
+          <span>· Scanning every transcript can take a minute.</span>
+        )}
       </p>
 
       <section className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">

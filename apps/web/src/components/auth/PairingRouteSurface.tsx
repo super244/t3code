@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 import type { AuthSessionState } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import React, { startTransition, useEffect, useRef, useState, useCallback } from "react";
@@ -128,7 +129,7 @@ export function PairingRouteSurface({
               disabled={isSubmitting}
               nativeInput
               onChange={(event) => setCredential(event.currentTarget.value)}
-              placeholder="Paste a one-time token or pairing secret"
+              placeholder="One-time token or pairing secret"
               spellCheck={false}
               value={credential}
             />

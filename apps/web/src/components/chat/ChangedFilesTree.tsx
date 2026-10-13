@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=25m; seat=opencode; date=2026-10-10 */
 import { type TurnId } from "@t3tools/contracts";
 import { memo, useCallback, useMemo, useState } from "react";
@@ -46,12 +46,12 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
 
   return (
     <div
-      className="@container/changed-files mt-4 overflow-hidden rounded-xl border border-border/60 bg-card/60 shadow-xs"
+      className="@container/changed-files mt-4 rounded-xl border border-border/60 bg-card/60 shadow-xs"
       data-changed-files-state="tree"
     >
       <div
         data-changed-files-header=""
-        className="flex items-center justify-between gap-2 border-b border-border/50 bg-muted/30 px-3 py-2"
+        className="sticky top-2 z-10 flex items-center justify-between gap-2 rounded-t-xl border-b border-border/50 bg-[color-mix(in_srgb,var(--muted)_30%,var(--card))] px-3 py-2"
       >
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-foreground tabular-nums">
           <span>

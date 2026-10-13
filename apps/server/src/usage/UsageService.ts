@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-09-30 */
 /**
@@ -34,6 +35,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -538,12 +540,16 @@ export const make = Effect.gen(function* () {
       (hourlyWindow?.sinceTimeMs ?? DateTime.toEpochMillis(windowStart.value)) - MTIME_SLACK_MS;
 
     // Pricing only matters once records are aggregated, so the rate table
-    // loads while transcripts stream instead of gating them: a cold rates
-    // fetch on a slow network no longer delays the scan by its own timeout.
-    const [, scannedDirs] = yield* Effect.all(
-      [ensureRates(false), collectDirs(windowStartMs, settings)],
-      { concurrency: 2 },
-    );
+    // loads while the directories are walked instead of ahead of them. A window
+    // with no transcript to price does not wait for it at all: an empty or
+    // offline home answers at once, not after the rate fetch's timeout.
+    const ratesLoading = yield* Effect.forkChild(ensureRates(false));
+    const scannedDirs = yield* collectDirs(windowStartMs, settings);
+    if (scannedDirs.some(({ files }) => files !== null && files.length > 0)) {
+      yield* Fiber.join(ratesLoading);
+    } else {
+      yield* Fiber.interrupt(ratesLoading);
+    }
 
     const aggregator = new UsageAggregator({
       timeZone: input.timeZone,
@@ -569,7 +575,8 @@ export const make = Effect.gen(function* () {
               return slug === null ? [] : [slug];
             }),
       ),
-      (path) => fileSystem.readDirectory(path).pipe(Effect.orElseSucceed(() => [] as readonly string[])),
+      (path) =>
+        fileSystem.readDirectory(path).pipe(Effect.orElseSucceed(() => [] as readonly string[])),
     );
 
     const sources: UsageSource[] = [];

@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-12 */
 import type { EnvironmentId, ProjectId, PullRequestListEntry } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -10,6 +11,7 @@ import {
   groupPullRequestsByInvolvement,
   matchesPullRequestFilters,
   matchesPullRequestQuery,
+  readPullRequestRepositories,
   parsePullRequestQuery,
   pullRequestStatsBatches,
   pullRequestStatsKeysToRequest,
@@ -1494,5 +1496,40 @@ describe("the priority groups against a paginated feed", () => {
     expect(
       groups.find((group) => group.key === "others")?.entries.map((row) => row.number),
     ).toEqual([6123]);
+  });
+});
+
+describe("readPullRequestRepositories", () => {
+  const project = (canonicalKey: string | undefined, owner: string, name: string) => ({
+    repositoryIdentity: { canonicalKey, owner, name },
+  });
+  const github = project("github.com/acme/app", "acme", "app");
+  const ghe = project("ghe.example.com/acme/tools", "acme", "tools");
+
+  it("names every repository the list reads, once each", () => {
+    expect(readPullRequestRepositories([github, github, ghe], undefined)).toEqual([
+      "acme/app",
+      "acme/tools",
+    ]);
+  });
+
+  it("drops the repositories on another host when a host filter is set", () => {
+    expect(readPullRequestRepositories([github, ghe], "ghe.example.com")).toEqual(["acme/tools"]);
+  });
+
+  it("keeps a legacy repository whose host is not known yet, as the server does", () => {
+    const legacy = project(undefined, "acme", "legacy");
+    expect(readPullRequestRepositories([github, legacy], "ghe.example.com")).toEqual([
+      "acme/legacy",
+    ]);
+  });
+
+  it("ignores a project without an owner and name", () => {
+    expect(
+      readPullRequestRepositories(
+        [{ repositoryIdentity: { canonicalKey: "github.com/x/y" } }, { repositoryIdentity: null }],
+        undefined,
+      ),
+    ).toEqual([]);
   });
 });

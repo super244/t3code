@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 import * as Schema from "effect/Schema";
 
 import {
@@ -5,6 +6,7 @@ import {
   PullRequestListEntry,
   PullRequestListProjectError,
   PullRequestListResult,
+  pullRequestHostOf,
   resolvePullRequestAuthorFilter,
 } from "@t3tools/contracts";
 import type {
@@ -1087,4 +1089,38 @@ export function withDiffStat<
   if (entry.additions !== 0 || entry.deletions !== 0) return entry;
   const stat = statsByRow.get(pullRequestDiffStatKey(entry));
   return stat === undefined ? entry : { ...entry, ...stat };
+}
+
+/** The repository identity fields a read needs; the page's projects carry more than these. */
+export interface PullRequestReadIdentity {
+  readonly canonicalKey?: string | undefined;
+  readonly owner?: string | undefined;
+  readonly name?: string | undefined;
+}
+
+/**
+ * The `owner/name` repositories a pull request list is read from, in the order the projects
+ * name them. A host filter drops the projects on another host, the same way the server does, so
+ * the copy under the list names only repositories it actually reads.
+ */
+export function readPullRequestRepositories(
+  projects: ReadonlyArray<{
+    readonly repositoryIdentity?: PullRequestReadIdentity | null | undefined;
+  }>,
+  host: string | undefined,
+): string[] {
+  const hostFilter = host?.toLowerCase();
+  const labels = new Set<string>();
+  for (const project of projects) {
+    const identity = project.repositoryIdentity;
+    if (!identity?.owner || !identity.name) continue;
+    if (hostFilter !== undefined) {
+      // A legacy identity has no canonical host until its provider is refined; the server lets it
+      // through the filter, and so does this.
+      const projectHost = pullRequestHostOf(identity, "unknown");
+      if (projectHost !== "unknown" && projectHost !== hostFilter) continue;
+    }
+    labels.add(`${identity.owner}/${identity.name}`);
+  }
+  return [...labels];
 }

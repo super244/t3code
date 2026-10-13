@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-12 */
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Spinner } from "~/components/ui/spinner";
 import { pullRequestHostOf, resolveEnvironmentMachineKind } from "@t3tools/contracts";
@@ -76,6 +76,7 @@ import {
   type PullRequestStatsBatch,
   type PullRequestStatsPolicy,
   type PullRequestStatsScope,
+  readPullRequestRepositories,
   type PullRequestPartitionsSnapshot,
 } from "../components/pullRequest/pullRequestList.logic";
 import {
@@ -372,14 +373,15 @@ function PullRequestsRouteView() {
   // The repositories this list is read from: the GitHub remote each project resolves to, which is
   // not always the upstream (a fork with only origin reads origin). The copy names the repository
   // and never calls it upstream. A scoped project narrows it to the one repository it names.
-  const readRepositories = useMemo(() => {
-    const labels = new Set<string>();
-    for (const project of scopedProject !== undefined ? [scopedProject] : projects) {
-      const identity = project.repositoryIdentity;
-      if (identity?.owner && identity.name) labels.add(`${identity.owner}/${identity.name}`);
-    }
-    return [...labels];
-  }, [projects, scopedProject]);
+  // A host filter narrows it the same way: the copy names only the repositories the listing reads.
+  const readRepositories = useMemo(
+    () =>
+      readPullRequestRepositories(
+        scopedProject !== undefined ? [scopedProject] : projects,
+        search.host,
+      ),
+    [projects, scopedProject, search.host],
+  );
   const readLabel = readRepositories.length === 1 ? readRepositories[0]! : null;
   const readScope =
     readLabel ?? (readRepositories.length > 1 ? `${readRepositories.length} repositories` : null);
@@ -1618,15 +1620,22 @@ function PullRequestsRouteView() {
   // in its own words and is left to.
   const carriedToNothing =
     showingCarried && listQuery.isPending && entries.length === 0 && typedQuery.length === 0;
+  // A failed read names the repository in its own headline, so the provenance line steps aside.
+  const listUnreadable = Boolean(listQuery.error) && entries.length === 0;
   const listBody = (
     <>
       {/* While the first page loads, the skeleton's own caption says what is being read, so
-          this provenance line waits for it rather than repeating it. */}
-      {readRepositories.length > 0 && !firstLoad ? (
+          this provenance line waits for it rather than repeating it. It states where the list
+          comes from, not that a read is in progress, so it stays true once the read has ended. */}
+      {readRepositories.length > 0 &&
+      !firstLoad &&
+      capabilityKnown &&
+      pullRequestsSupported &&
+      !listUnreadable ? (
         <p className="px-3 pb-2 text-xs text-muted-foreground">
           {readLabel !== null
-            ? `Reading pull requests from ${readLabel}.`
-            : `Reading pull requests from ${readRepositories.length} repositories.`}
+            ? `Pull requests from ${readLabel}.`
+            : `Pull requests from ${readRepositories.length} repositories.`}
         </p>
       ) : null}
       {!capabilityKnown ? (

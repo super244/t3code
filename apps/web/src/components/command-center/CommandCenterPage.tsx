@@ -1,5 +1,5 @@
 /* agent-watermark: model=opus-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
-/* agent-watermark: model=haiku-5.5; effort=high; duration=36m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=46m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-10 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=6m; seat=codex; date=2026-10-01 */
@@ -368,7 +368,7 @@ export function CommandCenterPage() {
                     aria-label="Search missions"
                     type="search"
                     size="compact"
-                    className="min-w-0 flex-1"
+                    className="min-w-0 flex-1 basis-full sm:basis-auto"
                     placeholder="Search missions, projects, computers…"
                     value={queueSearch}
                     onChange={(event) => {

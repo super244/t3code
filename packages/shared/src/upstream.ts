@@ -1,5 +1,5 @@
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
-/* agent-watermark: model=haiku-5.5; effort=high; duration=70m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=80m; seat=claude-code; date=2026-10-12 */
 // @effect-diagnostics globalFetch:off globalDate:off
 // This helper runs in both browsers and Node; it owns AbortSignal deadlines.
 import { compareSemverVersions, parseSemver } from "./semver.ts";
@@ -221,7 +221,10 @@ export function emptyUpstreamStatus(version: string): UpstreamStatus {
   };
 }
 
-/** Lexically normalizes an absolute POSIX path (no filesystem access): "." and ".." resolve, slashes collapse. */
+/**
+ * Lexically normalizes an absolute POSIX path (no filesystem access): "." and ".." resolve, slashes
+ * collapse. Symlinks and aliases need the caller's `resolvePath`.
+ */
 function normalizeAbsolutePosixPath(path: string): string {
   const parts: string[] = [];
   for (const segment of path.split("/")) {
@@ -236,15 +239,19 @@ function normalizeAbsolutePosixPath(path: string): string {
  * Reads the isolation facts from an installed Nightly's LSEnvironment. The
  * bundle is isolated only when it points T3CODE_HOME away from `sharedHome` and
  * turns the updater off, since an updater would copy the shared bundle back in.
+ * Both paths are compared after `resolvePath`, so a symlink or alias to ~/.t3 is
+ * the shared home too; the sidecar resolves the same way with os.path.realpath.
  */
 export function nightlyIsolation(input: {
   readonly environment: Readonly<Record<string, unknown>>;
   readonly sharedHome: string;
+  readonly resolvePath?: (path: string) => string;
 }): Pick<UpstreamNightlyInstall, "home" | "autoUpdateDisabled" | "isolated"> {
   const rawHome =
     typeof input.environment.T3CODE_HOME === "string" ? input.environment.T3CODE_HOME.trim() : "";
   const home = rawHome.startsWith("/") ? normalizeAbsolutePosixPath(rawHome) : null;
   const sharedHome = normalizeAbsolutePosixPath(input.sharedHome);
+  const resolvePath = input.resolvePath ?? ((path: string) => path);
   const updater = String(input.environment.T3CODE_DISABLE_AUTO_UPDATE ?? "")
     .trim()
     .toLowerCase();
@@ -252,7 +259,7 @@ export function nightlyIsolation(input: {
   return {
     home,
     autoUpdateDisabled,
-    isolated: home !== null && home !== sharedHome && autoUpdateDisabled,
+    isolated: home !== null && resolvePath(home) !== resolvePath(sharedHome) && autoUpdateDisabled,
   };
 }
 

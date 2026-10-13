@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 import { describe, expect, it } from "vite-plus/test";
 import { parseRoutineTemplate } from "@t3tools/client-runtime/routines";
 
@@ -26,5 +26,12 @@ describe("example routine", () => {
     );
     expect(template.name).toBe("Morning triage");
     expect(template.runtimeMode).toBe("approval-required");
+  });
+});
+
+describe("example routine prompt", () => {
+  it("asks only for what a run can read, never T3 Code threads", () => {
+    expect(ROUTINE_EXAMPLE_TEMPLATE.prompt).not.toMatch(/thread/i);
+    expect(ROUTINE_EXAMPLE_TEMPLATE.prompt).toContain("git status");
   });
 });

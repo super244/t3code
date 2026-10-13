@@ -1,4 +1,5 @@
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=10m; seat=codex; date=2026-10-01 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-12 */
 import { EnvironmentId, UsageDay, USAGE_CONTRACT_VERSION } from "@t3tools/contracts";
 import { mergeUsage } from "@t3tools/shared/usageMerge";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -158,6 +159,20 @@ beforeEach(() => {
     isPending: false,
     isPartial: false,
     refresh: vi.fn(),
+  });
+});
+
+describe("UsagePage first read", () => {
+  it("says why the first read takes a while instead of looking stuck", () => {
+    testState.useUsage.mockReturnValue({
+      ...testState.useUsage(),
+      isPending: true,
+      isPartial: false,
+    });
+
+    const markup = renderToStaticMarkup(<UsagePage />);
+
+    expect(markup).toContain("Scanning every transcript can take a minute.");
   });
 });
 

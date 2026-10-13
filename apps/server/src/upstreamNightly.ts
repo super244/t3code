@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-12 */
 // @effect-diagnostics nodeBuiltinImport:off -- Reads the installed bundle and runs the sidecar script, both local OS calls outside the Effect platform services.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
@@ -40,6 +40,21 @@ export class NightlyInstallError extends Error {
   }
 }
 
+/**
+ * A path with its symlinks resolved, the way os.path.realpath resolves it in
+ * scripts/nightly-sidecar.py. A path that does not exist yet resolves through its nearest
+ * existing ancestor, so the check agrees with the sidecar before the first install.
+ */
+export function resolveHomePath(path: string): string {
+  try {
+    return NodeFS.realpathSync(path);
+  } catch {
+    const parent = NodePath.dirname(path);
+    if (parent === path) return path;
+    return NodePath.join(resolveHomePath(parent), NodePath.basename(path));
+  }
+}
+
 /** Builds the install facts from a parsed Info.plist. Null when the bundle has no version. */
 export function nightlyInstallFromInfo(
   info: Readonly<Record<string, unknown>>,
@@ -54,7 +69,12 @@ export function nightlyInstallFromInfo(
     typeof info.LSEnvironment === "object" && info.LSEnvironment !== null
       ? (info.LSEnvironment as Record<string, unknown>)
       : {};
-  return { appPath, version, bundleId, ...nightlyIsolation({ environment, sharedHome }) };
+  return {
+    appPath,
+    version,
+    bundleId,
+    ...nightlyIsolation({ environment, sharedHome, resolvePath: resolveHomePath }),
+  };
 }
 
 /** Reads the installed Nightly's Info.plist through plutil. Null off macOS or when absent. */
