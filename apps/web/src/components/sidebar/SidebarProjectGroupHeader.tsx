@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 import { memo, type ReactNode } from "react";
 
 /**
@@ -15,7 +15,7 @@ export const SidebarProjectGroupHeader = memo(function SidebarProjectGroupHeader
 }) {
   const threadWord = props.count === 1 ? "thread" : "threads";
   return (
-    <li role="presentation" className="list-none px-1 pt-2.5 pb-0.5">
+    <div className="px-1 pt-2.5 pb-0.5">
       <div
         className="flex h-6 min-w-0 items-center gap-1.5 text-xs text-sidebar-muted-foreground"
         aria-label={`${props.label}, ${props.count} ${threadWord}`}
@@ -36,6 +36,6 @@ export const SidebarProjectGroupHeader = memo(function SidebarProjectGroupHeader
         ) : null}
         <span className="shrink-0 tabular-nums">{props.count}</span>
       </div>
-    </li>
+    </div>
   );
 });

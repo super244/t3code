@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=27m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -6,6 +6,7 @@ import {
   buildLaunchpadModel,
   describeLaunchpadCounts,
   filterLaunchpadProjects,
+  resolveLaunchpadPhase,
   resolveLaunchpadThreadState,
   type LaunchpadProjectInput,
   type LaunchpadThreadInput,
@@ -269,5 +270,20 @@ describe("describeLaunchpadCounts", () => {
       threads: [thread("t", "p")],
     });
     expect(describeLaunchpadCounts(model)).toBe("1 thread across 1 project");
+  });
+});
+
+describe("resolveLaunchpadPhase", () => {
+  it("reports loading before bootstrap, even while the project list is empty", () => {
+    expect(resolveLaunchpadPhase({ bootstrapped: false, projectCount: 0 })).toBe("loading");
+    expect(resolveLaunchpadPhase({ bootstrapped: false, projectCount: 3 })).toBe("loading");
+  });
+
+  it("reports no-projects only once bootstrapped with an empty list", () => {
+    expect(resolveLaunchpadPhase({ bootstrapped: true, projectCount: 0 })).toBe("no-projects");
+  });
+
+  it("reports ready when bootstrapped with projects", () => {
+    expect(resolveLaunchpadPhase({ bootstrapped: true, projectCount: 2 })).toBe("ready");
   });
 });

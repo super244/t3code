@@ -1,10 +1,15 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 import type { TurnId } from "@t3tools/contracts";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import { CircleCheckIcon, CircleXIcon, ListChecksIcon, MinusIcon } from "lucide-react";
 import { memo, useState } from "react";
 
-import { formatTurnRecapFileCount, turnRecapStateLabel, type TurnRecap } from "~/lib/turnRecap";
+import {
+  formatTurnRecapFileCount,
+  turnRecapCommandStatusLabel,
+  turnRecapStateLabel,
+  type TurnRecap,
+} from "~/lib/turnRecap";
 import { cn } from "~/lib/utils";
 
 import { Button } from "../ui/button";
@@ -166,7 +171,9 @@ export const TurnRecapControl = memo(function TurnRecapControl(props: {
                     ) : (
                       <span className="shrink-0 text-muted-foreground">
                         <MinusIcon aria-hidden className="size-3.5" />
-                        <span className="sr-only">Status not recorded</span>
+                        <span className="sr-only">
+                          {turnRecapCommandStatusLabel(command.status)}
+                        </span>
                       </span>
                     )}
                     <span className="min-w-0 flex-1 truncate font-mono text-foreground">

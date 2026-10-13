@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -33,6 +33,53 @@ describe("diffLineKind", () => {
   it("leaves context lines and empty lines as context", () => {
     expect(diffLineKind("  context line")).toBe("context");
     expect(diffLineKind("")).toBe("context");
+  });
+});
+
+/** Shiki-shaped HTML for plain diff lines, one `line` span each. */
+function diffHtml(lines: readonly string[]): string {
+  return [
+    '<pre class="shiki" tabindex="0"><code>',
+    ...lines.map((line) => `<span class="line">${line}</span>`),
+    '<span class="line"></span></code></pre>',
+  ].join("\n");
+}
+
+/** The data-diff-line tag of each input line, or null for untagged context lines. */
+function kindsOf(lines: readonly string[]): (string | null)[] {
+  const rows = annotateDiffLineHtml(diffHtml(lines)).split("\n");
+  // Row 0 opens the <pre>, so the input lines start at row 1.
+  return lines.map((_, index) => /data-diff-line="(\w+)"/.exec(rows[index + 1] ?? "")?.[1] ?? null);
+}
+
+describe("diff lines that look like file headers inside a hunk", () => {
+  it("reads a removed line that starts with -- as a removal, not a file header", () => {
+    expect(diffLineKind("--- remove this SQL comment", true)).toBe("remove");
+    expect(diffLineKind("+++i;", true)).toBe("add");
+    expect(diffLineKind("--- a/src/index.ts")).toBe("meta");
+  });
+
+  it("tints removed and added lines inside a hunk", () => {
+    expect(kindsOf(["@@ -1,2 +1,2 @@", "--- remove this SQL comment", "+++i;", " keep"])).toEqual([
+      "hunk",
+      "remove",
+      "add",
+      null,
+    ]);
+  });
+
+  it("still treats the headers of the next file as meta once a hunk has ended", () => {
+    expect(
+      kindsOf([
+        "@@ -1 +1 @@",
+        "-x",
+        "diff --git a/b.sql b/b.sql",
+        "--- a/b.sql",
+        "+++ b/b.sql",
+        "@@ -1 +1 @@",
+        "+y",
+      ]),
+    ).toEqual(["hunk", "remove", "meta", "meta", "meta", "hunk", "add"]);
   });
 });
 

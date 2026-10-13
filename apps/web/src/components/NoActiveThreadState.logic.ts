@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=27m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { normalizeSearchText } from "../lib/utils";
 import { sortThreads, type ThreadSortInput } from "../lib/threadSort";
@@ -212,4 +212,21 @@ export function describeLaunchpadCounts(model: LaunchpadModel): string {
   const threadPart = `${threads} ${threads === 1 ? "thread" : "threads"}`;
   const projectPart = `${projects} ${projects === 1 ? "project" : "projects"}`;
   return `${threadPart} across ${projectPart}`;
+}
+
+export type LaunchpadPhase = "loading" | "no-projects" | "ready";
+
+/**
+ * Before the shell snapshot has bootstrapped, an empty project list means "not
+ * loaded yet", not "none exist". Only a bootstrapped, empty list may be described
+ * as having no projects.
+ */
+export function resolveLaunchpadPhase(input: {
+  readonly bootstrapped: boolean;
+  readonly projectCount: number;
+}): LaunchpadPhase {
+  if (!input.bootstrapped) {
+    return "loading";
+  }
+  return input.projectCount > 0 ? "ready" : "no-projects";
 }

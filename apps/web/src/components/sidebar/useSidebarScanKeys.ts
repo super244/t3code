@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 import { useEffect, type RefObject } from "react";
 
 import { nextScanIndex, resolveScanKey, type ScanKeyTarget } from "./threadListScan.logic";
@@ -11,10 +11,12 @@ function isRendered(element: Element): boolean {
 }
 
 /**
- * Window-level scan keys: "/" focuses the thread search from anywhere that is
- * not a text field, and j/k or the arrows step between thread rows while one
- * holds focus. Enter needs no handler here because each row already opens its
- * thread on Enter.
+ * Window-level scan keys: "/" focuses the thread search when no text field has
+ * focus and no earlier handler has claimed the key. On a thread page with the
+ * page body focused, the composer takes "/" first, so it can start a slash
+ * command. j/k or the arrows step between thread rows (Settled and Snoozed rows
+ * included) while one holds focus. Enter needs no handler here because each row
+ * already opens its thread on Enter.
  */
 export function useSidebarScanKeys(searchInputRef: RefObject<HTMLInputElement | null>): void {
   useEffect(() => {

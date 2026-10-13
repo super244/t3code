@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 import { closestCenter, type CollisionDetection, type Modifier } from "@dnd-kit/core";
 import { verticalListSortingStrategy, type SortingStrategy } from "@dnd-kit/sortable";
 import {
@@ -109,8 +110,42 @@ export function createSidebarSortingStrategy(input: {
 }): SortingStrategy {
   const { items } = input;
   const indices = new Map(items.map((item, index) => [sidebarListItemId(item), index]));
+  // Project-group headers are sortable and keep their place in the preview. Each
+  // active row remembers the header it is listed under, so rows can be laid out
+  // in the same project blocks the committed list uses.
+  const groupHeaders: SidebarListItem[] = [];
+  const headerOfRow = new Map<string, SidebarListItem>();
+  let currentHeader: SidebarListItem | undefined;
+  for (const item of items) {
+    if (item.kind === "marker") {
+      currentHeader = item.projectGroup === undefined ? undefined : item;
+      if (currentHeader) groupHeaders.push(currentHeader);
+    } else if (item.section === "active" && currentHeader) {
+      headerOfRow.set(item.key, currentHeader);
+    }
+  }
   let previous: Pick<Layout, "rects" | "activeIndex" | "overIndex"> | undefined;
   let transforms: ReturnType<SortingStrategy>[] | null = [];
+
+  /** Lay the active rows out under their project-group headers, as the committed
+   * list does. The lifted row keeps its header; one dragged in from another
+   * section joins the block of the row above it, or the first block at the top. */
+  function activeBlocks(rows: readonly ThreadItem[]): SidebarListItem[] {
+    if (groupHeaders.length === 0) return [...rows];
+    const blocks = new Map<SidebarListItem, ThreadItem[]>(
+      groupHeaders.map((header) => [header, []]),
+    );
+    let previousHeader: SidebarListItem | undefined;
+    for (const row of rows) {
+      const header = headerOfRow.get(row.key) ?? previousHeader ?? groupHeaders[0]!;
+      blocks.get(header)!.push(row);
+      previousHeader = header;
+    }
+    return groupHeaders.flatMap((header) => {
+      const block = blocks.get(header)!;
+      return block.length === 0 ? [] : [header, ...block];
+    });
+  }
 
   function project({ rects, activeIndex, overIndex }: Layout) {
     const active = items[activeIndex];
@@ -173,8 +208,13 @@ export function createSidebarSortingStrategy(input: {
     const projected: SidebarListItem[] = [];
     const marker = (name: SidebarListMarker) => projected.push({ kind: "marker", marker: name });
     const section = (name: "active" | "settled") => {
-      if (groups[name].length > 0) projected.push(...groups[name]);
-      else marker(`${name}-placeholder`);
+      if (groups[name].length === 0) {
+        marker(`${name}-placeholder`);
+      } else if (name === "active") {
+        projected.push(...activeBlocks(groups.active));
+      } else {
+        projected.push(...groups[name]);
+      }
     };
     marker("pinned-header");
     projected.push(...groups.pinned);

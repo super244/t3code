@@ -1,9 +1,10 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   groupThreadsByProject,
   isEditableScanTarget,
+  threadProjectGroupKey,
   nextScanIndex,
   projectGroupStatusLabels,
   resolveScanKey,
@@ -24,6 +25,33 @@ const rows: Row[] = [
   { id: "e", project: "t3", status: "approval" },
   { id: "f", project: "vault", status: "failed" },
 ];
+
+describe("threadProjectGroupKey", () => {
+  const logical = new Map([
+    ["local:p1", "repo:t3"],
+    ["remote:p9", "repo:t3"],
+  ]);
+
+  it("gives two checkouts of one logical project the same group", () => {
+    const threads = [
+      { id: "a", environmentId: "local", projectId: "p1", status: "ready" as const },
+      { id: "b", environmentId: "remote", projectId: "p9", status: "working" as const },
+    ];
+    const groups = groupThreadsByProject(threads, {
+      projectKeyOf: (thread) => threadProjectGroupKey(thread, logical),
+      statusOf: (thread) => thread.status,
+    });
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ projectKey: "repo:t3", workingCount: 1 });
+    expect(groups[0]?.threads.map((thread) => thread.id)).toEqual(["a", "b"]);
+  });
+
+  it("keeps a project outside the logical list under its own key", () => {
+    expect(threadProjectGroupKey({ environmentId: "local", projectId: "p2" }, logical)).toBe(
+      "local:p2",
+    );
+  });
+});
 
 describe("groupThreadsByProject", () => {
   it("groups by project in first-appearance order and keeps each group's row order", () => {

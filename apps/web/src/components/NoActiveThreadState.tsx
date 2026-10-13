@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=27m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { Link } from "@tanstack/react-router";
 import { FolderIcon, MessageSquareIcon, PlusIcon, SearchIcon } from "lucide-react";
@@ -8,7 +8,11 @@ import { openCommandPalette } from "../commandPaletteBus";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { isElectron } from "../env";
 import { buildThreadRouteParams } from "../threadRoutes";
-import { useProjects, useThreadShells } from "../state/entities";
+import {
+  useAllEnvironmentShellsBootstrapped,
+  useProjects,
+  useThreadShells,
+} from "../state/entities";
 import { cn } from "~/lib/utils";
 import {
   buildLaunchpadModel,
@@ -17,6 +21,7 @@ import {
   type LaunchpadProject,
   type LaunchpadRecentThread,
   type LaunchpadThreadTone,
+  resolveLaunchpadPhase,
 } from "./NoActiveThreadState.logic";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -48,6 +53,7 @@ const TONE_DOT_CLASS: Record<LaunchpadThreadTone, string> = {
 export function NoActiveThreadState() {
   const projects = useProjects();
   const threads = useThreadShells();
+  const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const openNewThread = useNewThreadHandler();
   const [projectFilter, setProjectFilter] = useState("");
   const [startingProjectKey, setStartingProjectKey] = useState<string | null>(null);
@@ -76,7 +82,16 @@ export function NoActiveThreadState() {
     [openNewThread],
   );
 
-  const hasProjects = model.projects.length > 0;
+  // Until the shell snapshot has bootstrapped, the project list is not yet known,
+  // so no copy may claim there are none. Mirrors the index route's guard.
+  const phase = resolveLaunchpadPhase({
+    bootstrapped,
+    projectCount: model.projects.length,
+  });
+  if (phase === "loading") {
+    return null;
+  }
+  const hasProjects = phase === "ready";
   const hasThreads = model.recentThreads.length > 0;
   const headline = !hasProjects
     ? "Add a project to start"

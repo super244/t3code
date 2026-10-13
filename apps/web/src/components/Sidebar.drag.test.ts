@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 import { describe, expect, it, vi } from "vite-plus/test";
 import { closestCenter, type CollisionDetection } from "@dnd-kit/core";
 import { verticalListSortingStrategy, type SortingStrategy } from "@dnd-kit/sortable";
@@ -802,5 +803,43 @@ describe("lifted card clearance", () => {
   it("follows the list when it scrolls and includes content preceding Pins", () => {
     expect(511 + apply(511, 36, -500, 96).y).toBe(128);
     expect(511 + apply(511, 36, -500, 136, 114).y).toBe(250);
+  });
+});
+
+describe("grouped active drag projection", () => {
+  const group = (projectKey: string): SidebarListItem => ({
+    kind: "marker",
+    marker: "project-group",
+    projectGroup: { projectKey, count: 2, workingCount: 0, awaitingCount: 0 },
+  });
+  const groupA = group("env:a");
+  const groupB = group("env:b");
+  const grouped: SidebarListItem[] = [
+    pinnedHeader,
+    divider,
+    groupA,
+    thread("a1", "active"),
+    thread("a2", "active"),
+    groupB,
+    thread("b1", "active"),
+    settledHeader,
+    marker("settled-placeholder"),
+  ];
+  const input = { items: grouped, settledOrder: [], settledExpanded: false };
+
+  it("keeps grouped rows and their headers in place at pickup", () => {
+    const result = preview(input, "a1", "a1");
+    expect(result.get("a2")).toEqual(stationary);
+    expect(result.get(sidebarListItemId(groupB))).toEqual(stationary);
+    expect(result.get("b1")).toEqual(stationary);
+    expect(result.get(sidebarMarkerId("settled-header"))).toEqual(stationary);
+  });
+
+  it("reorders a row inside its own block without moving the next group", () => {
+    const result = preview(input, "a1", "a2");
+    // a2 slides up into the slot a1 vacated; the header above it stays put.
+    expect(result.get("a2")).toEqual({ ...stationary, y: -83 });
+    expect(result.get(sidebarListItemId(groupB))).toEqual(stationary);
+    expect(result.get("b1")).toEqual(stationary);
   });
 });

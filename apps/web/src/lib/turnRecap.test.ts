@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 import { describe, expect, it } from "vite-plus/test";
 import type {
   OrchestrationCheckpointSummary,
@@ -13,6 +13,7 @@ import {
   deriveTurnRecap,
   formatTurnRecapFileCount,
   summarizeSidebarTurnRecap,
+  turnRecapCommandStatusLabel,
   turnRecapStateLabel,
 } from "./turnRecap";
 
@@ -314,6 +315,16 @@ describe("summarizeSidebarTurnRecap", () => {
     ).toBeNull();
     expect(summarizeSidebarTurnRecap({ recap: null, latestTurn: latestTurn() })).toBeNull();
     expect(summarizeSidebarTurnRecap({ recap: undefined, latestTurn: latestTurn() })).toBeNull();
+  });
+});
+
+describe("turnRecapCommandStatusLabel", () => {
+  it("names a declined command the way the row prints it", () => {
+    expect(turnRecapCommandStatusLabel("declined")).toBe("declined");
+  });
+
+  it("says the status is unknown only when none was recorded", () => {
+    expect(turnRecapCommandStatusLabel(null)).toBe("Status not recorded");
   });
 });
 

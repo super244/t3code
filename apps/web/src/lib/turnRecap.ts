@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 import type {
   OrchestrationCheckpointSummary,
   OrchestrationLatestTurn,
@@ -176,6 +176,15 @@ export function turnRecapStateLabel(state: OrchestrationLatestTurn["state"]): st
     case "running":
       return "Running";
   }
+}
+
+/**
+ * The screen-reader name for a command's recorded status when it is neither
+ * failed nor completed. It is the same status the row prints, so the spoken and
+ * printed words never disagree.
+ */
+export function turnRecapCommandStatusLabel(status: string | null): string {
+  return status ?? "Status not recorded";
 }
 
 export function formatTurnRecapFileCount(count: number): string {

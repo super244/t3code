@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 import type { SidebarThreadStatus } from "../Sidebar.logic";
 
 /**
@@ -50,6 +50,19 @@ export function groupThreadsByProject<TThread>(
     workingCount: group.workingCount,
     awaitingCount: group.awaitingCount,
   }));
+}
+
+/**
+ * The group a thread sits under in "group by project" mode: its logical project,
+ * so one repository checked out on two environments is one group, as the project
+ * scope menu shows it. A project outside the logical list keeps its own key.
+ */
+export function threadProjectGroupKey(
+  thread: { readonly environmentId: string; readonly projectId: string },
+  logicalKeyByPhysicalKey: ReadonlyMap<string, string>,
+): string {
+  const physicalKey = `${thread.environmentId}:${thread.projectId}`;
+  return logicalKeyByPhysicalKey.get(physicalKey) ?? physicalKey;
 }
 
 /** The status words a group header shows, or null when there is nothing live to say. */

@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=42m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 /* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
@@ -151,6 +151,7 @@ import {
 import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
 import {
   groupThreadsByProject,
+  threadProjectGroupKey,
   parseGroupByProjectPreference,
   SCAN_SEARCH_SCOPE_HINT,
   scanEmptyMessage,
@@ -285,11 +286,6 @@ const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
   return label.endsWith(" ago") ? label.slice(0, -4) : label;
-}
-
-/** Grouping key for the active list: the same key the project lookups use. */
-function activeProjectKeyOf(thread: EnvironmentThreadShell): string {
-  return `${thread.environmentId}:${thread.projectId}`;
 }
 
 function threadTimeLabel(thread: SidebarThreadSummary): string {
@@ -716,12 +712,14 @@ const draftPenClassName = "size-3 shrink-0 text-amber-600 dark:text-amber-300/80
 // which resolveSidebarDropTarget turns into the section the gap sits in.
 function SortableSidebarMarker(props: {
   marker: SidebarListMarker;
+  /** Overrides the marker's id, for markers that repeat per group (project headers). */
+  id?: string;
   className?: string;
   children?: ReactNode;
   "data-testid"?: string;
 }) {
   const { setNodeRef, transform, transition } = useSortable({
-    id: sidebarMarkerId(props.marker),
+    id: props.id ?? sidebarMarkerId(props.marker),
     disabled: { draggable: true },
     animateLayoutChanges: animateSidebarLayoutChanges,
   });
@@ -1128,8 +1126,9 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
 };
 
 /**
- * Footer line for a settled thread's latest turn. Each part is present only when
- * the recap knows it, so an unknown value never shows as a number.
+ * Footer line for a card row's latest turn. Each part is present only when the
+ * recap knows it, so an unknown value never shows as a number. Slim rows (Settled
+ * and Snoozed) have no footer, so they show no recap.
  */
 function SidebarTurnRecapLine(props: { readonly recap: SidebarTurnRecap }) {
   const { recap } = props;
@@ -1817,6 +1816,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 role="button"
                 tabIndex={0}
                 data-testid="sidebar-row-slim"
+                data-sidebar-thread-row=""
                 aria-busy={isRegeneratingTitle || undefined}
                 className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}
                 onClick={handleClick}
@@ -2157,8 +2157,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 <>
                   <ThreadWorktreeIndicator thread={thread} />
                   <span className="min-w-0 flex-1 truncate whitespace-nowrap text-muted-foreground/40">
-                    {/* A settled turn's recap takes the footer; the branch stays in the thread details. */}
-                    {turnRecap ? null : thread.branch}
+                    {thread.branch}
                   </span>
                 </>
               ) : (
@@ -2598,6 +2597,19 @@ export default function Sidebar() {
       ),
     [projectGroups],
   );
+  // "Group by project" groups by the logical project, as the scope menu does,
+  // so a repository on two environments is one group.
+  const logicalProjectKeyByPhysicalKey = useMemo(
+    () =>
+      new Map(
+        projectGroups.flatMap((group) =>
+          group.memberProjects.map(
+            (project) => [`${project.environmentId}:${project.id}`, group.projectKey] as const,
+          ),
+        ),
+      ),
+    [projectGroups],
+  );
 
   const nowMinute = useNowMinute();
   // Snooze wake times are second-precise, so classifying with the quantized
@@ -2918,7 +2930,7 @@ export default function Sidebar() {
       // lands where the grouped list shows it. Groups keep first-appearance order.
       activeThreads: groupActiveByProject
         ? groupThreadsByProject(orderedActive, {
-            projectKeyOf: activeProjectKeyOf,
+            projectKeyOf: (thread) => threadProjectGroupKey(thread, logicalProjectKeyByPhysicalKey),
             statusOf: resolveSidebarThreadStatus,
           }).flatMap((group) => group.threads)
         : orderedActive,
@@ -2934,6 +2946,7 @@ export default function Sidebar() {
   }, [
     assignedThreadKeys,
     groupActiveByProject,
+    logicalProjectKeyByPhysicalKey,
     nowMinute,
     optimisticDrop,
     serverConfigs,
@@ -3701,7 +3714,7 @@ export default function Sidebar() {
     items.push({ kind: "marker", marker: "active-placeholder" });
     if (groupActiveByProject) {
       for (const group of groupThreadsByProject(activeThreads, {
-        projectKeyOf: activeProjectKeyOf,
+        projectKeyOf: (thread) => threadProjectGroupKey(thread, logicalProjectKeyByPhysicalKey),
         statusOf: resolveSidebarThreadStatus,
       })) {
         items.push({
@@ -3731,6 +3744,7 @@ export default function Sidebar() {
   }, [
     activeThreads,
     groupActiveByProject,
+    logicalProjectKeyByPhysicalKey,
     pinnedThreads,
     renderedSettledThreads,
     settledThreads.length,
@@ -4873,7 +4887,6 @@ export default function Sidebar() {
                   onKeyDown={handleThreadSearchKeyDown}
                   placeholder="Find threads, PRs"
                   aria-label="Search threads"
-                  aria-keyshortcuts="/"
                   role="combobox"
                   aria-autocomplete="list"
                   aria-expanded={isSearchingThreads && threadSearchResults.length > 0}
@@ -5389,29 +5402,31 @@ export default function Sidebar() {
                       for (const item of sidebarListItems) {
                         if (item.kind === "marker" && item.projectGroup !== undefined) {
                           const group = item.projectGroup;
-                          const groupProject = projectByKey.get(group.projectKey) ?? null;
+                          const groupProject = projectGroupByScopeKey.get(group.projectKey) ?? null;
                           items.push(
-                            <SidebarProjectGroupHeader
+                            <SortableSidebarMarker
                               key={sidebarListItemId(item)}
-                              label={
-                                projectDisplayNameByKey.get(
-                                  group.projectKey as Parameters<
-                                    typeof projectDisplayNameByKey.get
-                                  >[0],
-                                ) ?? "Project"
-                              }
-                              icon={
-                                groupProject ? (
-                                  <ProjectFavicon
-                                    project={groupProject}
-                                    className="size-3.5 shrink-0"
-                                  />
-                                ) : null
-                              }
-                              count={group.count}
-                              workingCount={group.workingCount}
-                              awaitingCount={group.awaitingCount}
-                            />,
+                              id={sidebarListItemId(item)}
+                              marker="project-group"
+                            >
+                              <SidebarProjectGroupHeader
+                                label={
+                                  projectGroupByScopeKey.get(group.projectKey)?.displayName ??
+                                  "Project"
+                                }
+                                icon={
+                                  groupProject ? (
+                                    <ProjectFavicon
+                                      project={groupProject}
+                                      className="size-3.5 shrink-0"
+                                    />
+                                  ) : null
+                                }
+                                count={group.count}
+                                workingCount={group.workingCount}
+                                awaitingCount={group.awaitingCount}
+                              />
+                            </SortableSidebarMarker>,
                           );
                           continue;
                         }
