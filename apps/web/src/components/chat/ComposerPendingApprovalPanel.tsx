@@ -1,9 +1,11 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=25m; seat=opencode; date=2026-10-10 */
 import { memo, useEffect } from "react";
 import { type PendingApproval } from "../../session-logic";
 import { cn } from "~/lib/utils";
 import { playSound } from "../../lib/soundEffects";
 import { AppWindowIcon, EyeIcon, FileDiffIcon, TerminalIcon } from "lucide-react";
+import { TruncatedText } from "../TruncatedText";
 
 interface ComposerPendingApprovalPanelProps {
   approval: PendingApproval;
@@ -61,12 +63,10 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
         <span className="flex min-w-0 items-center gap-2">
           <span className="shrink-0 text-[11px] font-medium text-foreground">{fallbackLabel}</span>
           {approval.appName ? (
-            <span
+            <TruncatedText
+              text={approval.appName}
               className="max-w-32 shrink truncate text-[11px] text-muted-foreground"
-              title={approval.appName}
-            >
-              {approval.appName}
-            </span>
+            />
           ) : null}
           {pendingCount > 1 ? (
             <span className="ml-auto shrink-0 rounded-full bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground tabular-nums">
@@ -76,7 +76,6 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
         </span>
         <code
           aria-label={detailAriaLabel}
-          title={approval.detail || fallbackLabel}
           className="block max-h-20 min-w-0 flex-1 overflow-auto rounded-md bg-muted/40 px-2 py-1.5 whitespace-pre font-mono text-[11px] leading-relaxed text-foreground/85 [scrollbar-width:thin] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70 [&::-webkit-scrollbar]:h-1.5"
           data-approval-detail="complete"
           tabIndex={0}

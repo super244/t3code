@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=75m; seat=claude-code; date=2026-10-12 */
 import {
   type EnvironmentId,
   type EditorId,
@@ -11,7 +12,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, EllipsisIcon } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -26,6 +27,8 @@ import GitActionsControl from "../GitActionsControl";
 import { isTrailingDoubleClick } from "../Sidebar.logic";
 import { type DraftId } from "~/composerDraftStore";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Button } from "../ui/button";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { toastManager } from "../ui/toast";
 import ProjectScriptsControl, {
   type NewProjectScriptInput,
@@ -47,6 +50,9 @@ import {
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
 import { cn } from "~/lib/utils";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { useEnvironmentQuery } from "~/state/query";
+import { vcsEnvironment } from "~/state/vcs";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -118,6 +124,65 @@ export function shouldShowOpenInPicker(input: {
   return input.remoteOpenMode !== "local-exec";
 }
 
+/**
+ * The project on a phone: a favicon that opens a one-tap popover with the project name
+ * and "New thread". The name leaves the breadcrumb so the thread title keeps the room.
+ */
+function CompactProjectMenu({
+  projectName,
+  project,
+  environmentId,
+  gitCwd,
+  onNewThread,
+}: {
+  readonly projectName: string;
+  readonly project: EnvironmentProject;
+  readonly environmentId: EnvironmentId;
+  readonly gitCwd: string | null;
+  readonly onNewThread: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  // The same status query the git control reads, so opening the sheet costs no extra request.
+  const { data: gitStatus } = useEnvironmentQuery(
+    gitCwd !== null ? vcsEnvironment.status({ environmentId, input: { cwd: gitCwd } }) : null,
+  );
+  const branch = gitStatus?.refName ?? null;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <button
+            type="button"
+            aria-label={`Project ${projectName}`}
+            className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        }
+      >
+        <ProjectFavicon project={project} className="size-4" />
+      </PopoverTrigger>
+      <PopoverPopup side="bottom" align="start" className="w-64 p-3">
+        <p className="truncate text-sm font-medium text-foreground">{projectName}</p>
+        {branch !== null ? (
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            Branch <span className="font-mono text-foreground">{branch}</span>
+          </p>
+        ) : null}
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-2 w-full justify-start"
+          onClick={() => {
+            setOpen(false);
+            onNewThread();
+          }}
+        >
+          New thread in {projectName}
+        </Button>
+      </PopoverPopup>
+    </Popover>
+  );
+}
+
 export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
@@ -156,6 +221,9 @@ export const ChatHeader = memo(function ChatHeader({
     });
   }, [panelAnimationDurationMs, panelAnimationsActive]);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  // Phones and small tablets keep the title on one line: the project and the
+  // secondary controls move behind one-tap popovers instead of squeezing it.
+  const compact = useMediaQuery({ max: "md" });
   const activeProjectName = activeProject?.title;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const fileScripts = useT3ProjectFileScripts(
@@ -324,7 +392,15 @@ export const ChatHeader = memo(function ChatHeader({
         {/* The project always leads the header: knowing which project a
             thread lives in is priority zero, and the thread title alone
             doesn't answer it. */}
-        {activeProject ? (
+        {activeProject && compact ? (
+          <CompactProjectMenu
+            projectName={activeProjectName ?? ""}
+            project={activeProject}
+            environmentId={activeThreadEnvironmentId}
+            gitCwd={gitCwd}
+            onNewThread={onNewThreadInProject}
+          />
+        ) : activeProject ? (
           <>
             <WorkspaceBreadcrumbItem className="shrink">
               <Tooltip>
@@ -409,25 +485,71 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
-        {activeProjectScripts && (
-          <ProjectScriptsControl
-            scripts={activeProjectScripts}
-            fileScripts={fileScripts}
-            keybindings={keybindings}
-            preferredScriptId={preferredScriptId}
-            onRunScript={onRunProjectScript}
-            onAddScript={onAddProjectScript}
-            onUpdateScript={onUpdateProjectScript}
-            onDeleteScript={onDeleteProjectScript}
-          />
-        )}
-        {showOpenInPicker && (
-          <OpenInPicker
-            environmentId={activeThreadEnvironmentId}
-            keybindings={keybindings}
-            availableEditors={availableEditors}
-            openInCwd={openInCwd}
-          />
+        {compact ? (
+          activeProjectScripts || showOpenInPicker ? (
+            <Popover>
+              <PopoverTrigger
+                render={
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="Project tools"
+                    className="shrink-0"
+                  />
+                }
+              >
+                <EllipsisIcon aria-hidden className="size-4" />
+              </PopoverTrigger>
+              <PopoverPopup side="bottom" align="end" className="w-auto p-3">
+                <p className="mb-2 text-xs text-muted-foreground">Scripts and editors</p>
+                <div className="flex items-center gap-2">
+                  {activeProjectScripts && (
+                    <ProjectScriptsControl
+                      scripts={activeProjectScripts}
+                      fileScripts={fileScripts}
+                      keybindings={keybindings}
+                      preferredScriptId={preferredScriptId}
+                      onRunScript={onRunProjectScript}
+                      onAddScript={onAddProjectScript}
+                      onUpdateScript={onUpdateProjectScript}
+                      onDeleteScript={onDeleteProjectScript}
+                    />
+                  )}
+                  {showOpenInPicker && (
+                    <OpenInPicker
+                      environmentId={activeThreadEnvironmentId}
+                      keybindings={keybindings}
+                      availableEditors={availableEditors}
+                      openInCwd={openInCwd}
+                    />
+                  )}
+                </div>
+              </PopoverPopup>
+            </Popover>
+          ) : null
+        ) : (
+          <>
+            {activeProjectScripts && (
+              <ProjectScriptsControl
+                scripts={activeProjectScripts}
+                fileScripts={fileScripts}
+                keybindings={keybindings}
+                preferredScriptId={preferredScriptId}
+                onRunScript={onRunProjectScript}
+                onAddScript={onAddProjectScript}
+                onUpdateScript={onUpdateProjectScript}
+                onDeleteScript={onDeleteProjectScript}
+              />
+            )}
+            {showOpenInPicker && (
+              <OpenInPicker
+                environmentId={activeThreadEnvironmentId}
+                keybindings={keybindings}
+                availableEditors={availableEditors}
+                openInCwd={openInCwd}
+              />
+            )}
+          </>
         )}
         {activeProjectName && (
           <GitActionsControl

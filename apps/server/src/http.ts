@@ -1,5 +1,5 @@
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
-/* agent-watermark: model=haiku-5.5; effort=high; duration=3m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 import Mime from "@effect/platform-node/Mime";
 import {
   AuthOrchestrationOperateScope,
@@ -54,7 +54,7 @@ import * as PrismBridge from "./prismBridge.ts";
 import * as UpstreamMonitor from "./upstreamMonitor.ts";
 import {
   NightlyInstallError,
-  parseNightlyInstallRequest,
+  parseNightlyInstallBody,
   runNightlyInstall,
 } from "./upstreamNightly.ts";
 import { browserApiCorsAllowedHeaders, browserApiCorsAllowedMethods } from "./httpCors.ts";
@@ -700,8 +700,8 @@ export const upstreamRouteLayer = HttpRouter.add(
       Effect.gen(function* () {
         yield* authenticateRawRouteWithScope(AuthOrchestrationOperateScope);
         const request = yield* HttpServerRequest.HttpServerRequest;
-        const body = yield* request.json.pipe(Effect.option);
-        const input = parseNightlyInstallRequest(Option.getOrUndefined(body));
+        const text = yield* request.text.pipe(Effect.orDie);
+        const input = parseNightlyInstallBody(text);
         if (input === null) {
           return yield* HttpServerResponse.json(
             { error: 'Expected {"tag"?: "<nightly tag>", "seed"?: boolean}.' },

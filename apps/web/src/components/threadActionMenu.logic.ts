@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 /* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
@@ -114,7 +115,10 @@ export interface ThreadActionMenuState {
   readonly currentChatFolderId?: string | null;
 }
 
-/** Local navigation, read markers, and copying remain available to read-only clients. */
+/**
+ * Local navigation, read markers, copying, and exporting remain available to read-only clients.
+ * Export only downloads the thread the client already reads, the same as copy-report.
+ */
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
   return ![
     "new-thread-on-branch",
@@ -124,6 +128,7 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "copy-path",
     "copy-branch",
     "copy-thread-id",
+    "export-report",
   ].includes(action);
 }
 

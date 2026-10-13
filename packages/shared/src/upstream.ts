@@ -1,5 +1,5 @@
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
-/* agent-watermark: model=haiku-5.5; effort=high; duration=3m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=70m; seat=claude-code; date=2026-10-12 */
 // @effect-diagnostics globalFetch:off globalDate:off
 // This helper runs in both browsers and Node; it owns AbortSignal deadlines.
 import { compareSemverVersions, parseSemver } from "./semver.ts";
@@ -221,6 +221,17 @@ export function emptyUpstreamStatus(version: string): UpstreamStatus {
   };
 }
 
+/** Lexically normalizes an absolute POSIX path (no filesystem access): "." and ".." resolve, slashes collapse. */
+function normalizeAbsolutePosixPath(path: string): string {
+  const parts: string[] = [];
+  for (const segment of path.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") parts.pop();
+    else parts.push(segment);
+  }
+  return `/${parts.join("/")}`;
+}
+
 /**
  * Reads the isolation facts from an installed Nightly's LSEnvironment. The
  * bundle is isolated only when it points T3CODE_HOME away from `sharedHome` and
@@ -232,8 +243,8 @@ export function nightlyIsolation(input: {
 }): Pick<UpstreamNightlyInstall, "home" | "autoUpdateDisabled" | "isolated"> {
   const rawHome =
     typeof input.environment.T3CODE_HOME === "string" ? input.environment.T3CODE_HOME.trim() : "";
-  const home = rawHome.startsWith("/") ? rawHome.replace(/\/+$/, "") : null;
-  const sharedHome = input.sharedHome.replace(/\/+$/, "");
+  const home = rawHome.startsWith("/") ? normalizeAbsolutePosixPath(rawHome) : null;
+  const sharedHome = normalizeAbsolutePosixPath(input.sharedHome);
   const updater = String(input.environment.T3CODE_DISABLE_AUTO_UPDATE ?? "")
     .trim()
     .toLowerCase();
@@ -245,7 +256,6 @@ export function nightlyIsolation(input: {
   };
 }
 
-/** True when a release tag is a newer upstream nightly than an installed version. */
 /**
  * True when the latest nightly is strictly newer by (date, build). An installed
  * version that is not a nightly counts as older.

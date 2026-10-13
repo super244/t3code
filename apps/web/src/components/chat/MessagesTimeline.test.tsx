@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -488,7 +489,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Worked for 8.0s");
   });
 
-  it("keeps assistant changed-files headers sticky below the thread header", () => {
+  it("renders assistant changed-files as a card with a plain header and designed counts", () => {
     const assistantMessageId = MessageId.make("message-assistant-with-files");
     const turnId = TurnId.make("turn-with-files");
     const markup = renderToStaticMarkup(
@@ -530,7 +531,9 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("sticky top-2 z-10");
+    // The card clips its own corners (overflow-hidden), so a sticky header inside it could never pin.
+    expect(markup).toContain('data-changed-files-header=""');
+    expect(markup).not.toContain("sticky top-2 z-10");
     expect(markup).not.toContain("self-start");
     expect(markup).toContain("whitespace-nowrap");
     expect(markup).toContain("size-3");
@@ -1014,7 +1017,7 @@ describe("MessagesTimeline", () => {
 
     expect(markup).not.toContain("Show full message");
     expect(markup).toContain('data-user-message-collapsible="false"');
-    expect(markup).toContain("rounded-2xl bg-message p-3");
+    expect(markup).toContain("rounded-2xl border border-border/30 bg-message p-3.5");
   });
 
   it("preserves arbitrary XML-like tags and comparisons in rendered user messages", async () => {

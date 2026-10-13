@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=40m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=4m; seat=claude-code; date=2026-10-10 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-10-10 */
@@ -9,7 +9,7 @@ import {
   ArrowLeftIcon,
   CalendarClockIcon,
   ChartNoAxesColumnIcon,
-  Columns2Icon,
+  FlagIcon,
   GitPullRequestIcon,
   LayoutDashboardIcon,
   MoreHorizontalIcon,
@@ -223,11 +223,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Routines"
             onClick={handleRoutinesClick}
           />
-          <SidebarUtilityItem
-            icon={<Columns2Icon />}
-            label="Race agents"
-            onClick={handleRaceClick}
-          />
+          <SidebarUtilityItem icon={<FlagIcon />} label="Race agents" onClick={handleRaceClick} />
           {/* Review and cost surfaces follow the work surfaces. */}
           {pullRequestsSupported ? (
             <SidebarUtilityItem

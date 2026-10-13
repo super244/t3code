@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 // @effect-diagnostics nodeBuiltinImport:off -- Reads the installed bundle and runs the sidecar script, both local OS calls outside the Effect platform services.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
@@ -171,6 +171,22 @@ export function parseNightlyInstallRequest(value: unknown): NightlyInstallReques
   if (tag !== null && (typeof tag !== "string" || !TAG_PATTERN.test(tag))) return null;
   if (record.seed !== undefined && typeof record.seed !== "boolean") return null;
   return { tag, seed: record.seed === true };
+}
+
+/**
+ * Validates the raw POST body. An empty body means the defaults. Malformed JSON is
+ * refused rather than read as an empty body, so a broken request never starts an
+ * install it did not ask for.
+ */
+export function parseNightlyInstallBody(text: string): NightlyInstallRequest | null {
+  if (text.trim() === "") return { tag: null, seed: false };
+  let value: unknown;
+  try {
+    value = JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+  return parseNightlyInstallRequest(value);
 }
 
 let installInProgress = false;

@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -10,6 +10,7 @@ import {
   findNightlySidecarCheckout,
   nightlyInstallBlockedReason,
   nightlyInstallFromInfo,
+  parseNightlyInstallBody,
   parseNightlyInstallRequest,
   readBuildSourceCheckout,
   resolveNightlySidecarCheckout,
@@ -119,6 +120,19 @@ describe("parseNightlyInstallRequest", () => {
     expect(parseNightlyInstallRequest({ tag: "v0.0.45" })).toBeNull();
     expect(parseNightlyInstallRequest({ seed: "yes" })).toBeNull();
     expect(parseNightlyInstallRequest(["v0.0.46-nightly.20261012.3021"])).toBeNull();
+  });
+});
+
+describe("parseNightlyInstallBody", () => {
+  it("treats an empty body as the defaults and parses a JSON body", () => {
+    expect(parseNightlyInstallBody("")).toEqual({ tag: null, seed: false });
+    expect(parseNightlyInstallBody("  \n")).toEqual({ tag: null, seed: false });
+    expect(parseNightlyInstallBody('{"seed":true}')).toEqual({ tag: null, seed: true });
+  });
+
+  it("refuses malformed JSON instead of installing the latest nightly", () => {
+    expect(parseNightlyInstallBody('{"seed":')).toBeNull();
+    expect(parseNightlyInstallBody("not json")).toBeNull();
   });
 });
 

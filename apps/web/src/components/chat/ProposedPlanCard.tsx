@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=25m; seat=opencode; date=2026-10-10 */
 import { memo, useState, useId } from "react";
 import {
@@ -18,6 +19,7 @@ import { EllipsisIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { TruncatedText } from "../TruncatedText";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import {
@@ -151,9 +153,11 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <Badge variant="secondary">Plan</Badge>
-          <p className="truncate text-sm font-medium text-foreground" title={title}>
-            {title}
-          </p>
+          <TruncatedText
+            as="p"
+            text={title}
+            className="truncate text-sm font-medium text-foreground"
+          />
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
             {lineCount} lines
           </span>

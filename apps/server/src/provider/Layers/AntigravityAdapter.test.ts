@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=56m; seat=codex; date=2026-10-07 */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -20,6 +21,7 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as AcpErrors from "effect-acp/errors";
 import type * as AcpSchema from "effect-acp/schema";
 
@@ -1257,7 +1259,7 @@ it.layer(layer)("AntigravityAdapter", (it) => {
       });
       expect(yield* fs.readFileString(path.join(cwd, "nested", "new.txt"))).toBe("created");
 
-      if (process.platform !== "win32") {
+      if (HostProcessPlatform.defaultValue() !== "win32") {
         yield* fs.writeFileString(path.join(outside, "secret.txt"), "outside workspace");
         yield* fs.symlink(path.join(outside, "secret.txt"), path.join(cwd, "linked.txt"));
         const linkedRead = yield* read({

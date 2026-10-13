@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
@@ -32,28 +33,34 @@ const record = (sessionId: string, outputTokens: number): UsageRecord => ({
 });
 
 describe("usage by project", () => {
-  it("resolves a lossy Claude Code folder name against the filesystem, longest name first", () => {
-    const resolve = (slug: string) => Effect.runSync(resolveClaudeProjectSlug(slug, readDir));
-    expect(resolve("-Users-luca-MyLifeOS-Second-Brain-PROJECTS-network-tunnel")).toBe(
-      "/Users/luca/MyLifeOS/Second-Brain/PROJECTS/network-tunnel",
-    );
-    expect(resolve("-Users-luca-my-site")).toBe("/Users/luca/my.site");
-    expect(resolve("-Users-luca-Deleted-project")).toBeNull();
-  });
+  it.effect(
+    "resolves a lossy Claude Code folder name against the filesystem, longest name first",
+    () =>
+      Effect.gen(function* () {
+        const resolve = (slug: string) => resolveClaudeProjectSlug(slug, readDir);
+        expect(yield* resolve("-Users-luca-MyLifeOS-Second-Brain-PROJECTS-network-tunnel")).toBe(
+          "/Users/luca/MyLifeOS/Second-Brain/PROJECTS/network-tunnel",
+        );
+        expect(yield* resolve("-Users-luca-my-site")).toBe("/Users/luca/my.site");
+        expect(yield* resolve("-Users-luca-Deleted-project")).toBeNull();
+      }),
+  );
 
-  it("attributes Claude transcripts by folder and leaves other providers unattributed", () => {
-    const root = "/Users/luca/.claude/projects";
-    const slug = "-Users-luca-MyLifeOS-AIos";
-    expect(claudeProjectSlug(root, `${root}/${slug}/abc.jsonl`)).toBe(slug);
-    const projectOf = Effect.runSync(resolveTranscriptProjects([slug], readDir));
-    expect(projectOf("claude", root, `${root}/${slug}/abc.jsonl`)).toEqual({
-      projectPath: "/Users/luca/MyLifeOS/AIos",
-      name: "AIos",
-    });
-    expect(
-      projectOf("codex", "/Users/luca/.codex/sessions", "/x/rollout.jsonl").projectPath,
-    ).toBeNull();
-  });
+  it.effect("attributes Claude transcripts by folder and leaves other providers unattributed", () =>
+    Effect.gen(function* () {
+      const root = "/Users/luca/.claude/projects";
+      const slug = "-Users-luca-MyLifeOS-AIos";
+      expect(claudeProjectSlug(root, `${root}/${slug}/abc.jsonl`)).toBe(slug);
+      const projectOf = yield* resolveTranscriptProjects([slug], readDir);
+      expect(projectOf("claude", root, `${root}/${slug}/abc.jsonl`)).toEqual({
+        projectPath: "/Users/luca/MyLifeOS/AIos",
+        name: "AIos",
+      });
+      expect(
+        projectOf("codex", "/Users/luca/.codex/sessions", "/x/rollout.jsonl").projectPath,
+      ).toBeNull();
+    }),
+  );
 
   it("totals tokens, cost and distinct sessions per project", () => {
     const rates: RateTable = new Map([

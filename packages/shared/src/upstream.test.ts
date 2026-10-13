@@ -1,5 +1,5 @@
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
-/* agent-watermark: model=haiku-5.5; effort=high; duration=3m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   buildUpstreamNightlyStatus,
@@ -230,6 +230,21 @@ describe("upstream nightly status", () => {
       autoUpdateDisabled: false,
       isolated: false,
     });
+  });
+
+  it("treats a T3CODE_HOME that resolves to the shared home as not isolated", () => {
+    // Lexical "." and ".." segments and doubled slashes still name ~/.t3.
+    const updater = { T3CODE_DISABLE_AUTO_UPDATE: "true" };
+    for (const home of [
+      "/Users/luca/.t3/userdata/..",
+      "/Users/luca//.t3/",
+      "/Users/luca/./.t3",
+      "/Users/luca/x/../.t3",
+    ]) {
+      expect(
+        nightlyIsolation({ environment: { T3CODE_HOME: home, ...updater }, sharedHome }).isolated,
+      ).toBe(false);
+    }
   });
 
   it("starts with no shared-state or nightly facts until the server fills them in", () => {

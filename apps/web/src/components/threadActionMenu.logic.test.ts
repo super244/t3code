@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 /* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
 import { describe, expect, it } from "vite-plus/test";
@@ -93,6 +94,7 @@ describe("buildThreadActionMenuItems", () => {
       "new-thread-on-branch",
       "mark-unread",
       "copy",
+      "export-report",
       "project-settings",
     ]);
     const allowed = buildThreadActionMenuItems({ ...baseState, canOperate: true });
@@ -117,6 +119,7 @@ describe("buildThreadActionMenuItems", () => {
       "rename",
       "mark-unread",
       "copy",
+      "export-report",
       "project-settings",
       "archive",
       "delete",
@@ -131,15 +134,27 @@ describe("buildThreadActionMenuItems", () => {
     expect(handoff?.disabled).toBeFalsy();
   });
 
-  it("groups project settings with utility actions before archive", () => {
+  it("groups export and project settings with utility actions before archive", () => {
     const items = buildThreadActionMenuItems(baseState);
     const copyIndex = items.findIndex((item) => item.id === "copy");
     expect(items[copyIndex + 1]).toMatchObject({
+      id: "export-report",
+      label: "Export as Markdown…",
+      icon: "file-down",
+    });
+    expect(items[copyIndex + 2]).toMatchObject({
       id: "project-settings",
       label: "Project settings",
       icon: "settings",
     });
-    expect(items[copyIndex + 2]?.id).toBe("archive");
+    expect(items[copyIndex + 3]?.id).toBe("archive");
+  });
+
+  it("keeps export available to read-only clients, like copying the thread", () => {
+    const exportItem = buildThreadActionMenuItems({ ...baseState, canOperate: false }).find(
+      (item) => item.id === "export-report",
+    );
+    expect(exportItem?.disabled).toBeFalsy();
   });
 
   it("offers project filtering only for surfaces with a scoped thread list", () => {

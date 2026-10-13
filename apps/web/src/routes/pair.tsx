@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=80m; seat=claude-code; date=2026-10-12 */
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
@@ -8,37 +8,12 @@ import {
   PairingPendingSurface,
   PairingRouteSurface,
 } from "../components/auth/PairingRouteSurface";
+import { readLinkRejected, writeLinkRejected } from "../components/auth/pairingLinkRejected";
 import { Button } from "../components/ui/button";
 
 // The gate reports a rejected credential as this message; it is the only signal that a
 // pairing link was already used or has expired.
 const REJECTED_PAIRING_MESSAGE = /^Invalid pairing token/i;
-
-// The router runs the pair route's beforeLoad twice for one link: once with the token and
-// once after the root route has stripped it from the address bar. The second run carries no
-// error message and can land in a different module instance, so the rejection is kept in
-// session storage for the render. It is cleared when the user asks for the token form again.
-const LINK_REJECTED_KEY = "t3code:pairing-link-rejected";
-
-function readLinkRejected(): boolean {
-  try {
-    return window.sessionStorage.getItem(LINK_REJECTED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeLinkRejected(rejected: boolean): void {
-  try {
-    if (rejected) {
-      window.sessionStorage.setItem(LINK_REJECTED_KEY, "1");
-    } else {
-      window.sessionStorage.removeItem(LINK_REJECTED_KEY);
-    }
-  } catch {
-    // Storage can be blocked; the card then falls back to the gate's own message.
-  }
-}
 
 export const Route = createFileRoute("/pair")({
   beforeLoad: async ({ context, location }) => {
@@ -107,8 +82,9 @@ function PairRoutePendingView() {
 const PAIR_COMMAND = "npx t3 pair";
 
 /**
- * Shown when the link's token was already used or has expired. Explains why, gives the one
- * command that mints a fresh link, and offers a retry that opens the token form again.
+ * Shown when the link's token was rejected: already used, expired, or not valid for this server.
+ * Explains why, gives the one command that mints a fresh link, and offers a retry that opens the
+ * token form again.
  */
 function ExpiredPairingLinkCard({ onRetry }: { readonly onRetry: () => void }) {
   const [copied, setCopied] = useState(false);
@@ -138,11 +114,11 @@ function ExpiredPairingLinkCard({ onRetry }: { readonly onRetry: () => void }) {
           {APP_DISPLAY_NAME}
         </p>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">
-          This pairing link has expired
+          This pairing link didn&apos;t work
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Pairing links work once and expire after a few minutes. This one was already used or ran
-          out of time, so this browser cannot connect with it.
+          Pairing links work once and then expire. This one was already used, ran out of time, or is
+          not valid for this server, so this browser cannot connect with it.
         </p>
 
         <div className="mt-6 space-y-2">

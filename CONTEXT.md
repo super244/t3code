@@ -1,3 +1,4 @@
+<!-- agent-watermark: model=haiku-5.5; effort=high; duration=70m; seat=claude-code; date=2026-10-12 -->
 <!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-10 -->
 <!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 -->
 <!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=19m; seat=codex; date=2026-10-08 -->
@@ -16,7 +17,7 @@
 # CONTEXT — t3code
 
 > Agents: read this before touching code in this project.
-> **Status:** external clone — contributing fork | **Last updated:** 2026-10-08
+> **Status:** external clone — contributing fork | **Last updated:** 2026-10-12
 > **Linear:** —
 
 ## What this is
@@ -52,6 +53,8 @@ docs/           # Project documentation
 ```
 
 ## Changelog
+
+**2026-10-12 — Premium polish: phone thread header, honest labels, safer Nightly install.** Below 768px wide the thread title stays on one line: the project opens from its favicon in a one-tap popover with "New thread", and scripts and editors sit behind a "Project tools" popover. Desktop header is unchanged. Single-line labels (tool activity, changed files, approval details, plan titles) show their full text on hover when the column cuts them off. The thread menu's "Export as Markdown" works for read-only clients, as copy does. The Upstream Nightly install refuses a malformed request body (400) instead of installing the latest Nightly; the isolation check resolves `.`, `..` and repeated slashes in `T3CODE_HOME` before comparing it with the shared home. Nightly rollback puts the running bundle back if the backup cannot be moved into place. The "pairing link has expired" flag now lapses after 60 seconds, so a later plain visit to `/pair` shows the token form instead of the expired-link card. The loading, empty and phone states for Usage, PRs, Command Center, Race, Routines and the shell landed in `df4948f6f4`.
 
 **2026-10-09 — Thread report (branch `feat/thread-report`, not pushed).** Export a thread as Markdown or copy it as a PR description from the thread menu (sidebar, header) and ⌘K; mobile rows share it through the system sheet. Built in `client-runtime/threadReport.ts`. Opencode/antigravity `/api/enterprise/*` routes, the "99.999% SLA / Raft" fleet banner and drawer, and Enterprise branding were removed from the working tree.
 
@@ -224,7 +227,6 @@ Web/desktop and mobile expose an optional per-routine local-calendar-day launch 
 The actual scheduler and persisted settings were exercised with a disposable state directory, in-memory SQLite and mock dispatcher: one launch, a capped Run now skip, stale-edit preservation, duplication reset, local-midnight reset and fresh-service reload. Five client workspace typechecks, desktop typechecking, scoped formatting/lint and production web/desktop packaging passed. Server typechecking remains failing in separate enterprise diagnostics and existing test code. An isolated browser rendered the exact receipts at 390px without horizontal overflow; exported JSON retained the counter. No real agent routine ran and no new repository tests were written. Native mobile rendering and live-provider enforcement remain unverified.
 
 Read-only installed projection state showed only stopped sessions and completed/interrupted turns, with no provider child process. Native menu Quit closed Alpha. The installer installed `0.0.45-preview.20261010.custom9` from `/Users/luca/Downloads/T3-Code-0.0.45-preview.20261010.custom9-arm64.zip` and retained custom8 at `/Applications/.t3-local-upgrades/T3 Code Alpha-0.0.45-preview.20261009.custom8-20261010-174359-923234Z.app`, preserving server data and the Alpha profile. The installed signature passed; Alpha reopened and its owned backend listens on the existing port 3774. Post-install native accessibility exposes only the outer window, so the reopened native content remains unverified. Source foundation, upstream integration and whole-project enterprise-v1 remain partial.
-
 
 ### 2026-10-10 — Portable routine templates (custom10)
 

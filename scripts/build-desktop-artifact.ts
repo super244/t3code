@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12
+// agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12
 // @effect-diagnostics nodeBuiltinImport:off - Node's typed junction API avoids Windows symlink privileges while keeping the probe isolated.
 
 import * as NodeFSP from "node:fs/promises";
@@ -3022,10 +3022,8 @@ export const writeBuildSourceRecord = (serverDistDir: string, repoRoot: string) 
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    yield* fs.writeFileString(
-      path.join(serverDistDir, BUILD_SOURCE_RECORD),
-      `${JSON.stringify({ repoRoot: path.resolve(repoRoot) }, null, 2)}\n`,
-    );
+    const recordJson = yield* encodeJsonString({ repoRoot: path.resolve(repoRoot) });
+    yield* fs.writeFileString(path.join(serverDistDir, BUILD_SOURCE_RECORD), `${recordJson}\n`);
   });
 
 export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(function* (input: {

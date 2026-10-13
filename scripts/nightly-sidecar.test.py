@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12
+# agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12
 """Offline tests for nightly-sidecar.py: manifest parsing, version order, isolation, seeding.
 
 Run with: python3 scripts/nightly-sidecar.test.py
@@ -311,6 +311,31 @@ class BackupNamingTests(unittest.TestCase):
                 )
             finally:
                 sidecar.BACKUPS = original_backups
+
+
+class RollbackTests(unittest.TestCase):
+    def test_a_failed_restore_puts_the_displaced_bundle_back(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "T3 Code (Nightly).app"
+            (target / "Contents").mkdir(parents=True)
+            (target / "Contents" / "marker").write_text("live")
+            backups = root / "backups"
+            backups.mkdir()
+            missing_backup = backups / "T3 Code (Nightly)-0.0.46-nightly.20261004.2648-20261011T100000000001Z.app"
+            with (
+                mock.patch.object(sidecar, "TARGET", target),
+                mock.patch.object(sidecar, "BACKUPS", backups),
+                mock.patch.object(sidecar, "running", lambda app: False),
+                mock.patch.object(sidecar, "latest_backup", lambda: missing_backup),
+                mock.patch.object(sidecar.sys, "platform", "darwin"),
+            ):
+                with self.assertRaises(OSError):
+                    sidecar.cmd_rollback(None)
+            self.assertEqual((target / "Contents" / "marker").read_text(), "live")
+            self.assertEqual(list(backups.glob("*-displaced-*.app")), [])
 
 
 if __name__ == "__main__":

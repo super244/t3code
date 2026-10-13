@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=35m; seat=codex; date=2026-10-02 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-01 */
 import { describe, expect, it } from "vite-plus/test";
@@ -11,6 +12,7 @@ import {
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
 import * as Layer from "effect/Layer";
 import { TestClock } from "effect/testing";
 import * as ServerSettings from "../serverSettings.ts";
@@ -83,6 +85,9 @@ const raceAtClaim = (edit: RoutineDefinition | null, writeIndex = 1, scheduled =
       }),
       Effect.provide(
         Layer.mock(OrchestrationEngineService)({
+          // The sweep replays routine thread history from the engine's head before it claims.
+          latestSequence: Effect.succeed(0),
+          readThreadEvents: () => Stream.empty,
           dispatch: (command) =>
             Effect.sync(() => {
               commands.push(command);
@@ -212,6 +217,9 @@ const sweepTwice = (routine: RoutineDefinition) =>
       }),
       Effect.provide(
         Layer.mock(OrchestrationEngineService)({
+          // The sweep replays routine thread history from the engine's head before it claims.
+          latestSequence: Effect.succeed(0),
+          readThreadEvents: () => Stream.empty,
           dispatch: (command) =>
             Effect.sync(() => {
               commands.push(command);

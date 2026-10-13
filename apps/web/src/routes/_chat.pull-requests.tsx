@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=29m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-12 */
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Spinner } from "~/components/ui/spinner";
 import { pullRequestHostOf, resolveEnvironmentMachineKind } from "@t3tools/contracts";
@@ -1620,7 +1620,9 @@ function PullRequestsRouteView() {
     showingCarried && listQuery.isPending && entries.length === 0 && typedQuery.length === 0;
   const listBody = (
     <>
-      {readRepositories.length > 0 ? (
+      {/* While the first page loads, the skeleton's own caption says what is being read, so
+          this provenance line waits for it rather than repeating it. */}
+      {readRepositories.length > 0 && !firstLoad ? (
         <p className="px-3 pb-2 text-xs text-muted-foreground">
           {readLabel !== null
             ? `Reading pull requests from ${readLabel}.`

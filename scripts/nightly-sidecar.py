@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# agent-watermark: model=haiku-5.5; effort=high; duration=40m; seat=claude-code; date=2026-10-12
+# agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12
 """Run upstream T3 Code Nightly beside the fork's Alpha without sharing its state.
 
 Subcommands:
@@ -641,7 +641,13 @@ def cmd_rollback(_args):
     if TARGET.exists():
         displaced = BACKUPS / f"{APP_BASE}-displaced-{stamp_now()}.app"
         TARGET.rename(displaced)
-    backup.rename(TARGET)
+    try:
+        backup.rename(TARGET)
+    except OSError:
+        # Put the bundle the user was running back, so a failed rollback changes nothing.
+        if displaced is not None:
+            displaced.rename(TARGET)
+        raise
     restored = installed_facts() or {}
     print(
         json.dumps(

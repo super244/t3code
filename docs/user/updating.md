@@ -1,3 +1,4 @@
+<!-- agent-watermark: model=haiku-5.5; effort=high; duration=70m; seat=claude-code; date=2026-10-12 -->
 <!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 -->
 
 # Updating T3 Code
@@ -17,6 +18,11 @@ check displays the error and retains the last known information for this session
 These downloads install the official upstream app. They do not merge changes
 into this custom checkout or replace its custom features. Use the normal server
 update flow below when updating a connected server.
+
+On a Mac, the Nightly panel's **Install Nightly** installs Nightly on the server
+beside Alpha, with its own data and its updater turned off. Its first install can
+start with a read-only copy of your threads; Alpha's data is not changed. If the
+install says Nightly is running, quit it and install again.
 
 ## Before you update
 

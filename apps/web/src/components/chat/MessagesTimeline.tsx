@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=25m; seat=opencode; date=2026-10-10 */
 import { GitPullRequestIcon } from "lucide-react";
 import {
@@ -162,6 +163,7 @@ import {
 } from "./MessagesTimeline.logic";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { TruncatedText } from "../TruncatedText";
 import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
@@ -823,8 +825,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           </span>
           <p className="mt-4 text-sm font-medium text-foreground">Start the conversation</p>
           <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
-            Send a message below. Tool calls, diffs, and approvals will appear here as the
-            turn unfolds.
+            Send a message below. Tool calls, diffs, and approvals will appear here as the turn
+            unfolds.
           </p>
         </div>
       </div>
@@ -1653,7 +1655,6 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
         aria-expanded={row.expanded}
         data-scroll-anchor-ignore
         onClick={() => ctx.onToggleTurnFold(row.turnId)}
-        title={row.label}
         className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-[13px] font-medium leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
         <span>{row.label}</span>
@@ -2202,12 +2203,10 @@ function LiveActivityContent({
           />
         </span>
       ) : null}
-      <span
+      <TruncatedText
+        text={label}
         className={cn("min-w-0 flex-1 truncate", active && "live-tool-shine")}
-        title={label}
-      >
-        {label}
-      </span>
+      />
       {showTrailingFailureMark ? (
         <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
       ) : null}
@@ -2298,9 +2297,7 @@ function WorkGroupToggleTimelineRow({
           muted
         />
       </span>
-      <span className="min-w-0 flex-1 truncate text-secondary-label" title={row.summary}>
-        {row.summary}
-      </span>
+      <TruncatedText text={row.summary} className="min-w-0 flex-1 truncate text-secondary-label" />
     </button>
   );
 }
@@ -3420,18 +3417,17 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <div className="min-w-0 flex-1 overflow-hidden">
             <p className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
-              <span
+              <TruncatedText
+                text={previewText}
+                tooltip={expanded ? false : undefined}
                 className={cn(
                   "min-w-0 flex-1",
                   expanded ? "whitespace-pre-wrap break-words select-text" : "truncate",
                   headingClass,
                 )}
-                title={expanded ? undefined : previewText}
                 onClick={expanded ? stopRowToggle : undefined}
                 onPointerDown={expanded ? stopRowToggle : undefined}
-              >
-                {previewText}
-              </span>
+              />
             </p>
           </div>
           {showFailedIndicator &&

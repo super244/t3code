@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=35m; seat=codex; date=2026-10-02 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-01 */
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -1583,7 +1584,12 @@ it.layer(NodeServices.layer)("client routine mutations", (it) => {
         routines: { daily: { _tag: "RoutineEdit", routine: stale, expected: clientRoutine } },
       });
       const saved = yield* ServerSettingsModule.updateClientSettings(service, patch);
-      assert.deepEqual(saved.routines.daily, { ...clientRoutine, prompt: "Edited instructions" });
+      // A saved routine always carries its overlap policy; "allow" is the shipped default.
+      assert.deepEqual(saved.routines.daily, {
+        ...clientRoutine,
+        prompt: "Edited instructions",
+        overlapPolicy: "allow",
+      });
       const config = yield* ServerConfig.ServerConfig;
       const fs = yield* FileSystem.FileSystem;
       const persisted = yield* decodePersistedSettings(
