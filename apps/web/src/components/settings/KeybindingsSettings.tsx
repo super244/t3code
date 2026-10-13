@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=32m; seat=claude-code; date=2026-10-13 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-13 */
 import {
   ChevronDownIcon,
   CircleXIcon,
@@ -1073,6 +1073,7 @@ function KeybindingSettingsRow(props: KeybindingRowProps) {
   return (
     <SettingsRow
       className="group/row rounded-none"
+      inlineControl
       title={<KeybindingRowTitle row={row} />}
       description={<KeybindingRowWhen row={row} editor={editor} variables={variables} />}
       control={

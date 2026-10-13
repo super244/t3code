@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-03 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-12 */
@@ -63,6 +63,7 @@ import { resolveThreadRouteRef } from "../threadRoutes";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffFilePathCopyButton } from "./DiffFilePathCopyButton";
+import { diffPanelEmptyStateMessage } from "./diffPanelEmptyState";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
@@ -1224,7 +1225,11 @@ export default function DiffPanel({
                 <div className="flex h-full items-center justify-center px-3 py-2 text-xs text-muted-foreground/70">
                   <p>
                     {hasNoNetChanges
-                      ? "No net changes in this selection."
+                      ? diffPanelEmptyStateMessage({
+                          workingTreeSelected:
+                            selectedTurnId === null && selectedGitScope === "unstaged",
+                          statusReportsChanges: gitStatusQuery.data?.hasWorkingTreeChanges,
+                        })
                       : "No patch available for this selection."}
                   </p>
                 </div>

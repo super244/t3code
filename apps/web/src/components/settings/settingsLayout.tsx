@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 import { InfoIcon, Undo2Icon } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -278,6 +279,7 @@ export function SettingsRow({
   resetAction,
   control,
   serverScoped = false,
+  inlineControl = false,
   children,
   className,
   ...rowProps
@@ -288,6 +290,9 @@ export function SettingsRow({
   resetAction?: ReactNode;
   control?: ReactNode;
   serverScoped?: boolean;
+  // Phone widths keep the control beside the title and description instead of
+  // stacking it below. For rows whose control is small and the text can truncate.
+  inlineControl?: boolean;
   children?: ReactNode;
 }) {
   const targetRef = useSettingsSearchTarget<HTMLDivElement>(rowProps.id);
@@ -330,7 +335,12 @@ export function SettingsRow({
         className,
       )}
     >
-      <div className="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)] sm:items-center sm:gap-8">
+      <div
+        className={cn(
+          "flex gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)] sm:items-center sm:gap-8",
+          inlineControl ? "items-center" : "flex-col",
+        )}
+      >
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex min-h-5 items-center gap-1.5">
             <h3 className="text-sm font-medium tracking-[-0.005em] text-foreground">{title}</h3>
@@ -346,7 +356,12 @@ export function SettingsRow({
           {status ? <div className="pt-0.5 text-xs text-muted-foreground">{status}</div> : null}
         </div>
         {renderedControl ? (
-          <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
+          <div
+            className={cn(
+              "flex shrink-0 items-center gap-2 sm:w-auto sm:justify-end",
+              !inlineControl && "w-full",
+            )}
+          >
             {renderedControl}
           </div>
         ) : null}
