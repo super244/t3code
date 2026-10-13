@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=28m; seat=claude-code; date=2026-10-12 */
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -1347,8 +1347,9 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("lucide-terminal");
     expect(markup).not.toContain("lucide-x");
     expect(markup).not.toContain("text-destructive");
-    // The failure stays discoverable for screen readers.
-    expect(markup).toContain("tool call failed");
+    // The failure stays discoverable: as visible status and in the screen-reader label.
+    expect(markup).toContain("1 failed");
+    expect(markup).toContain("Ran 2 commands, 1 failed");
   });
 
   it("renders trailing tool calls as part of the terminal assistant block", () => {
@@ -1726,7 +1727,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('aria-label="Received 1 update and used 1 tool, tool call failed"');
+    expect(markup).toContain('aria-label="Received 1 update and used 1 tool, 1 failed"');
     // Ordinary tool failures do not use destructive row styling.
     expect(markup).not.toContain("text-destructive");
   });

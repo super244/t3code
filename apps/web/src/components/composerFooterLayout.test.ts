@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=28m; seat=claude-code; date=2026-10-12 */
 import { describe, expect, it } from "vite-plus/test";
 
 import { resolveContextStripLabelsCompact } from "./BranchToolbar.logic";
@@ -10,6 +11,7 @@ import {
   resolveScrollToEndClearance,
   resolveRestingComposerControlsLayout,
   resolveRestingComposerControlsNaturalWidth,
+  resolveRestingFoldedBlockCount,
   shouldAnimateComposerRestingTransition,
   shouldUseCompactComposerPrimaryActions,
   shouldUseCompactComposerFooter,
@@ -447,5 +449,40 @@ describe("resolveScrollToEndClearance", () => {
         overlayHeight,
       );
     }
+  });
+});
+
+describe("resolveRestingFoldedBlockCount", () => {
+  it("folds every secondary block on a phone, whatever the width measured", () => {
+    expect(
+      resolveRestingFoldedBlockCount({
+        inStrip: true,
+        isMobileViewport: true,
+        measuredHiddenCount: 0,
+        foldableBlockCount: 2,
+      }),
+    ).toBe(2);
+  });
+
+  it("keeps the measured count on wider strips", () => {
+    expect(
+      resolveRestingFoldedBlockCount({
+        inStrip: true,
+        isMobileViewport: false,
+        measuredHiddenCount: 1,
+        foldableBlockCount: 2,
+      }),
+    ).toBe(1);
+  });
+
+  it("folds nothing outside the resting strip", () => {
+    expect(
+      resolveRestingFoldedBlockCount({
+        inStrip: false,
+        isMobileViewport: true,
+        measuredHiddenCount: 2,
+        foldableBlockCount: 2,
+      }),
+    ).toBe(0);
   });
 });

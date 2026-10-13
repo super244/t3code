@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=28m; seat=claude-code; date=2026-10-12 */
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import {
   questionAttachmentDraftId,
@@ -167,6 +167,7 @@ import {
   COMPOSER_FOOTER_WIDE_ACTIONS_COMPACT_BREAKPOINT_PX,
   getRestingComposerImagePreviewCounts,
   resolveRestingComposerControlsLayout,
+  resolveRestingFoldedBlockCount,
   shouldAnimateComposerRestingTransition,
   shouldUseCompactComposerPrimaryActions,
   shouldUseCompactComposerFooter,
@@ -4080,7 +4081,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     setIsComposerScrollCollapsed,
   ]);
 
-  const restingHiddenBlockCount = composerControlsInStrip ? restingControlsHiddenBlockCount : 0;
+  const restingHiddenBlockCount = resolveRestingFoldedBlockCount({
+    inStrip: composerControlsInStrip,
+    isMobileViewport,
+    measuredHiddenCount: restingControlsHiddenBlockCount,
+    foldableBlockCount: providerTraitsPicker ? 2 : 1,
+  });
   const composerControlsCompact = !composerControlsInStrip && isComposerFooterCompact;
   const restingProviderTraitsPicker = renderProviderTraitsPicker({
     ...providerTraitsPickerInput,

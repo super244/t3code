@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=28m; seat=claude-code; date=2026-10-12 */
 export const COMPOSER_FOOTER_COMPACT_BREAKPOINT_PX = 620;
 export const COMPOSER_FOOTER_WIDE_ACTIONS_COMPACT_BREAKPOINT_PX = 780;
 const RESTING_COMPOSER_IMAGE_THUMBNAIL_LIMIT = 3;
@@ -95,6 +96,21 @@ export function shouldAnimateComposerRestingTransition(input: {
   hasInterruptedAnimation: boolean;
 }): boolean {
   return input.hasCompletedInitialLayout && (input.stateChanged || input.hasInterruptedAnimation);
+}
+
+/**
+ * How many secondary resting blocks (traits, mode) fold into the one overflow menu.
+ * A phone strip has room for the model and environment only, so every foldable block
+ * folds there; wider strips keep whatever the width measurement hides.
+ */
+export function resolveRestingFoldedBlockCount(input: {
+  inStrip: boolean;
+  isMobileViewport: boolean;
+  measuredHiddenCount: number;
+  foldableBlockCount: number;
+}): number {
+  if (!input.inStrip) return 0;
+  return input.isMobileViewport ? input.foldableBlockCount : input.measuredHiddenCount;
 }
 
 export function shouldUseCompactComposerPrimaryActions(

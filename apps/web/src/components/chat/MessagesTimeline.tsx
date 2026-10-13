@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=28m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=25m; seat=opencode; date=2026-10-10 */
 import { GitPullRequestIcon } from "lucide-react";
 import {
@@ -164,6 +164,7 @@ import {
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { TruncatedText } from "../TruncatedText";
+import { WorkGroupToggle } from "./WorkGroupToggle";
 import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
@@ -2280,14 +2281,9 @@ function WorkGroupToggleTimelineRow({
 }) {
   const ctx = use(TimelineRowCtx);
   return (
-    <button
-      type="button"
-      className="group/tool-group flex min-h-6 w-full cursor-pointer items-center gap-1.5 rounded-md px-0.5 py-0.5 text-left text-sm leading-relaxed transition-colors duration-150 hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
-      aria-label={row.hasFailure ? `${row.summary}, tool call failed` : undefined}
-      aria-expanded={row.expanded}
-      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
-    >
-      <span className="flex size-6 shrink-0 items-center justify-center text-icon-muted">
+    <WorkGroupToggle
+      summary={row.summary}
+      icon={
         <ToolActivityIconView
           icon={row.toolIcon}
           fallbackName={
@@ -2296,9 +2292,11 @@ function WorkGroupToggleTimelineRow({
           className="size-4 shrink-0 stroke-[1.8]"
           muted
         />
-      </span>
-      <TruncatedText text={row.summary} className="min-w-0 flex-1 truncate text-secondary-label" />
-    </button>
+      }
+      expanded={row.expanded}
+      failedCount={row.failedCount}
+      onToggle={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+    />
   );
 }
 

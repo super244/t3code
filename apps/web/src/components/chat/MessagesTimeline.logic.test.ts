@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=28m; seat=claude-code; date=2026-10-12 */
 import { describe, expect, it } from "vite-plus/test";
 import {
   CheckpointRef,
@@ -2622,6 +2623,53 @@ describe("deriveMessagesTimelineRows", () => {
     });
   });
 
+  it("counts the failed calls in a run and carries the count on its summary row", () => {
+    const toolEntry = (id: string, overrides: Record<string, unknown>) => ({
+      id: `${id}-entry`,
+      kind: "work" as const,
+      createdAt: "2026-01-01T00:00:01Z",
+      entry: {
+        id,
+        createdAt: "2026-01-01T00:00:01Z",
+        label: "Ran command",
+        tone: "tool" as const,
+        ...overrides,
+      },
+    });
+    const baseInput = {
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    };
+    const failingRun = deriveMessagesTimelineRows({
+      ...baseInput,
+      timelineEntries: [
+        toolEntry("work-1", { command: "bun test", toolLifecycleStatus: "failed" }),
+        toolEntry("work-2", { command: "pnpm typecheck" }),
+        toolEntry("work-3", { command: "vp fmt apps/web/src", toolLifecycleStatus: "failed" }),
+      ],
+    });
+    const cleanRun = deriveMessagesTimelineRows({
+      ...baseInput,
+      timelineEntries: [
+        toolEntry("work-4", { command: "pnpm typecheck" }),
+        toolEntry("work-5", { command: "vp fmt apps/web/src" }),
+      ],
+    });
+
+    expect(failingRun.find((row) => row.kind === "work-toggle")).toMatchObject({
+      hiddenCount: 3,
+      failedCount: 2,
+      hasFailure: true,
+    });
+    expect(cleanRun.find((row) => row.kind === "work-toggle")).toMatchObject({
+      hiddenCount: 2,
+      failedCount: 0,
+      hasFailure: false,
+    });
+  });
+
   it("deduplicates integration sources and uses the first source icon for the group", () => {
     const chromeSource = {
       key: "browser-use:chrome",
@@ -2848,6 +2896,7 @@ describe("computeStableMessagesTimelineRows", () => {
       summaryKind: "other",
       toolSurface: "browser",
       hasFailure: false,
+      failedCount: 0,
     };
     const initial = computeStableMessagesTimelineRows([initialRow], {
       byId: new Map(),
@@ -2862,6 +2911,31 @@ describe("computeStableMessagesTimelineRows", () => {
 
     expect(updated).not.toBe(initial);
     expect(updated.result[0]).toBe(enrichedRow);
+  });
+
+  it("replaces a cached work toggle when another call in the run fails", () => {
+    const oneFailure: Extract<MessagesTimelineRow, { kind: "work-toggle" }> = {
+      kind: "work-toggle",
+      id: "work-toggle:1",
+      createdAt: "2026-01-01T00:00:00Z",
+      groupId: "work-group:1",
+      hiddenCount: 3,
+      expanded: false,
+      summary: "Ran 4 commands",
+      summaryKind: "other",
+      hasFailure: true,
+      failedCount: 1,
+    };
+    const initial = computeStableMessagesTimelineRows([oneFailure], {
+      byId: new Map(),
+      result: [],
+    });
+    const twoFailures: MessagesTimelineRow = { ...oneFailure, failedCount: 2 };
+
+    const updated = computeStableMessagesTimelineRows([twoFailures], initial);
+
+    expect(updated).not.toBe(initial);
+    expect(updated.result[0]).toBe(twoFailures);
   });
 
   it.each(["", " \n"])("keeps Thinking after assistant content grows from %j", (text) => {

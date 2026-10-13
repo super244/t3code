@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=28m; seat=claude-code; date=2026-10-12 */
 import * as Equal from "effect/Equal";
 import { shallow } from "zustand/vanilla/shallow";
 import { renderCodexDirectivesForCopy } from "@t3tools/client-runtime/codex-markdown-directives";
@@ -36,6 +37,14 @@ export const TIMELINE_MINIMAP_MIN_ITEMS = 2;
 const TIMELINE_MINIMAP_MAX_HEIGHT_CSS = "calc(100vh - 18rem)";
 const TIMELINE_CONTENT_MAX_WIDTH = 768;
 const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
+
+/** How many tool calls in a run finished unsuccessfully. Only tool-like rows count:
+ *  a runtime error is a separate row and already has its own treatment. */
+export function countFailedToolEntries(entries: ReadonlyArray<WorkLogEntry>): number {
+  return entries.filter(
+    (entry) => workLogEntryIsToolLike(entry) && workEntryDisplayIndicatesToolFailure(entry),
+  ).length;
+}
 
 function singleToolCallLabel(entry: WorkLogEntry): string {
   const toolPresentation = resolveWorkEntryToolPresentation(entry, "completed");
@@ -339,6 +348,8 @@ export type MessagesTimelineRow =
       toolIcon?: WorkLogEntry["toolIcon"];
       summaryToolIcon?: "browser" | "t3-code" | "pull-request";
       hasFailure: boolean;
+      /** Tool calls in this run that failed, shown as status beside the summary. */
+      failedCount: number;
     }
   | {
       kind: "turn-fold";
@@ -1166,6 +1177,7 @@ export function deriveMessagesTimelineRows(input: {
             hasFailure:
               latestToolEntry !== undefined &&
               workEntryDisplayIndicatesToolFailure(latestToolEntry),
+            failedCount: countFailedToolEntries(visibleGroupedEntries),
           });
           if (expanded) {
             nextRows.push(
@@ -1398,7 +1410,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.summaryKind === bw.summaryKind &&
         a.toolSurface === bw.toolSurface &&
         Equal.equals(a.toolIcon, bw.toolIcon) &&
-        a.hasFailure === bw.hasFailure
+        a.hasFailure === bw.hasFailure &&
+        a.failedCount === bw.failedCount
       );
     }
 
