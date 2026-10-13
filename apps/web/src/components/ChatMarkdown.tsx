@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
 import { usePullRequestLinking } from "~/hooks/usePullRequestLinking";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -121,6 +122,7 @@ import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
 import { getSyntaxHighlighterPromise } from "../lib/syntaxHighlighting";
+import { annotateHighlightedCodeHtml } from "./markdownDiffLines";
 import { GitHubIcon } from "./Icons";
 import { RenderErrorBoundary } from "./RenderErrorBoundary";
 import { useTheme } from "../hooks/useTheme";
@@ -740,60 +742,69 @@ function MarkdownTable({ children, ...props }: React.ComponentProps<"table">) {
   return (
     <div
       ref={containerRef}
-      className="chat-markdown-table-container"
+      className="chat-markdown-table-container overflow-hidden rounded-[var(--radius)] border border-border/60 leading-snug shadow-xs dark:border-border/40"
       data-expanded={expanded ? "true" : "false"}
     >
+      <div className="chat-markdown-table-header flex items-center justify-between gap-2 border-b border-border/30 bg-muted/30 pt-1.5 pr-1.5 pb-1.5 pl-3 select-none">
+        <span className="[font-family:var(--font-mono,ui-monospace,SFMono-Regular,monospace)] [font-size:0.6875rem]">
+          Table
+        </span>
+        <span className="flex items-center gap-0.5" role="toolbar" aria-label="Table actions">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="chat-markdown-chrome-action"
+                  aria-pressed={expanded}
+                  onClick={toggleExpanded}
+                  aria-label={expandLabel}
+                />
+              }
+            >
+              {expanded ? (
+                <Minimize2Icon className="size-3" />
+              ) : (
+                <Maximize2Icon className="size-3" />
+              )}
+            </TooltipTrigger>
+            <TooltipPopup side="top">{expandLabel}</TooltipPopup>
+          </Tooltip>
+          <Menu>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <MenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        className="chat-markdown-chrome-action"
+                        aria-label={copyLabel}
+                      />
+                    }
+                  />
+                }
+              >
+                {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+              </TooltipTrigger>
+              <TooltipPopup side="top">{copyLabel}</TooltipPopup>
+            </Tooltip>
+            <MenuPopup align="end">
+              <MenuItem onClick={() => handleCopy("markdown")}>Copy as Markdown</MenuItem>
+              <MenuItem onClick={() => handleCopy("csv")}>Copy as CSV</MenuItem>
+            </MenuPopup>
+          </Menu>
+        </span>
+      </div>
       <ScrollArea chainVerticalScroll scrollFade className="w-full max-w-full rounded-none">
         <table ref={tableRef} {...props}>
           {children}
         </table>
       </ScrollArea>
-      <div className="mt-0.5 flex items-center justify-between select-none">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                className="chat-markdown-chrome-action"
-                aria-pressed={expanded}
-                onClick={toggleExpanded}
-                aria-label={expandLabel}
-              />
-            }
-          >
-            {expanded ? <Minimize2Icon className="size-3" /> : <Maximize2Icon className="size-3" />}
-          </TooltipTrigger>
-          <TooltipPopup side="top">{expandLabel}</TooltipPopup>
-        </Tooltip>
-        <Menu>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <MenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      className="chat-markdown-chrome-action"
-                      aria-label={copyLabel}
-                    />
-                  }
-                />
-              }
-            >
-              {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-            </TooltipTrigger>
-            <TooltipPopup side="top">{copyLabel}</TooltipPopup>
-          </Tooltip>
-          <MenuPopup align="end">
-            <MenuItem onClick={() => handleCopy("markdown")}>Copy as Markdown</MenuItem>
-            <MenuItem onClick={() => handleCopy("csv")}>Copy as CSV</MenuItem>
-          </MenuPopup>
-        </Menu>
-      </div>
     </div>
   );
 }
@@ -1051,7 +1062,10 @@ function UncachedShikiCodeBlock({
   const highlighter = use(getSyntaxHighlighterPromise(language));
   const highlightedHtml = useMemo(() => {
     try {
-      return highlighter.codeToHtml(code, { lang: language, theme: themeName });
+      return annotateHighlightedCodeHtml(
+        highlighter.codeToHtml(code, { lang: language, theme: themeName }),
+        language,
+      );
     } catch (error) {
       // Log highlighting failures for debugging while falling back to plain text
       console.warn(

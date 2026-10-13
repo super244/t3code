@@ -1,5 +1,6 @@
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-03 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark, .dark *));
@@ -1337,6 +1338,7 @@ html[data-theme-id] .chat-markdown .chat-markdown-codeblock pre {
 }
 
 html[data-theme-id] .chat-markdown .chat-markdown-codeblock-header,
+html[data-theme-id] .chat-markdown .chat-markdown-table-header,
 html[data-theme-id] .chat-markdown .chat-markdown-chrome-action {
   color: color-mix(in srgb, var(--code-foreground) 72%, transparent);
 }
@@ -1627,7 +1629,6 @@ code {
   -webkit-app-region: no-drag;
 }
 
-
 /* Prism theme responsive scrollbar and glass accents */
 * {
   scrollbar-width: thin;
@@ -1636,7 +1637,11 @@ code {
 
 html[data-theme-id] {
   --app-scrollbar-thumb: color-mix(in srgb, var(--app-theme-border) 75%, transparent);
-  --app-scrollbar-thumb-hover: color-mix(in srgb, var(--app-theme-accent) 65%, var(--app-theme-border));
+  --app-scrollbar-thumb-hover: color-mix(
+    in srgb,
+    var(--app-theme-accent) 65%,
+    var(--app-theme-border)
+  );
 }
 
 html[data-theme-id] ::-webkit-scrollbar-thumb {
@@ -1887,6 +1892,7 @@ html[data-theme-id] ::-webkit-scrollbar-thumb:hover {
 }
 
 .chat-markdown .chat-markdown-codeblock-header,
+.chat-markdown .chat-markdown-table-header,
 .chat-markdown .chat-markdown-chrome-action {
   color: color-mix(in srgb, var(--contrast-foreground) 72%, transparent);
 }
@@ -1914,6 +1920,35 @@ html[data-theme-id] ::-webkit-scrollbar-thumb:hover {
 
 .chat-markdown .chat-markdown-shiki .shiki {
   background: transparent !important;
+}
+
+/* Diff fences: each changed line is a full-width row. The row runs edge to
+   edge across the pre's side padding (negative margin) and grows with its
+   content, so a long added line stays tinted to its end when it scrolls.
+   Shiki writes the token colours inline, so these only add the row surface. */
+.chat-markdown .chat-markdown-shiki .line[data-diff-line] {
+  display: inline-block;
+  min-width: calc(100% + 1.8rem);
+  margin-inline: -0.9rem;
+  padding-inline: 0.9rem;
+}
+
+.chat-markdown .chat-markdown-shiki .line[data-diff-line="add"] {
+  background-color: color-mix(in srgb, var(--success) 13%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--success) 75%, transparent);
+}
+
+.chat-markdown .chat-markdown-shiki .line[data-diff-line="remove"] {
+  background-color: color-mix(in srgb, var(--destructive) 13%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--destructive) 75%, transparent);
+}
+
+.chat-markdown .chat-markdown-shiki .line[data-diff-line="hunk"] {
+  background-color: color-mix(in srgb, var(--info) 9%, transparent);
+}
+
+.chat-markdown .chat-markdown-shiki .line[data-diff-line="meta"] {
+  opacity: 0.6;
 }
 
 /* Diagnostics-style tables: row separators only, uppercase headers, and a
