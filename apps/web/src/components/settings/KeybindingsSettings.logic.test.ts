@@ -1,18 +1,27 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=32m; seat=claude-code; date=2026-10-13 */
 import { describe, expect, it } from "vite-plus/test";
 import type { ResolvedKeybindingsConfig } from "@t3tools/contracts";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import {
+  compileResolvedKeybindingsConfig,
+  DEFAULT_RESOLVED_KEYBINDINGS,
+} from "@t3tools/shared/keybindings";
 
 import {
+  buildAllKeybindingRows,
+  buildKeybindingConflictGroups,
   buildKeybindingRows,
   buildKeybindingCommandOptions,
   buildWhenVariableOptions,
   commandLabel,
+  filterKeybindingConflictGroups,
+  filterKeybindingRows,
   keybindingConflictLabels,
   keybindingFromKeyboardEvent,
   parseWhenExpressionDraft,
   shortcutToKeybindingInput,
   unknownWhenVariables,
   whenAstToExpression,
+  whenConditionsCanHoldTogether,
   whenNodeRemoveLabel,
 } from "./KeybindingsSettings.logic";
 
@@ -306,5 +315,111 @@ describe("KeybindingsSettings.logic", () => {
         when: "",
       }),
     ).toEqual(["Chat: New Local"]);
+  });
+});
+
+describe("KeybindingsSettings.logic conflicts and search", () => {
+  // Shapes copied from a real keybindings.json and the shipped defaults. The
+  // server drops entries with unknown commands (thread.undo, composer.host and
+  // others are not in the command list), so only accepted rules appear here.
+  const liveRules = [
+    { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
+    { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
+    { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
+    { key: "mod+w", command: "rightPanel.close", when: "!terminalFocus" },
+    { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
+    { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
+    { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
+    { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+    { key: "mod+shift+h", command: "launchpad.open", when: "!terminalFocus" },
+    { key: "mod+1", command: "thread.jump.1" },
+    { key: "mod+1", command: "modelPicker.jump.1", when: "modelPickerOpen" },
+    { key: "mod+shift+[", command: "thread.previous" },
+    { key: "mod+r", command: "preview.refresh", when: "previewFocus" },
+    { key: "mod+r", command: "chat.new", when: "terminalFocus" },
+  ] as const;
+  const liveBindings = compileResolvedKeybindingsConfig([...liveRules]);
+
+  it("keeps a chord apart when its two contexts cannot hold at once", () => {
+    const terminalFocus = { type: "identifier", name: "terminalFocus" } as const;
+    const notTerminalFocus = { type: "not", node: terminalFocus } as const;
+    expect(whenConditionsCanHoldTogether(terminalFocus, notTerminalFocus)).toBe(false);
+    expect(whenConditionsCanHoldTogether(undefined, notTerminalFocus)).toBe(true);
+    expect(
+      whenConditionsCanHoldTogether(
+        {
+          type: "and",
+          left: notTerminalFocus,
+          right: { type: "identifier", name: "editableFocus" },
+        },
+        terminalFocus,
+      ),
+    ).toBe(false);
+    expect(
+      whenConditionsCanHoldTogether({ type: "identifier", name: "previewFocus" }, terminalFocus),
+    ).toBe(true);
+  });
+
+  it("lists only the chords where two bindings can fire on one key press", () => {
+    const groups = buildKeybindingConflictGroups(buildAllKeybindingRows(liveBindings));
+    expect(groups.map((group) => group.key)).toEqual(["mod+1", "mod+r"]);
+    expect(groups[0]?.rows.map((row) => row.command)).toEqual([
+      "modelPicker.jump.1",
+      "thread.jump.1",
+    ]);
+    expect(groups[1]?.rows.map((row) => row.command)).toEqual(["chat.new", "preview.refresh"]);
+  });
+
+  it("does not report the shared-key pairs split by terminal focus", () => {
+    const rows = buildAllKeybindingRows(liveBindings);
+    for (const key of ["mod+d", "mod+w", "mod+n", "mod+shift+h"]) {
+      expect(rows.filter((row) => row.key === key).every((row) => row.conflicts.length === 0)).toBe(
+        true,
+      );
+    }
+  });
+
+  it("keeps a conflict partner visible when the search hides the other side", () => {
+    const all = buildAllKeybindingRows(liveBindings);
+    const hiddenBySearch = filterKeybindingRows(all, "thread.jump");
+    expect(hiddenBySearch.map((row) => row.command)).toEqual(["thread.jump.1"]);
+    expect(buildKeybindingConflictGroups(all).map((group) => group.key)).toContain("mod+1");
+  });
+
+  it("filters conflict groups by any member and drops groups with no match", () => {
+    const groups = buildKeybindingConflictGroups(buildAllKeybindingRows(liveBindings));
+    expect(filterKeybindingConflictGroups(groups, "modelpicker").map((group) => group.key)).toEqual(
+      ["mod+1"],
+    );
+    expect(
+      filterKeybindingConflictGroups(groups, "modelPicker").map((group) => group.rows.length),
+    ).toEqual([1]);
+    expect(filterKeybindingConflictGroups(groups, "launchpad")).toEqual([]);
+    expect(filterKeybindingConflictGroups(groups, "")).toBe(groups);
+  });
+
+  it("finds a binding by its readable label as well as its command id", () => {
+    const all = buildAllKeybindingRows(liveBindings);
+    expect(filterKeybindingRows(all, "Launchpad: Open").map((row) => row.command)).toEqual([
+      "launchpad.open",
+    ]);
+    expect(filterKeybindingRows(all, "launchpad.open").map((row) => row.key)).toEqual([
+      "mod+shift+h",
+    ]);
+    expect(filterKeybindingRows(all, "   ")).toHaveLength(all.length);
+  });
+
+  it("reports the editor's draft against live bindings by context, not by spelling", () => {
+    const all = buildAllKeybindingRows(liveBindings);
+    expect(
+      keybindingConflictLabels(all, { rowId: "new", key: "mod+d", when: "terminalFocus" }),
+    ).toEqual(["Terminal: Split"]);
+    expect(keybindingConflictLabels(all, { rowId: "new", key: "mod+d", when: "" })).toEqual([
+      "Diff: Toggle",
+      "Terminal: Split",
+    ]);
+    expect(
+      keybindingConflictLabels(all, { rowId: "new", key: "mod+r", when: "previewFocus" }),
+    ).toEqual(["Chat: New", "Preview: Refresh"]);
   });
 });

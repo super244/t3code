@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=32m; seat=claude-code; date=2026-10-13 */
 import {
   ChevronDownIcon,
   CircleXIcon,
@@ -51,18 +52,23 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Toggle } from "../ui/toggle";
+import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { toastManager } from "../ui/toast";
 import {
-  buildKeybindingRows,
+  buildAllKeybindingRows,
+  buildKeybindingConflictGroups,
   buildKeybindingCommandOptions,
   buildWhenVariableOptions,
   commandLabel,
   DEFAULT_WHEN_VARIABLE,
+  filterKeybindingConflictGroups,
+  filterKeybindingRows,
   isKnownWhenVariable,
   keybindingConflictLabels,
   keybindingFromKeyboardEvent,
   parseWhenExpressionDraft,
   type KeybindingCommandOption,
+  type KeybindingConflictGroup,
   type KeybindingRow,
   type WhenVariableOption,
   unknownWhenVariables,
@@ -107,69 +113,91 @@ function KeybindingPill({ value }: { value: string }) {
   );
 }
 
-function ExpandableHeaderSearch({
+/** Always-visible search over command, shortcut, condition and source. */
+function KeybindingSearchField({
   query,
   onChange,
-  isOpen,
-  onOpenChange,
   inputRef,
-  collapsedAccessory,
 }: {
   query: string;
   onChange: (next: string) => void;
-  isOpen: boolean;
-  onOpenChange: (next: boolean) => void;
-  inputRef?: RefObject<HTMLInputElement | null>;
-  collapsedAccessory?: ReactNode;
+  inputRef: RefObject<HTMLInputElement | null>;
 }) {
-  if (!isOpen) {
-    return (
-      <>
-        {collapsedAccessory}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                size="icon-xs"
-                variant="ghost-muted"
-                onClick={() => onOpenChange(true)}
-                aria-label="Search keybindings"
-              >
-                <SearchIcon />
-              </Button>
-            }
-          />
-          <TooltipPopup side="top">Search keybindings</TooltipPopup>
-        </Tooltip>
-      </>
-    );
-  }
-
   return (
-    <div className="relative">
-      <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3 -translate-y-1/2 text-muted-foreground" />
+    <div className="relative min-w-0 flex-1">
+      <SearchIcon
+        aria-hidden
+        className="pointer-events-none absolute top-1/2 left-2.5 z-10 size-3.5 -translate-y-1/2 text-muted-foreground/70"
+      />
       <Input
         ref={inputRef}
-        autoFocus
         type="search"
         value={query}
         onChange={(event) => onChange(event.currentTarget.value)}
-        onBlur={() => {
-          if (query.length === 0) onOpenChange(false);
-        }}
         onKeyDown={(event) => {
-          if (event.key === "Escape") {
+          if (event.key === "Escape" && query.length > 0) {
             event.preventDefault();
             onChange("");
-            onOpenChange(false);
           }
         }}
-        placeholder="Search keybindings"
+        placeholder="Search commands or shortcuts"
         aria-label="Search keybindings"
-        className="w-44 [&_[data-slot=input]]:pl-7"
         size="sm"
+        className="[&_[data-slot=input]]:pl-7"
       />
+    </div>
+  );
+}
+
+type KeybindingView = "all" | "conflicts";
+
+/** Search plus the All / Conflicts switch. The conflict count is the number of shared chords. */
+function KeybindingsToolbar({
+  query,
+  onQueryChange,
+  inputRef,
+  view,
+  onViewChange,
+  totalCount,
+  conflictCount,
+}: {
+  query: string;
+  onQueryChange: (next: string) => void;
+  inputRef: RefObject<HTMLInputElement | null>;
+  view: KeybindingView;
+  onViewChange: (next: KeybindingView) => void;
+  totalCount: number;
+  conflictCount: number;
+}) {
+  return (
+    <div className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:px-4">
+      <KeybindingSearchField query={query} onChange={onQueryChange} inputRef={inputRef} />
+      <ToggleGroup
+        aria-label="Show keybindings"
+        variant="segmented"
+        className="self-start sm:self-auto"
+        value={[view]}
+        onValueChange={(next) => {
+          const selected = next[0];
+          if (selected === "all" || selected === "conflicts") onViewChange(selected);
+        }}
+      >
+        <ToggleGroupItem value="all" className="gap-1.5">
+          All
+          <span className="text-[11px] tabular-nums text-muted-foreground">{totalCount}</span>
+        </ToggleGroupItem>
+        <ToggleGroupItem value="conflicts" className="gap-1.5">
+          Conflicts
+          <span
+            className={cn(
+              "text-[11px] tabular-nums",
+              conflictCount > 0 ? "text-warning" : "text-muted-foreground",
+            )}
+          >
+            {conflictCount}
+          </span>
+        </ToggleGroupItem>
+      </ToggleGroup>
     </div>
   );
 }
@@ -1281,21 +1309,40 @@ function NewKeybindingSettingsRow(props: NewKeybindingProps) {
   );
 }
 
+/** Centered message for an empty list, with an optional next step such as clearing the search. */
+function KeybindingEmptyState({ message, action }: { message: string; action?: ReactNode }) {
+  return (
+    <div className="flex flex-col items-center gap-3 px-4 py-10 text-center text-sm text-muted-foreground">
+      <p className="max-w-sm text-balance">{message}</p>
+      {action}
+    </div>
+  );
+}
+
 interface KeybindingsListProps extends KeybindingRowActions {
   rows: ReadonlyArray<KeybindingRow>;
   commandOptions: ReadonlyArray<KeybindingCommandOption>;
   savingCommand: KeybindingCommand | null;
   isAddingBinding: boolean;
   onCancelAdd: () => void;
+  /** Shown when there are no rows to list and no add row is open. */
+  emptyState: ReactNode;
 }
 
 /** The add-binding row, one settings row per binding, and the empty state. */
 function KeybindingsList(props: KeybindingsListProps) {
-  const { rows, commandOptions, savingCommand, isAddingBinding, onCancelAdd, ...rowActions } =
-    props;
+  const {
+    rows,
+    commandOptions,
+    savingCommand,
+    isAddingBinding,
+    onCancelAdd,
+    emptyState,
+    ...rowActions
+  } = props;
   const newProps: NewKeybindingProps = {
     commandOptions,
-    allRows: rows,
+    allRows: rowActions.allRows,
     variables: rowActions.variables,
     isSaving: savingCommand !== null,
     onSave: rowActions.onSave,
@@ -1312,11 +1359,42 @@ function KeybindingsList(props: KeybindingsListProps) {
           {...rowActions}
         />
       ))}
-      {rows.length === 0 && !isAddingBinding ? (
-        <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-          No keybindings match your search.
+      {rows.length === 0 && !isAddingBinding ? emptyState : null}
+    </div>
+  );
+}
+
+interface KeybindingConflictGroupListProps extends KeybindingRowActions {
+  groups: ReadonlyArray<KeybindingConflictGroup>;
+  savingCommand: KeybindingCommand | null;
+}
+
+/**
+ * Conflicts view: each shared chord gets a header naming the shortcut, then the
+ * same editable rows as the full list, so resolving a conflict happens in place.
+ */
+function KeybindingConflictGroupList(props: KeybindingConflictGroupListProps) {
+  const { groups, savingCommand, ...rowActions } = props;
+  return (
+    <div>
+      {groups.map((group) => (
+        <div key={group.key} className="border-t border-border/50 first:border-t-0">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-warning/[0.05] px-3 py-2 sm:px-4">
+            <KeybindingPill value={group.key} />
+            <span className="text-xs text-muted-foreground">
+              Shared by {group.rows.length} commands in contexts that can be active together
+            </span>
+          </div>
+          {group.rows.map((row) => (
+            <KeybindingSettingsRow
+              key={row.id}
+              row={row}
+              isSaving={savingCommand === row.command}
+              {...rowActions}
+            />
+          ))}
         </div>
-      ) : null}
+      ))}
     </div>
   );
 }
@@ -1350,13 +1428,21 @@ export function KeybindingsSettingsPanel() {
     availableEditors,
   );
   const [query, setQuery] = useState("");
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [view, setView] = useState<KeybindingView>("all");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [savingCommand, setSavingCommand] = useState<KeybindingCommand | null>(null);
   const [isAddingBinding, setIsAddingBinding] = useState(false);
-  const rows = useMemo(() => buildKeybindingRows(keybindings, query), [keybindings, query]);
+  // Conflicts are computed from every binding, so a search never hides the partner of a row it shows.
+  const allRows = useMemo(() => buildAllKeybindingRows(keybindings), [keybindings]);
+  const rows = useMemo(() => filterKeybindingRows(allRows, query), [allRows, query]);
+  const conflictGroups = useMemo(() => buildKeybindingConflictGroups(allRows), [allRows]);
+  const visibleConflictGroups = useMemo(
+    () => filterKeybindingConflictGroups(conflictGroups, query),
+    [conflictGroups, query],
+  );
   const commandOptions = useMemo(() => buildKeybindingCommandOptions(keybindings), [keybindings]);
   const whenVariables = useMemo(() => buildWhenVariableOptions(), []);
+  const hasQuery = query.trim().length > 0;
 
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -1373,7 +1459,6 @@ export function KeybindingsSettingsPanel() {
       }
 
       event.preventDefault();
-      setIsSearchOpen(true);
       requestAnimationFrame(() => {
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
@@ -1474,17 +1559,15 @@ export function KeybindingsSettingsPanel() {
   );
 
   const cancelAdd = useCallback(() => setIsAddingBinding(false), []);
-
-  const bindingsCount = (
-    <span className="text-[11px] text-muted-foreground">
-      {rows.length + (isAddingBinding ? 1 : 0)}{" "}
-      {rows.length + (isAddingBinding ? 1 : 0) === 1 ? "binding" : "bindings"}
-    </span>
-  );
+  const startAdd = useCallback(() => {
+    setView("all");
+    setIsAddingBinding(true);
+  }, []);
+  const clearQuery = useCallback(() => setQuery(""), []);
 
   const listProps: KeybindingsListProps = {
     rows,
-    allRows: rows,
+    allRows,
     commandOptions,
     variables: whenVariables,
     savingCommand,
@@ -1493,22 +1576,32 @@ export function KeybindingsSettingsPanel() {
     onSave: saveKeybinding,
     onReset: resetKeybinding,
     onRemove: removeKeybinding,
+    emptyState: hasQuery ? (
+      <KeybindingEmptyState
+        message={`No shortcuts match "${query.trim()}".`}
+        action={
+          <Button type="button" size="xs" variant="outline" onClick={clearQuery}>
+            Clear search
+          </Button>
+        }
+      />
+    ) : (
+      <KeybindingEmptyState message="No shortcuts are loaded from this environment yet." />
+    ),
   };
+
+  const conflictEmptyMessage =
+    conflictGroups.length === 0
+      ? "No shortcuts are shared between commands. Each shortcut runs one command in every context where it applies."
+      : `No conflicting shortcuts match "${query.trim()}".`;
 
   return (
     <SettingsPageContainer>
       <SettingsSection
         {...searchableSetting("keybindings")}
+        description="Shortcut for every command. Edits save to keybindings.json."
         headerAction={
           <div className="flex items-center gap-1.5">
-            <ExpandableHeaderSearch
-              query={query}
-              onChange={setQuery}
-              isOpen={isSearchOpen}
-              onOpenChange={setIsSearchOpen}
-              inputRef={searchInputRef}
-              collapsedAccessory={bindingsCount}
-            />
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -1516,7 +1609,7 @@ export function KeybindingsSettingsPanel() {
                     type="button"
                     size="icon-xs"
                     variant="ghost-muted"
-                    onClick={() => setIsAddingBinding(true)}
+                    onClick={startAdd}
                     aria-label="Add keybinding"
                   >
                     <PlusIcon />
@@ -1545,9 +1638,42 @@ export function KeybindingsSettingsPanel() {
           </div>
         }
       >
+        <KeybindingsToolbar
+          query={query}
+          onQueryChange={setQuery}
+          inputRef={searchInputRef}
+          view={view}
+          onViewChange={setView}
+          totalCount={allRows.length}
+          conflictCount={conflictGroups.length}
+        />
         {!isElectron ? <BrowserKeybindingNotice /> : null}
 
-        <KeybindingsList {...listProps} />
+        {view === "conflicts" ? (
+          <KeybindingConflictGroupList
+            groups={visibleConflictGroups}
+            savingCommand={savingCommand}
+            allRows={allRows}
+            variables={whenVariables}
+            onSave={saveKeybinding}
+            onReset={resetKeybinding}
+            onRemove={removeKeybinding}
+          />
+        ) : (
+          <KeybindingsList {...listProps} />
+        )}
+        {view === "conflicts" && visibleConflictGroups.length === 0 ? (
+          <KeybindingEmptyState
+            message={conflictEmptyMessage}
+            action={
+              hasQuery ? (
+                <Button type="button" size="xs" variant="outline" onClick={clearQuery}>
+                  Clear search
+                </Button>
+              ) : null
+            }
+          />
+        ) : null}
       </SettingsSection>
     </SettingsPageContainer>
   );

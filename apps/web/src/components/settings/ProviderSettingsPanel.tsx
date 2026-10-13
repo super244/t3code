@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=32m; seat=claude-code; date=2026-10-13 */
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
 import { connectionStatusTitle } from "@t3tools/client-runtime/connection";
@@ -1053,10 +1054,13 @@ export function EnvironmentProviderSettings({
 
   return (
     <>
-      <SettingsSection {...searchableSetting("providers")} hideTitle variant="plain">
-        <div className="flex min-h-11 min-w-0 items-center gap-2 px-3 sm:px-4">
-          {deviceTabs}
-          <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
+      <SettingsSection
+        {...searchableSetting("providers")}
+        title="Providers"
+        description="Agent CLIs T3 Code runs for this environment, with each one's install and sign-in state."
+        variant="plain"
+        headerAction={
+          <div className="flex min-w-0 shrink-0 items-center gap-2">
             {readOnly ? (
               <span className="min-w-0 truncate text-xs text-muted-foreground">
                 <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
@@ -1105,7 +1109,11 @@ export function EnvironmentProviderSettings({
               </>
             )}
           </div>
-        </div>
+        }
+      >
+        {deviceTabs ? (
+          <div className="flex min-h-11 min-w-0 items-center px-3 pb-2 sm:px-4">{deviceTabs}</div>
+        ) : null}
         {readOnly ? (
           <div className={cn(providerCardClassName, "overflow-hidden")}>
             <SettingsRow
@@ -1138,7 +1146,9 @@ export function EnvironmentProviderSettings({
               <div className="p-6 text-sm text-muted-foreground">
                 {targetInstanceMissing
                   ? "This provider instance is no longer available on this device."
-                  : "No providers configured."}
+                  : readOnly
+                    ? "No providers are set up on this environment."
+                    : "No providers are set up yet. Use Add provider to connect a CLI such as Codex or Claude."}
               </div>
             )}
           </div>

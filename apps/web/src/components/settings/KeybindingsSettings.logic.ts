@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=32m; seat=claude-code; date=2026-10-13 */
 import {
   STATIC_KEYBINDING_COMMANDS,
   type KeybindingCommand,
@@ -141,8 +142,49 @@ function keybindingRowId(command: KeybindingCommand, key: string, when: string):
   return `${command}\u0000${key}\u0000${when}`;
 }
 
-function conflictsWithWhen(leftWhen: string, rightWhen: string): boolean {
-  return leftWhen.length === 0 || rightWhen.length === 0 || leftWhen === rightWhen;
+/** Above this many distinct conditions the exhaustive check is skipped and overlap is assumed. */
+const MAX_EXHAUSTIVE_WHEN_IDENTIFIERS = 16;
+
+function evaluateWhenNode(node: KeybindingWhenNode, values: ReadonlyMap<string, boolean>): boolean {
+  switch (node.type) {
+    case "identifier":
+      if (node.name === "true") return true;
+      if (node.name === "false") return false;
+      return values.get(node.name) ?? false;
+    case "not":
+      return !evaluateWhenNode(node.node, values);
+    case "and":
+      return evaluateWhenNode(node.left, values) && evaluateWhenNode(node.right, values);
+    case "or":
+      return evaluateWhenNode(node.left, values) || evaluateWhenNode(node.right, values);
+  }
+}
+
+/**
+ * True when some editor context makes both `when` conditions hold at once, so a
+ * key pressed in that context would reach either command. An absent condition
+ * is always active. The check enumerates the context variables both sides use,
+ * which keeps `terminalFocus` and `!terminalFocus` apart while still flagging
+ * `previewFocus` against `terminalFocus`, which can both be true.
+ */
+export function whenConditionsCanHoldTogether(
+  left: KeybindingWhenNode | undefined,
+  right: KeybindingWhenNode | undefined,
+): boolean {
+  if (!left || !right) return true;
+  const identifiers = new Set<string>();
+  collectWhenIdentifiersFromNode(left, identifiers);
+  collectWhenIdentifiersFromNode(right, identifiers);
+  identifiers.delete("true");
+  identifiers.delete("false");
+  const names = [...identifiers];
+  if (names.length > MAX_EXHAUSTIVE_WHEN_IDENTIFIERS) return true;
+
+  for (let mask = 0; mask < 2 ** names.length; mask += 1) {
+    const values = new Map(names.map((name, index) => [name, (mask & (1 << index)) !== 0]));
+    if (evaluateWhenNode(left, values) && evaluateWhenNode(right, values)) return true;
+  }
+  return false;
 }
 
 export function keybindingConflictLabels(
@@ -150,24 +192,117 @@ export function keybindingConflictLabels(
   input: { readonly rowId: string; readonly key: string; readonly when: string },
 ): ReadonlyArray<string> {
   if (input.key.trim().length === 0) return [];
+  const parsedWhen = parseWhenExpressionDraft(input.when);
+  const inputWhenAst = parsedWhen.ok ? parsedWhen.value : undefined;
   const conflicts: Array<string> = [];
   for (const candidate of rows) {
-    if (
-      candidate.id !== input.rowId &&
-      candidate.key === input.key &&
-      conflictsWithWhen(candidate.when, input.when)
-    ) {
-      conflicts.push(commandLabel(candidate.command));
-    }
+    if (candidate.id === input.rowId || candidate.key !== input.key) continue;
+    const overlaps = parsedWhen.ok
+      ? whenConditionsCanHoldTogether(candidate.binding.whenAst, inputWhenAst)
+      : candidate.when === input.when;
+    if (overlaps) conflicts.push(commandLabel(candidate.command));
   }
   return [...new Set(conflicts)].toSorted();
+}
+
+/** Each row's conflicts are computed within its own chord, so the work stays linear in chord count. */
+function withConflicts(rows: ReadonlyArray<KeybindingRow>): ReadonlyArray<KeybindingRow> {
+  const rowsByKey = new Map<string, Array<KeybindingRow>>();
+  for (const row of rows) {
+    const group = rowsByKey.get(row.key);
+    if (group) group.push(row);
+    else rowsByKey.set(row.key, [row]);
+  }
+  return rows.map((row) => {
+    const group = rowsByKey.get(row.key) ?? [];
+    const conflicts = new Set<string>();
+    for (const candidate of group) {
+      if (
+        candidate.id !== row.id &&
+        whenConditionsCanHoldTogether(candidate.binding.whenAst, row.binding.whenAst)
+      ) {
+        conflicts.add(commandLabel(candidate.command));
+      }
+    }
+    return conflicts.size > 0
+      ? Object.assign({}, row, { conflicts: [...conflicts].toSorted() })
+      : row;
+  });
+}
+
+/** Rows whose command, shortcut, condition or source contain the query. Case-insensitive. */
+export function filterKeybindingRows(
+  rows: ReadonlyArray<KeybindingRow>,
+  query: string,
+): ReadonlyArray<KeybindingRow> {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery.length === 0) return rows;
+  return rows.filter((row) => {
+    return (
+      row.command.toLowerCase().includes(normalizedQuery) ||
+      commandLabel(row.command).toLowerCase().includes(normalizedQuery) ||
+      row.key.toLowerCase().includes(normalizedQuery) ||
+      row.when.toLowerCase().includes(normalizedQuery) ||
+      row.source.toLowerCase().includes(normalizedQuery)
+    );
+  });
+}
+
+export interface KeybindingConflictGroup {
+  /** The shared shortcut in keybinding notation, such as `mod+1`. */
+  readonly key: string;
+  /** Every binding on this chord that overlaps another one, ordered by command label. */
+  readonly rows: ReadonlyArray<KeybindingRow>;
+}
+
+/**
+ * Chords where at least two bindings can fire on the same key press. Built
+ * from the full binding set, so a search that hides one side never hides the
+ * conflict itself.
+ */
+export function buildKeybindingConflictGroups(
+  rows: ReadonlyArray<KeybindingRow>,
+): ReadonlyArray<KeybindingConflictGroup> {
+  const groups = new Map<string, Array<KeybindingRow>>();
+  for (const row of rows) {
+    if (row.conflicts.length === 0) continue;
+    const group = groups.get(row.key);
+    if (group) group.push(row);
+    else groups.set(row.key, [row]);
+  }
+  return [...groups]
+    .map(([key, groupRows]) => ({
+      key,
+      rows: groupRows.toSorted((left, right) =>
+        commandLabel(left.command).localeCompare(commandLabel(right.command)),
+      ),
+    }))
+    .toSorted((left, right) => left.key.localeCompare(right.key));
+}
+
+/** Groups whose rows match the query. A group with no matching row is dropped. */
+export function filterKeybindingConflictGroups(
+  groups: ReadonlyArray<KeybindingConflictGroup>,
+  query: string,
+): ReadonlyArray<KeybindingConflictGroup> {
+  if (query.trim().length === 0) return groups;
+  return groups.flatMap((group) => {
+    const rows = filterKeybindingRows(group.rows, query);
+    return rows.length > 0 ? [{ key: group.key, rows }] : [];
+  });
 }
 
 export function buildKeybindingRows(
   keybindings: ResolvedKeybindingsConfig,
   query: string,
 ): ReadonlyArray<KeybindingRow> {
-  const normalizedQuery = query.trim().toLowerCase();
+  return filterKeybindingRows(buildAllKeybindingRows(keybindings), query);
+}
+
+/** Every binding with its conflicts, sorted by command then shortcut. Unfiltered. */
+export function buildAllKeybindingRows(
+  keybindings: ResolvedKeybindingsConfig,
+): ReadonlyArray<KeybindingRow> {
   const rows = keybindings.map((binding, index) => {
     const defaultBinding = defaultBindingForBinding(binding);
     const key = shortcutToKeybindingInput(binding.shortcut);
@@ -185,34 +320,10 @@ export function buildKeybindingRows(
     } satisfies KeybindingRow;
   });
 
-  const rowsWithConflicts = rows.map((row) => {
-    const conflicts = keybindingConflictLabels(rows, {
-      rowId: row.id,
-      key: row.key,
-      when: row.when,
-    });
-    return conflicts.length > 0
-      ? Object.assign({}, row, { conflicts: [...new Set(conflicts)].toSorted() })
-      : row;
-  });
-
-  rowsWithConflicts.sort((left, right) => {
+  return withConflicts(rows).toSorted((left, right) => {
     const commandCompare = left.command.localeCompare(right.command);
     if (commandCompare !== 0) return commandCompare;
     return left.key.localeCompare(right.key);
-  });
-
-  if (normalizedQuery.length === 0) {
-    return rowsWithConflicts;
-  }
-
-  return rowsWithConflicts.filter((row) => {
-    return (
-      row.command.toLowerCase().includes(normalizedQuery) ||
-      row.key.toLowerCase().includes(normalizedQuery) ||
-      row.when.toLowerCase().includes(normalizedQuery) ||
-      row.source.toLowerCase().includes(normalizedQuery)
-    );
   });
 }
 

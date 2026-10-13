@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=32m; seat=claude-code; date=2026-10-13 */
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { ChevronDownIcon, GitPullRequestIcon } from "lucide-react";
 import * as Duration from "effect/Duration";
@@ -555,6 +556,7 @@ export function SourceControlSettingsPanel() {
             <SettingsSection
               id={searchableSetting("source-control").id}
               title="Version Control"
+              description="Version control tools the server found. Git runs branches, diffs and checkpoints."
               headerAction={scanButton}
             >
               {result.versionControlSystems.map((item) => (
@@ -571,6 +573,7 @@ export function SourceControlSettingsPanel() {
             <SettingsSection
               id={hasVersionControlSystems ? undefined : searchableSetting("source-control").id}
               title="Source Control Providers"
+              description="Hosting services for pull requests and reviews. Each row says what the server still needs before it can be turned on."
               headerAction={hasVersionControlSystems ? null : scanButton}
             >
               {result.sourceControlProviders.map((item) => (

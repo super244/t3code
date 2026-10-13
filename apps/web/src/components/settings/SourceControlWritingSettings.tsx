@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=32m; seat=claude-code; date=2026-10-13 */
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useRef } from "react";
@@ -89,7 +90,11 @@ export function SourceControlWritingSettingsSection() {
   );
 
   return (
-    <SettingsSection id="source-control-text-generation" title="Text generation">
+    <SettingsSection
+      id="source-control-text-generation"
+      title="Text generation"
+      description="How change request titles, descriptions and branch names are written."
+    >
       <SettingsRow
         serverScoped
         {...searchableSetting("source-control-writing-style")}

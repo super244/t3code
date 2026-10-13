@@ -1,4 +1,5 @@
 /* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=32m; seat=claude-code; date=2026-10-13 */
 import { Spinner } from "~/components/ui/spinner";
 import { ArchiveIcon, ArchiveX, ChevronRightIcon, SettingsIcon } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -2984,6 +2985,7 @@ export function ArchivedThreadsPanel() {
         <SettingsSection
           id={isLoadingArchive ? undefined : searchableSetting("archive").id}
           title={searchableSetting("archive").title}
+          description="Threads you archive wait here until you unarchive them."
         >
           <SettingsRow
             title={
@@ -3003,7 +3005,8 @@ export function ArchivedThreadsPanel() {
             description={
               isLoadingArchive
                 ? "Checking connected environments."
-                : (archiveError ?? "Archived threads will appear here.")
+                : (archiveError ??
+                  "Use Archive thread in a thread's menu in the sidebar to move it here.")
             }
           />
         </SettingsSection>
@@ -3013,6 +3016,7 @@ export function ArchivedThreadsPanel() {
             key={project.id}
             id={index === 0 ? searchableSetting("archive").id : undefined}
             title={project.title}
+            description={`${projectThreads.length} archived ${projectThreads.length === 1 ? "thread" : "threads"}`}
             icon={<ProjectFavicon project={project} />}
           >
             {projectThreads.map((thread) => (

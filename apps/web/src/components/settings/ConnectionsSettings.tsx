@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=32m; seat=claude-code; date=2026-10-13 */
 import { ChevronsLeftRightEllipsisIcon, PlusIcon, QrCodeIcon, TerminalIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -3133,7 +3134,10 @@ export function ConnectionsSettings() {
     <SettingsPageContainer>
       {canManageLocalBackend ? (
         <>
-          <SettingsSection {...searchableSetting("connections-environment")}>
+          <SettingsSection
+            {...searchableSetting("connections-environment")}
+            description="This server, the network it listens on, and how other devices reach it."
+          >
             {primaryVersionMismatch || primaryServerUpdateState.status !== "idle" ? (
               <SettingsRow
                 title={
@@ -3215,6 +3219,7 @@ export function ConnectionsSettings() {
           {isLocalBackendRemotelyReachable ? (
             <SettingsSection
               title="Authorized clients"
+              description="Clients paired with this server. Revoking one ends its session."
               headerAction={
                 <AuthorizedClientsHeaderAction
                   onPairingLinkCreated={handlePairingLinkCreated}
@@ -3509,7 +3514,10 @@ export function ConnectionsSettings() {
           </Dialog>
         </>
       ) : (
-        <SettingsSection {...searchableSetting("connections-environment")}>
+        <SettingsSection
+          {...searchableSetting("connections-environment")}
+          description="This server, the network it listens on, and how other devices reach it."
+        >
           <SettingsRow
             title="Administrative access"
             description="Pairing links and client-session management require the access:write scope for this backend."
@@ -3520,6 +3528,7 @@ export function ConnectionsSettings() {
 
       <SettingsSection
         {...searchableSetting("remote-environments")}
+        description="Other T3 Code servers this client connects to, paired by host and code or over SSH."
         headerAction={
           <Dialog
             open={addBackendDialogOpen}
