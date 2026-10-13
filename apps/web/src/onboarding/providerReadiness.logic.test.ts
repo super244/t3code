@@ -1,12 +1,16 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-13 */
 import {
   DEFAULT_SERVER_SETTINGS,
   ProviderDriverKind,
   ProviderInstanceId,
+  ServerProvider as ServerProviderSchema,
   type ServerProvider,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  getOnboardingAgentChecks,
   getOnboardingProviderState,
   resolveOnboardingProviderInstallCommand,
   resolveOnboardingProviderLoginCommand,
@@ -333,6 +337,88 @@ describe("resolveOnboardingProviderInstallCommand", () => {
     );
     expect(resolveOnboardingProviderInstallCommand("claudeAgent", platform)).toBe(
       "curl -fsSL https://claude.ai/install.sh | bash",
+    );
+  });
+});
+
+const decodeServerProvider = Schema.decodeUnknownSync(ServerProviderSchema);
+
+describe("getOnboardingAgentChecks", () => {
+  const installedCodex: ServerProvider = {
+    ...readyCodex,
+    version: "0.130.0",
+    auth: { status: "authenticated", type: "chatgpt", label: "ChatGPT Plus Subscription" },
+  };
+
+  it("reports a provider that has not been probed yet as checking", () => {
+    expect(getOnboardingAgentChecks(undefined)).toEqual({
+      installed: { value: "Checking…", tone: "muted" },
+      signIn: { value: "Checking…", tone: "muted" },
+    });
+  });
+
+  it("shows the installed version and the signed-in plan from the probe", () => {
+    expect(getOnboardingAgentChecks(installedCodex)).toEqual({
+      installed: { value: "v0.130.0", tone: "good" },
+      signIn: { value: "Signed in · ChatGPT Plus Subscription", tone: "good" },
+    });
+  });
+
+  it("says signed in without inventing an account when the probe has no label", () => {
+    expect(
+      getOnboardingAgentChecks({ ...installedCodex, auth: { status: "authenticated" } }).signIn,
+    ).toEqual({ value: "Signed in", tone: "good" });
+  });
+
+  it("reports a missing CLI as not found and never claims a sign-in state", () => {
+    expect(
+      getOnboardingAgentChecks({ ...readyCodex, installed: false, version: null, status: "error" }),
+    ).toEqual({
+      installed: { value: "Not found", tone: "warn" },
+      signIn: { value: "Not checked", tone: "muted" },
+    });
+  });
+
+  it("reports an unauthenticated CLI as not signed in", () => {
+    expect(
+      getOnboardingAgentChecks({ ...readyCodex, auth: { status: "unauthenticated" } }).signIn,
+    ).toEqual({ value: "Not signed in", tone: "warn" });
+  });
+
+  it("keeps an unknown sign-in as not verified rather than signed in", () => {
+    expect(getOnboardingAgentChecks(readyCodex).signIn).toEqual({
+      value: "Not verified",
+      tone: "muted",
+    });
+  });
+
+  it("does not check sign-in for a disabled provider even when the CLI is installed", () => {
+    expect(
+      getOnboardingAgentChecks({ ...installedCodex, enabled: false, status: "disabled" }),
+    ).toEqual({
+      installed: { value: "v0.130.0", tone: "good" },
+      signIn: { value: "Not checked", tone: "muted" },
+    });
+  });
+
+  it("reads the same facts from a payload that decodes through the wire contract", () => {
+    // Shape of a provider snapshot as the server sends it over the wire.
+    const wire = {
+      instanceId: "codex",
+      driver: "codex",
+      enabled: true,
+      installed: true,
+      version: "0.130.0",
+      status: "ready",
+      auth: { status: "authenticated", type: "chatgpt", label: "ChatGPT Plus Subscription" },
+      checkedAt: "2026-10-13T09:00:00.000Z",
+      models: [],
+      slashCommands: [],
+      skills: [],
+    };
+    const decoded = decodeServerProvider(wire);
+    expect(getOnboardingAgentChecks(decoded).signIn.value).toBe(
+      "Signed in · ChatGPT Plus Subscription",
     );
   });
 });

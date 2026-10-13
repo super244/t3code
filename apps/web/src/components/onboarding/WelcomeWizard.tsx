@@ -1,4 +1,5 @@
 /* agent-watermark: model=opus-5.5; effort=high; duration=4m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 import { useAuth } from "@clerk/react";
 import { useAtomValue } from "@effect/atom-react";
@@ -44,10 +45,12 @@ import {
   type OnboardingProjectGroup,
 } from "../../onboarding/projectImport.logic";
 import {
+  getOnboardingAgentChecks,
   getOnboardingProviderState,
   resolveOnboardingProviderInstallCommand,
   resolveOnboardingProviderLoginCommand,
   selectOnboardingProvidersByDriver,
+  type OnboardingAgentCheck,
 } from "../../onboarding/providerReadiness.logic";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { newProjectId, randomUUID } from "../../lib/utils";
@@ -73,6 +76,7 @@ import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { Input } from "../ui/input";
+import { RefreshIcon } from "../ui/refresh-icon";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { ScrollArea } from "../ui/scroll-area";
 import { Spinner } from "../ui/spinner";
@@ -213,6 +217,10 @@ export function WelcomeWizard({
               setStep(index === 0 ? "connection" : "agents");
             }}
           />
+          {/* Labels hide under sm, so the current stage is spelled out there. */}
+          <p className="mt-2 text-xs text-muted-foreground sm:hidden" role="status">
+            Step {stageIndex + 1} of {ONBOARDING_STAGES.length} · {ONBOARDING_STAGES[stageIndex]}
+          </p>
         </WizardHeader>
 
         <WizardPanel holdHeight={isLoadingProjects}>
@@ -681,11 +689,17 @@ function ConnectedAgentsStep({
   });
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const [terminalSession, setTerminalSession] = useState<AgentTerminalSession | null>(null);
+  const [checking, setChecking] = useState(true);
+  const probeProviders = useCallback(() => {
+    setChecking(true);
+    void refreshProviders({ environmentId, input: {} }).finally(() => setChecking(false));
+  }, [environmentId, refreshProviders]);
 
   // Re-probe on entry so freshly installed CLIs show up without a manual
   // refresh; harmless when nothing changed (single-flighted per environment).
+  // `checking` starts true, so this effect only has to clear it when done.
   useEffect(() => {
-    void refreshProviders({ environmentId, input: {} });
+    void refreshProviders({ environmentId, input: {} }).finally(() => setChecking(false));
   }, [environmentId, refreshProviders]);
 
   const byDriver = useMemo(() => selectOnboardingProvidersByDriver(providers), [providers]);
@@ -696,7 +710,13 @@ function ConnectedAgentsStep({
   }));
   return (
     <section>
-      <h2 className="mb-2 text-sm font-medium">{machineLabel}</h2>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-medium">{machineLabel}</h2>
+        <Button size="xs" variant="ghost" disabled={checking} onClick={probeProviders}>
+          <RefreshIcon refreshing={checking} className="size-3.5" />
+          {checking ? "Checking…" : "Check again"}
+        </Button>
+      </div>
       <div className="space-y-1.5">
         {primaryAgents.map(({ driver, provider }) => (
           <AgentCard
@@ -734,7 +754,7 @@ function ConnectedAgentsStep({
           session={terminalSession}
           onClose={() => {
             setTerminalSession(null);
-            void refreshProviders({ environmentId, input: {} });
+            probeProviders();
           }}
         />
       ) : null}
@@ -760,31 +780,40 @@ function AgentCard({
   const displayName = driver === "claudeAgent" ? "Claude Code" : (meta?.label ?? driver);
   const summary = getProviderSummary(provider);
   const providerState = getOnboardingProviderState(provider);
+  const checks = getOnboardingAgentChecks(provider);
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5">
+    <div className="flex items-start gap-3 rounded-lg border border-border bg-background px-3 py-2.5">
       {Icon ? (
-        <Icon className={cn("size-5 shrink-0", driver !== "claudeAgent" && "fill-foreground")} />
+        <Icon
+          className={cn("mt-0.5 size-5 shrink-0", driver !== "claudeAgent" && "fill-foreground")}
+        />
       ) : null}
       <div className="min-w-0 flex-1">
         <span className="block text-sm font-medium text-foreground">{displayName}</span>
-        <p className="mt-0.5 text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
-          {summary.headline}
-          {summary.detail ? ` · ${summary.detail}` : ""}
-        </p>
+        <ul className="mt-1 flex flex-wrap gap-x-3.5 gap-y-1" aria-label={`${displayName} checks`}>
+          <AgentCheckItem label="Installed" check={checks.installed} />
+          <AgentCheckItem label="Account" check={checks.signIn} />
+        </ul>
+        {providerState === "attention" || providerState === "disabled" ? (
+          <p className="mt-1.5 text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
+            {summary.headline}
+            {summary.detail ? ` · ${summary.detail}` : ""}
+          </p>
+        ) : null}
       </div>
-      <div className="shrink-0">
+      <div className="shrink-0 pt-0.5">
         {providerState === "ready" ? (
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success-foreground">
             <CheckIcon className="size-3.5" />
             Ready
           </span>
         ) : providerState === "checking" ? (
-          <span className="text-xs text-muted-foreground">Checking...</span>
+          <span className="text-xs text-muted-foreground">Checking…</span>
         ) : providerState === "disabled" ? (
           <span className="text-xs text-muted-foreground">Disabled</span>
         ) : providerState === "attention" ? (
-          <span className="text-xs text-muted-foreground">{summary.headline}</span>
+          <span className="text-xs text-warning-foreground">Needs attention</span>
         ) : (
           <Button
             size="xs"
@@ -798,6 +827,39 @@ function AgentCard({
         )}
       </div>
     </div>
+  );
+}
+
+const AGENT_CHECK_DOT_CLASS: Record<OnboardingAgentCheck["tone"], string> = {
+  good: "bg-success",
+  warn: "bg-warning",
+  muted: "bg-muted-foreground/50",
+};
+
+function AgentCheckItem({
+  label,
+  check,
+}: {
+  readonly label: string;
+  readonly check: OnboardingAgentCheck;
+}) {
+  return (
+    <li className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <span
+        aria-hidden
+        className={cn("size-1.5 shrink-0 rounded-full", AGENT_CHECK_DOT_CLASS[check.tone])}
+      />
+      <span className="shrink-0 whitespace-nowrap">{label}</span>
+      <span
+        className={cn(
+          "min-w-0 break-words",
+          check.tone === "good" && "text-foreground/85",
+          check.tone === "warn" && "text-warning-foreground",
+        )}
+      >
+        {check.value}
+      </span>
+    </li>
   );
 }
 

@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-13 */
 import {
   ClaudeSettings,
   CodexSettings,
@@ -7,6 +8,8 @@ import {
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+
+import { getProviderVersionLabel } from "../components/settings/providerStatus";
 
 const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
 const decodeCodexSettings = Schema.decodeUnknownOption(CodexSettings);
@@ -40,6 +43,52 @@ export function getOnboardingProviderState(provider: ServerProvider | undefined)
   if (provider.auth.status === "unauthenticated") return "signIn";
   if (provider.status === "ready") return "ready";
   return "attention";
+}
+
+export type OnboardingCheckTone = "good" | "warn" | "muted";
+
+export interface OnboardingAgentCheck {
+  readonly value: string;
+  readonly tone: OnboardingCheckTone;
+}
+
+/**
+ * The two facts setup cares about, each read straight from the probe: is the
+ * CLI on this computer, and is it signed in. Values are what the probe said,
+ * never a guess: an unknown sign-in stays "Not verified" instead of "Signed in".
+ */
+export function getOnboardingAgentChecks(provider: ServerProvider | undefined): {
+  readonly installed: OnboardingAgentCheck;
+  readonly signIn: OnboardingAgentCheck;
+} {
+  if (provider === undefined) {
+    return {
+      installed: { value: "Checking…", tone: "muted" },
+      signIn: { value: "Checking…", tone: "muted" },
+    };
+  }
+
+  const installed: OnboardingAgentCheck = provider.installed
+    ? { value: getProviderVersionLabel(provider.version) ?? "Found", tone: "good" }
+    : { value: "Not found", tone: "warn" };
+
+  if (!provider.installed) {
+    return { installed, signIn: { value: "Not checked", tone: "muted" } };
+  }
+  if (!provider.enabled || provider.status === "disabled") {
+    return { installed, signIn: { value: "Not checked", tone: "muted" } };
+  }
+  if (provider.auth.status === "authenticated") {
+    const account = provider.auth.label ?? provider.auth.type;
+    return {
+      installed,
+      signIn: { value: account ? `Signed in · ${account}` : "Signed in", tone: "good" },
+    };
+  }
+  if (provider.auth.status === "unauthenticated") {
+    return { installed, signIn: { value: "Not signed in", tone: "warn" } };
+  }
+  return { installed, signIn: { value: "Not verified", tone: "muted" } };
 }
 
 const PROVIDER_STATE_PRIORITY = {

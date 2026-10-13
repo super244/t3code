@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 import { useAtomCommand } from "../state/use-atom-command";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { FolderOpenIcon, PlusIcon } from "lucide-react";
@@ -14,6 +15,35 @@ import { Button } from "./ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
 import { SidebarInset } from "./ui/sidebar";
 import { stackedThreadToast, toastManager } from "./ui/toast";
+
+/**
+ * Rules the add-project flow enforces on the server and in the palette. Kept
+ * next to the buttons so a first-time user knows what a path has to look like
+ * before they pick one.
+ */
+const PROJECT_PATH_RULES = [
+  {
+    id: "full-path",
+    body: (
+      <>
+        Use a full path, such as{" "}
+        <code className="font-mono text-[0.92em] whitespace-nowrap">~/code/my-app</code>. Relative
+        paths like <code className="font-mono text-[0.92em]">./app</code> need a project that is
+        already open.
+      </>
+    ),
+  },
+  { id: "created", body: <>A folder that does not exist yet is created for you.</> },
+  {
+    id: "one-folder",
+    body: (
+      <>
+        Each project is one folder. Its threads run there, and the agent reads and edits files in
+        it.
+      </>
+    ),
+  },
+] as const;
 
 export function NoProjectsHero() {
   const [isPicking, setIsPicking] = useState(false);
@@ -127,6 +157,25 @@ export function NoProjectsHero() {
                   </Button>
                 )}
               </div>
+              <ul
+                aria-label="How project folders work"
+                className="mx-auto mt-7 flex w-full max-w-md flex-col gap-2 text-left"
+              >
+                {PROJECT_PATH_RULES.map((rule, index) => (
+                  <li
+                    key={rule.id}
+                    className="flex gap-2.5 rounded-lg border border-border/70 bg-card/40 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground"
+                  >
+                    <span
+                      aria-hidden
+                      className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-muted text-[0.65rem] font-medium text-foreground/70"
+                    >
+                      {index + 1}
+                    </span>
+                    <span className="min-w-0">{rule.body}</span>
+                  </li>
+                ))}
+              </ul>
             </EmptyHeader>
           </div>
         </Empty>

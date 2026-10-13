@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 import type { DraftId } from "~/composerDraftStore";
 import { useComposerDraftStore } from "~/composerDraftStore";
@@ -14,9 +15,15 @@ import {
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
 } from "~/sidebarProjectGrouping";
-import { useProjects, useThreadShells } from "~/state/entities";
+import {
+  useAllEnvironmentShellsBootstrapped,
+  useProjects,
+  useThreadShells,
+} from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { FirstThreadGuide } from "./FirstThreadGuide";
+import { shouldShowFirstThreadGuide } from "./firstThreadGuide.logic";
 import { sortLogicalProjectsForSidebar } from "../Sidebar.logic";
 import {
   Menu,
@@ -52,6 +59,7 @@ export function DraftHeroHeadline({
 }: DraftHeroHeadlineProps) {
   const projects = useProjects();
   const threads = useThreadShells();
+  const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
@@ -226,6 +234,8 @@ export function DraftHeroHeadline({
   );
 
   const showExamplePrompts = hasResolvedProject && draftId !== null;
+  const showFirstThreadGuide =
+    showExamplePrompts && shouldShowFirstThreadGuide({ bootstrapped, threads });
 
   return (
     <>
@@ -256,6 +266,7 @@ export function DraftHeroHeadline({
           ))}
         </ul>
       ) : null}
+      {showFirstThreadGuide ? <FirstThreadGuide /> : null}
     </>
   );
 }
