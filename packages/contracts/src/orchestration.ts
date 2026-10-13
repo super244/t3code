@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=45m; seat=opencode; date=2026-10-08 */
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -601,6 +602,21 @@ export const OrchestrationLatestTurn = Schema.Struct({
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
+/**
+ * Compact recap of a thread's latest completed turn, carried on shell rows so the
+ * sidebar can say what a finished turn did without loading the thread. Counts are
+ * null when the turn has no ready checkpoint; clients omit them rather than estimate.
+ * The file list, commands and final message come from the full thread detail.
+ */
+export const OrchestrationLatestTurnRecap = Schema.Struct({
+  turnId: TurnId,
+  fileCount: Schema.NullOr(NonNegativeInt),
+  additions: Schema.NullOr(NonNegativeInt),
+  deletions: Schema.NullOr(NonNegativeInt),
+  failedCommandCount: NonNegativeInt,
+});
+export type OrchestrationLatestTurnRecap = typeof OrchestrationLatestTurnRecap.Type;
+
 export const ThreadTitleRegeneration = Schema.Struct({
   requestId: CommandId,
   startedAt: IsoDateTime,
@@ -800,6 +816,9 @@ export const OrchestrationThreadShell = Schema.Struct({
   ),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
+  // Null while the latest turn runs or has no completed turn. Optional so cached
+  // snapshots from older servers still decode.
+  latestTurnRecap: Schema.optional(Schema.NullOr(OrchestrationLatestTurnRecap)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),

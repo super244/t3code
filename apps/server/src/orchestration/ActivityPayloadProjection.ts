@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 import type {
   OrchestrationEvent,
   OrchestrationThreadActivity,
@@ -90,6 +91,10 @@ function projectCommandData(data: Record<string, unknown>): Record<string, unkno
   const projectedItem: Record<string, unknown> = {};
   if ("command" in item) {
     projectedItem.command = item.command;
+  }
+  // A recorded exit code is what the turn recap reads to flag a failed command.
+  if (typeof item.exitCode === "number" && Number.isFinite(item.exitCode)) {
+    projectedItem.exitCode = item.exitCode;
   }
 
   const aggregatedOutput = asTrimmedString(item.aggregatedOutput);

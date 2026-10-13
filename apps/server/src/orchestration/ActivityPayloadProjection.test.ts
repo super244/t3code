@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 import { describe, expect, it } from "vite-plus/test";
 import type { OrchestrationThreadActivity } from "@t3tools/contracts";
 import { projectActivityPayload } from "./ActivityPayloadProjection.ts";
@@ -42,6 +43,27 @@ describe("projectActivityPayload", () => {
     // Slimming itself still applies to data.
     const data = payload.data as Record<string, unknown>;
     expect(data.somethingClientNeverReads).toBeUndefined();
+  });
+
+  it("keeps a recorded command exit code through slimming", () => {
+    const projected = projectActivityPayload(
+      activity({
+        itemType: "command_execution",
+        data: {
+          item: {
+            command: "pnpm typecheck",
+            exitCode: 2,
+            aggregatedOutput: "error TS2304: Cannot find name 'TurnId'.",
+          },
+        },
+      }),
+    );
+    const data = (projected.payload as Record<string, unknown>).data as Record<string, unknown>;
+    expect(data.item).toEqual({
+      command: "pnpm typecheck",
+      exitCode: 2,
+      aggregatedOutput: "error TS2304: Cannot find name 'TurnId'.",
+    });
   });
 
   it("keeps a bounded Codex command output summary", () => {

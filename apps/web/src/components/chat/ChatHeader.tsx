@@ -1,10 +1,11 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=75m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 import {
   type EnvironmentId,
   type EditorId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
+  type TurnId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
@@ -35,6 +36,8 @@ import ProjectScriptsControl, {
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
 import { OpenInPicker } from "./OpenInPicker";
+import { TurnRecapControl } from "./TurnRecapControl";
+import type { TurnRecap } from "~/lib/turnRecap";
 import { useRemoteOpenState, type RemoteOpenMode } from "../../remoteOpen";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
@@ -69,6 +72,9 @@ interface ChatHeaderProps {
   availableEditors: ReadonlyArray<EditorId>;
   rightPanelOpen: boolean;
   gitCwd: string | null;
+  /** The latest settled turn's recap; null while it runs or when there is none. */
+  turnRecap?: TurnRecap | null | undefined;
+  onOpenTurnDiff?: ((turnId: TurnId, filePath?: string) => void) | undefined;
   readonly onOpenPullRequest?: ((number: number) => void) | undefined;
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
@@ -197,6 +203,8 @@ export const ChatHeader = memo(function ChatHeader({
   availableEditors,
   rightPanelOpen,
   gitCwd,
+  turnRecap,
+  onOpenTurnDiff,
   onOpenPullRequest,
   onNewThreadInProject,
   onOpenProjectSettings,
@@ -485,6 +493,9 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
+        {turnRecap && onOpenTurnDiff ? (
+          <TurnRecapControl recap={turnRecap} compact={compact} onOpenTurnDiff={onOpenTurnDiff} />
+        ) : null}
         {compact ? (
           activeProjectScripts || showOpenInPicker ? (
             <Popover>

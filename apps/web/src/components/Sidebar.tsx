@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 /* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
@@ -69,6 +69,7 @@ import {
 } from "lucide-react";
 import {
   memo,
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -150,6 +151,7 @@ import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat"
 import type { SidebarThreadSummary } from "../types";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
+import { summarizeSidebarTurnRecap, type SidebarTurnRecap } from "~/lib/turnRecap";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
 import { openHandoffDialog, openReviewDialog } from "../handoffDialog";
@@ -1109,6 +1111,57 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
   ),
 };
 
+/**
+ * Footer line for a settled thread's latest turn. Each part is present only when
+ * the recap knows it, so an unknown value never shows as a number.
+ */
+function SidebarTurnRecapLine(props: { readonly recap: SidebarTurnRecap }) {
+  const { recap } = props;
+  const parts: ReactNode[] = [];
+  if (recap.filesLabel !== null) parts.push(<span key="files">{recap.filesLabel}</span>);
+  if (
+    recap.additions !== null &&
+    recap.deletions !== null &&
+    recap.additions + recap.deletions > 0
+  ) {
+    parts.push(
+      <span key="stat" className="font-mono">
+        <span className="text-emerald-600 dark:text-emerald-400">+{recap.additions}</span>{" "}
+        <span className="text-red-600 dark:text-red-400">−{recap.deletions}</span>
+      </span>,
+    );
+  }
+  if (recap.durationLabel !== null) parts.push(<span key="duration">{recap.durationLabel}</span>);
+  if (recap.failedCommandCount > 0) {
+    parts.push(
+      <span
+        key="failed"
+        className="inline-flex items-center gap-0.5 text-red-600 dark:text-red-400"
+      >
+        <XIcon aria-hidden className="size-3" />
+        {recap.failedCommandCount}
+        <span className="sr-only">
+          {recap.failedCommandCount === 1 ? "failed command" : "failed commands"}
+        </span>
+      </span>,
+    );
+  }
+  return (
+    <span className="flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap text-[11px] tabular-nums">
+      {parts.map((part, index) => (
+        <Fragment key={index}>
+          {index > 0 ? (
+            <span aria-hidden className="text-muted-foreground/50">
+              ·
+            </span>
+          ) : null}
+          {part}
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
@@ -1885,7 +1938,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     );
   }
 
-  const diff = latestTurnDiff(thread);
+  // A running turn has no recap yet; the row shows its live state instead.
+  const turnRecap =
+    status === "working"
+      ? null
+      : summarizeSidebarTurnRecap({
+          recap: thread.latestTurnRecap,
+          latestTurn: thread.latestTurn,
+        });
 
   return (
     <li
@@ -2078,7 +2138,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 <>
                   <ThreadWorktreeIndicator thread={thread} />
                   <span className="min-w-0 flex-1 truncate whitespace-nowrap text-muted-foreground/40">
-                    {thread.branch}
+                    {/* A settled turn's recap takes the footer; the branch stays in the thread details. */}
+                    {turnRecap ? null : thread.branch}
                   </span>
                 </>
               ) : (
@@ -2093,12 +2154,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 : thread.linkedPullRequest == null) ? (
                 <LinkBranchPullRequestButton threadRef={threadRef} url={pr.url} />
               ) : null}
-              {diff ? (
-                <span className="shrink-0 font-mono">
-                  <span className="text-emerald-600 dark:text-emerald-400">+{diff.insertions}</span>{" "}
-                  <span className="text-red-600 dark:text-red-400">−{diff.deletions}</span>
-                </span>
-              ) : null}
+              {turnRecap ? <SidebarTurnRecapLine recap={turnRecap} /> : null}
               <span
                 aria-hidden
                 className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
@@ -2139,15 +2195,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     </li>
   );
 });
-
-function latestTurnDiff(
-  thread: SidebarThreadSummary,
-): { insertions: number; deletions: number } | null {
-  // Shells don't carry checkpoint summaries; diff stats render only when the
-  // shell projection grows them. Kept as a seam so the row layout is ready.
-  void thread;
-  return null;
-}
 
 const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   thread: SidebarThreadSummary;

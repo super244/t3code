@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 import {
   type AgentSessionImportSource,
   ChatAttachment,
@@ -541,6 +542,13 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               threadId: ThreadId.make("thread-1"),
               planId: "plan-1",
             },
+          },
+          latestTurnRecap: {
+            turnId: asTurnId("turn-1"),
+            fileCount: 1,
+            additions: 2,
+            deletions: 1,
+            failedCommandCount: 0,
           },
           createdAt: "2026-02-24T00:00:02.000Z",
           updatedAt: "2026-02-24T00:00:03.000Z",
@@ -1888,6 +1896,252 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const fullSnapshot = yield* snapshotQuery.getSnapshot();
       assert.equal(fullSnapshot.threads[0]?.latestTurn?.turnId, asTurnId("turn-running"));
       assert.equal(fullSnapshot.threads[0]?.latestTurn?.state, "running");
+    }),
+  );
+
+  it.effect("projects each thread's settled latest-turn recap onto shell snapshots", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_turns`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_state`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-1',
+          'Project 1',
+          '/tmp/project-1',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          '[]',
+          '2026-04-03T00:00:00.000Z',
+          '2026-04-03T00:00:01.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          latest_user_message_at,
+          pending_approval_count,
+          pending_user_input_count,
+          has_actionable_proposed_plan,
+          created_at,
+          updated_at,
+          archived_at,
+          deleted_at
+        )
+        VALUES
+          (
+            'thread-done',
+            'project-1',
+            'Done',
+            '{"provider":"codex","model":"gpt-5-codex"}',
+            'full-access',
+            'default',
+            NULL,
+            NULL,
+            'turn-done',
+            '2026-04-03T00:00:05.000Z',
+            0,
+            0,
+            0,
+            '2026-04-03T00:00:02.000Z',
+            '2026-04-03T00:00:03.000Z',
+            NULL,
+            NULL
+          ),
+          (
+            'thread-running',
+            'project-1',
+            'Running',
+            '{"provider":"codex","model":"gpt-5-codex"}',
+            'full-access',
+            'default',
+            NULL,
+            NULL,
+            'turn-running',
+            '2026-04-03T00:00:30.000Z',
+            0,
+            0,
+            0,
+            '2026-04-03T00:00:02.000Z',
+            '2026-04-03T00:00:31.000Z',
+            NULL,
+            NULL
+          ),
+          (
+            'thread-no-checkpoint',
+            'project-1',
+            'No checkpoint',
+            '{"provider":"codex","model":"gpt-5-codex"}',
+            'full-access',
+            'default',
+            NULL,
+            NULL,
+            'turn-missing',
+            '2026-04-03T00:00:05.000Z',
+            0,
+            0,
+            0,
+            '2026-04-03T00:00:02.000Z',
+            '2026-04-03T00:00:03.000Z',
+            NULL,
+            NULL
+          )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_turns (
+          thread_id,
+          turn_id,
+          pending_message_id,
+          source_proposed_plan_thread_id,
+          source_proposed_plan_id,
+          assistant_message_id,
+          state,
+          requested_at,
+          started_at,
+          completed_at,
+          checkpoint_turn_count,
+          checkpoint_ref,
+          checkpoint_status,
+          checkpoint_files_json
+        )
+        VALUES
+          (
+            'thread-done',
+            'turn-done',
+            'message-user-1',
+            NULL,
+            NULL,
+            'message-assistant-1',
+            'completed',
+            '2026-04-03T00:00:05.000Z',
+            '2026-04-03T00:00:06.000Z',
+            '2026-04-03T00:03:18.000Z',
+            1,
+            'refs/t3/checkpoints/thread-done/turn-1',
+            'ready',
+            '[{"path":"src/a.ts","kind":"modified","additions":100,"deletions":10},{"path":"src/b.ts","kind":"added","additions":20,"deletions":8}]'
+          ),
+          (
+            'thread-running',
+            'turn-running',
+            'message-user-2',
+            NULL,
+            NULL,
+            NULL,
+            'running',
+            '2026-04-03T00:00:30.000Z',
+            '2026-04-03T00:00:30.000Z',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            '[]'
+          ),
+          (
+            'thread-no-checkpoint',
+            'turn-missing',
+            'message-user-3',
+            NULL,
+            NULL,
+            NULL,
+            'completed',
+            '2026-04-03T00:00:05.000Z',
+            '2026-04-03T00:00:06.000Z',
+            '2026-04-03T00:00:20.000Z',
+            NULL,
+            NULL,
+            'missing',
+            '[]'
+          )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id,
+          thread_id,
+          turn_id,
+          tone,
+          kind,
+          summary,
+          payload_json,
+          created_at
+        )
+        VALUES
+          ('activity-fail', 'thread-done', 'turn-done', 'tool', 'tool.completed', 'Ran command', '{"itemType":"command_execution","status":"failed","data":{"item":{"command":"bun test"}}}', '2026-04-03T00:00:10.000Z'),
+          ('activity-exit', 'thread-done', 'turn-done', 'tool', 'tool.completed', 'Ran command', '{"itemType":"command_execution","status":"completed","data":{"item":{"command":"bun lint","exitCode":2}}}', '2026-04-03T00:00:11.000Z'),
+          ('activity-ok', 'thread-done', 'turn-done', 'tool', 'tool.completed', 'Ran command', '{"itemType":"command_execution","status":"completed","data":{"item":{"command":"bun fmt","exitCode":0}}}', '2026-04-03T00:00:12.000Z'),
+          ('activity-read', 'thread-done', 'turn-done', 'tool', 'tool.completed', 'Read file', '{"itemType":"file_read","status":"failed"}', '2026-04-03T00:00:13.000Z'),
+          ('activity-missing', 'thread-no-checkpoint', 'turn-missing', 'tool', 'tool.completed', 'Ran command', '{"itemType":"command_execution","status":"failed","data":{"item":{"command":"bun build"}}}', '2026-04-03T00:00:14.000Z')
+      `;
+
+      yield* sql`
+        INSERT INTO projection_state (projector, last_applied_sequence, updated_at)
+        VALUES
+          (${ORCHESTRATION_PROJECTOR_NAMES.projects}, 3, '2026-04-03T00:00:40.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threads}, 3, '2026-04-03T00:00:40.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threadMessages}, 3, '2026-04-03T00:00:40.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threadProposedPlans}, 3, '2026-04-03T00:00:40.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threadActivities}, 3, '2026-04-03T00:00:40.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.threadSessions}, 3, '2026-04-03T00:00:40.000Z'),
+          (${ORCHESTRATION_PROJECTOR_NAMES.checkpoints}, 3, '2026-04-03T00:00:40.000Z')
+      `;
+
+      const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
+      const threadById = (threadId: string) =>
+        shellSnapshot.threads.find((thread) => thread.id === ThreadId.make(threadId));
+
+      // Ready checkpoint: counts come from the checkpoint; the exit-2 and failed
+      // commands count, the exit-0 command and the non-command tool do not.
+      assert.deepStrictEqual(threadById("thread-done")?.latestTurnRecap, {
+        turnId: asTurnId("turn-done"),
+        fileCount: 2,
+        additions: 120,
+        deletions: 18,
+        failedCommandCount: 2,
+      });
+      // Still running: no recap until the turn completes.
+      assert.equal(threadById("thread-running")?.latestTurnRecap, null);
+      // Completed without a ready checkpoint: file stats stay unknown, the failure still counts.
+      assert.deepStrictEqual(threadById("thread-no-checkpoint")?.latestTurnRecap, {
+        turnId: asTurnId("turn-missing"),
+        fileCount: null,
+        additions: null,
+        deletions: null,
+        failedCommandCount: 1,
+      });
+
+      // A live thread-upserted event reads the same recap through the single-thread shell.
+      const single = yield* snapshotQuery.getThreadShellById(ThreadId.make("thread-done"));
+      assert.deepStrictEqual(
+        Option.getOrNull(single)?.latestTurnRecap,
+        threadById("thread-done")?.latestTurnRecap,
+      );
     }),
   );
 

@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 import { playSound } from "../lib/soundEffects";
@@ -225,6 +226,7 @@ import {
   WifiOffIcon,
 } from "lucide-react";
 import { cn, randomHex } from "~/lib/utils";
+import { deriveTurnRecap } from "~/lib/turnRecap";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
@@ -1978,6 +1980,19 @@ export default function ChatView(props: ChatViewProps) {
     return openTerminalThreadKeys.filter((nextThreadKey) => existingThreadKeys.has(nextThreadKey));
   }, [draftThreadKeys, openTerminalThreadKeys, serverThreadKeys]);
   const activeLatestTurn = activeThread?.latestTurn ?? null;
+  // The header's recap of the latest settled turn. Drafts have no turns to recap.
+  const activeTurnRecap = useMemo(
+    () =>
+      isServerThread && activeThread
+        ? deriveTurnRecap({
+            latestTurn: activeThread.latestTurn,
+            checkpoints: activeThread.checkpoints,
+            activities: activeThread.activities,
+            messages: activeThread.messages,
+          })
+        : null,
+    [activeThread, isServerThread],
+  );
   const activeRunningTurnId =
     (activeThread?.session?.status === "running" ? activeThread.session.activeTurnId : null) ??
     (activeLatestTurn?.state === "running" ? activeLatestTurn.turnId : null);
@@ -8215,6 +8230,8 @@ export default function ChatView(props: ChatViewProps) {
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
             gitCwd={gitCwd}
+            turnRecap={activeTurnRecap}
+            onOpenTurnDiff={onOpenTurnDiff}
             onNewThreadInProject={handleNewThreadInActiveProject}
             {...(activeDraftLogicalProjectKey
               ? { onOpenProjectSettings: handleOpenDraftProjectSettings }

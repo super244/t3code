@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 import {
   AgentSessionImportSource,
@@ -8,6 +9,7 @@ import {
   MessageId,
   NonNegativeInt,
   OrchestrationCheckpointFile,
+  OrchestrationLatestTurnRecap,
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
   OrchestrationThreadSearchSource,
@@ -151,6 +153,16 @@ const ProjectionCheckpointDbRowSchema = ProjectionCheckpoint.mapFields(
     files: Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile)),
   }),
 );
+const LatestTurnRecapLookupInput = Schema.Struct({
+  threadId: Schema.NullOr(ThreadId),
+});
+const ProjectionLatestTurnRecapDbRowSchema = Schema.Struct({
+  threadId: ProjectionThread.fields.threadId,
+  turnId: TurnId,
+  checkpointStatus: Schema.NullOr(Schema.String),
+  checkpointFiles: Schema.NullOr(Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile))),
+  failedCommandCount: NonNegativeInt,
+});
 const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   threadId: ProjectionThread.fields.threadId,
   turnId: TurnId,
@@ -327,6 +339,24 @@ function computeSnapshotSequence(
   }
 
   return Number.isFinite(minSequence) ? minSequence : 0;
+}
+
+/**
+ * Counts come from the turn's ready checkpoint only. A missing or errored
+ * checkpoint leaves them null so the sidebar omits them instead of guessing.
+ */
+function mapLatestTurnRecap(
+  row: Schema.Schema.Type<typeof ProjectionLatestTurnRecapDbRowSchema>,
+): OrchestrationLatestTurnRecap {
+  const files =
+    row.checkpointStatus === "ready" && row.checkpointFiles !== null ? row.checkpointFiles : null;
+  return {
+    turnId: row.turnId,
+    fileCount: files === null ? null : files.length,
+    additions: files === null ? null : files.reduce((total, file) => total + file.additions, 0),
+    deletions: files === null ? null : files.reduce((total, file) => total + file.deletions, 0),
+    failedCommandCount: row.failedCommandCount,
+  };
 }
 
 function mapLatestTurn(
@@ -907,6 +937,45 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           ON turns.thread_id = threads.thread_id
           AND turns.turn_id = threads.latest_turn_id
         WHERE threads.latest_turn_id IS NOT NULL
+        ORDER BY turns.thread_id ASC
+      `,
+  });
+
+  // Recap for each active thread's latest turn, once it has completed. A command
+  // counts as failed when its recorded status is "failed" or its recorded exit
+  // code is non-zero; a command with neither recorded is not counted.
+  const listLatestTurnRecapRows = SqlSchema.findAll({
+    Request: LatestTurnRecapLookupInput,
+    Result: ProjectionLatestTurnRecapDbRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          turns.thread_id AS "threadId",
+          turns.turn_id AS "turnId",
+          turns.checkpoint_status AS "checkpointStatus",
+          turns.checkpoint_files_json AS "checkpointFiles",
+          (
+            SELECT COUNT(*)
+            FROM projection_thread_activities activities
+            WHERE activities.thread_id = turns.thread_id
+              AND activities.turn_id = turns.turn_id
+              AND activities.kind = 'tool.completed'
+              AND json_extract(activities.payload_json, '$.itemType') = 'command_execution'
+              AND (
+                json_extract(activities.payload_json, '$.status') = 'failed'
+                OR json_extract(activities.payload_json, '$.data.item.exitCode') <> 0
+                OR json_extract(activities.payload_json, '$.data.exitCode') <> 0
+              )
+          ) AS "failedCommandCount"
+        FROM projection_threads threads
+        JOIN projection_turns turns
+          ON turns.thread_id = threads.thread_id
+          AND turns.turn_id = threads.latest_turn_id
+        WHERE threads.deleted_at IS NULL
+          AND threads.archived_at IS NULL
+          AND threads.latest_turn_id IS NOT NULL
+          AND turns.completed_at IS NOT NULL
+          AND (${threadId} IS NULL OR threads.thread_id = ${threadId})
         ORDER BY turns.thread_id ASC
       `,
   });
@@ -2565,11 +2634,27 @@ pending_approval_requests AS (
               ),
             ),
           ),
+          listLatestTurnRecapRows({ threadId: null }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getShellSnapshot:listLatestTurnRecaps:query",
+                "ProjectionSnapshotQuery.getShellSnapshot:listLatestTurnRecaps:decodeRows",
+              ),
+            ),
+          ),
         ]),
       )
       .pipe(
         Effect.flatMap(
-          ([projectRows, threadRows, sessionRows, pullRequestRows, latestTurnRows, stateRows]) =>
+          ([
+            projectRows,
+            threadRows,
+            sessionRows,
+            pullRequestRows,
+            latestTurnRows,
+            stateRows,
+            recapRows,
+          ]) =>
             Effect.gen(function* () {
               let updatedAt: string | null = null;
               for (const row of projectRows) {
@@ -2603,6 +2688,9 @@ pending_approval_requests AS (
                 sessionRows.map((row) => [row.threadId, mapSessionRow(row)] as const),
               );
               const pullRequestsByThread = groupPullRequestRowsByThread(pullRequestRows);
+              const latestTurnRecapByThread = new Map(
+                recapRows.map((row) => [row.threadId, mapLatestTurnRecap(row)] as const),
+              );
 
               const snapshot = {
                 snapshotSequence: computeSnapshotSequence(stateRows),
@@ -2631,6 +2719,7 @@ pending_approval_requests AS (
                           repositoryIdentities.get(row.projectId),
                         ),
                         latestTurn: latestTurnByThread.get(row.threadId) ?? null,
+                        latestTurnRecap: latestTurnRecapByThread.get(row.threadId) ?? null,
                         createdAt: row.createdAt,
                         updatedAt: row.updatedAt,
                         archivedAt: row.archivedAt,
@@ -3071,7 +3160,7 @@ pending_approval_requests AS (
 
   const getThreadShellById: ProjectionSnapshotQueryShape["getThreadShellById"] = (threadId) =>
     Effect.gen(function* () {
-      const [threadRow, latestTurnRow, sessionRow, pullRequestRows] = yield* Effect.all([
+      const [threadRow, latestTurnRow, sessionRow, pullRequestRows, recapRows] = yield* Effect.all([
         getActiveThreadRowById({ threadId }).pipe(
           Effect.mapError(
             toPersistenceSqlOrDecodeError(
@@ -3104,6 +3193,14 @@ pending_approval_requests AS (
             ),
           ),
         ),
+        listLatestTurnRecapRows({ threadId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadShellById:listLatestTurnRecaps:query",
+              "ProjectionSnapshotQuery.getThreadShellById:listLatestTurnRecaps:decodeRows",
+            ),
+          ),
+        ),
       ]);
 
       if (Option.isNone(threadRow)) {
@@ -3129,6 +3226,7 @@ pending_approval_requests AS (
         ),
         branchPullRequest: threadRow.value.branchPullRequest,
         latestTurn: Option.isSome(latestTurnRow) ? mapLatestTurn(latestTurnRow.value) : null,
+        latestTurnRecap: recapRows[0] === undefined ? null : mapLatestTurnRecap(recapRows[0]),
         createdAt: threadRow.value.createdAt,
         updatedAt: threadRow.value.updatedAt,
         archivedAt: threadRow.value.archivedAt,
