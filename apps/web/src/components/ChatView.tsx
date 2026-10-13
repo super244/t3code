@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 import { playSound } from "../lib/soundEffects";
@@ -573,10 +573,13 @@ const TYPE_TO_FOCUS_EDITABLE_SELECTOR = [
   '[contenteditable="plaintext-only"]',
   '[role="textbox"]',
 ].join(",");
+// Surfaces that read bare keys themselves (the diff panel's j/k/v) are not redirected to the
+// composer, so their keys reach the surface's own handler.
 const TYPE_TO_FOCUS_INTERACTIVE_SELECTOR = [
   "button",
   "a[href]",
   "summary",
+  "[data-keyboard-surface]",
   '[role="button"]',
   '[role="checkbox"]',
   '[role="menuitem"]',
