@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 import {
   DEFAULT_CLIENT_SETTINGS,
   DEFAULT_SERVER_SETTINGS,
@@ -389,7 +390,10 @@ export function ProjectDefaultsSettings({
           }
         />
       </SettingsSection>
-      <SettingsSection title="Checkout">
+      <SettingsSection
+        title="Checkout"
+        description="Which of a project's checkouts new work starts in."
+      >
         <SettingsRow
           title="Checkout"
           aria-disabled
@@ -443,6 +447,13 @@ export function ProjectDefaultsSettings({
             </Select>
           }
         />
+      </SettingsSection>
+      <ProjectDefaultActionsSettings environmentId={environmentId} />
+      <SettingsSection
+        title="Danger"
+        tone="danger"
+        description="Removing a project drops its entries and threads from T3 Code. Files on disk are not touched."
+      >
         <SettingsRow
           title="Remove checkout"
           aria-disabled
@@ -454,9 +465,6 @@ export function ProjectDefaultsSettings({
             </Button>
           }
         />
-      </SettingsSection>
-      <ProjectDefaultActionsSettings environmentId={environmentId} />
-      <SettingsSection title="Danger">
         <SettingsRow
           title="Remove project"
           aria-disabled

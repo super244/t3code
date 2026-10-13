@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 import {
   scopedProjectKey,
   scopedThreadKey,
@@ -151,6 +152,7 @@ export function AgentNotificationsSettingsSection() {
     <SettingsSection
       id="agent-notifications"
       title="Notifications"
+      description="Alerts about agent activity, delivered by your browser or operating system."
       icon={prefs.enabled ? <BellIcon className="size-4" /> : <BellOffIcon className="size-4" />}
     >
       <SettingsRow

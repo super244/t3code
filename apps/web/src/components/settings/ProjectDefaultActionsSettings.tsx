@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 import type { EnvironmentId } from "@t3tools/contracts";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { PlusIcon } from "lucide-react";
@@ -50,7 +51,7 @@ export function ProjectDefaultActionsSettings({
   );
 
   return (
-    <SettingsSection title="Actions">
+    <SettingsSection title="Actions" description="Scripts a project can run from its checkout.">
       <SettingsRow
         title="Import scripts"
         aria-disabled

@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 import { Spinner } from "~/components/ui/spinner";
 import { ArchiveIcon, ArchiveX, ChevronRightIcon, SettingsIcon } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -1102,7 +1103,11 @@ export function AppearanceSettingsPanel() {
         </div>
       </SettingsSection>
 
-      <SettingsSection id="appearance-interface" title="Interface">
+      <SettingsSection
+        id="appearance-interface"
+        title="Interface"
+        description="Contrast and surfaces across the whole app."
+      >
         <SettingsRow
           {...searchableSetting("setting-appearance-contrast")}
           description="Adjust the contrast of colors and borders across the interface."
@@ -1244,7 +1249,7 @@ export function AppearanceSettingsPanel() {
         ) : null}
       </SettingsSection>
 
-      <SettingsSection id="motion" title="Motion">
+      <SettingsSection id="motion" title="Motion" description="How panels open, close, and move.">
         <SettingsRow
           {...searchableSetting("panel-animations")}
           description="Set how fast panels open and close."
@@ -1298,7 +1303,11 @@ export function AppearanceSettingsPanel() {
         />
       </SettingsSection>
 
-      <SettingsSection id="sound" title="Audio & Acoustics">
+      <SettingsSection
+        id="sound"
+        title="Audio & Acoustics"
+        description="Sounds the app plays when agent work changes state."
+      >
         <SoundSettingsSection />
       </SettingsSection>
 
@@ -2082,7 +2091,11 @@ export function GeneralSettingsPanel() {
     <SettingsPageContainer>
       <SharedSettingsMismatchAlert />
       <AgentNotificationsSettingsSection />
-      <SettingsSection id="organization" title="Organization">
+      <SettingsSection
+        id="organization"
+        title="Organization"
+        description="How projects and threads group in the sidebar."
+      >
         <SettingsRow
           {...searchableSetting("project-grouping")}
           description="Combine matching repositories across environments."
@@ -2196,7 +2209,11 @@ export function GeneralSettingsPanel() {
         ) : null}
       </SettingsSection>
 
-      <SettingsSection id="behavior" title="Behavior">
+      <SettingsSection
+        id="behavior"
+        title="Behavior"
+        description="How times, diffs, and panels appear while you work."
+      >
         <SettingsRow
           {...searchableSetting("time-format")}
           description="System default follows your browser or OS clock preference."
@@ -2523,7 +2540,11 @@ export function GeneralSettingsPanel() {
         />
       </SettingsSection>
 
-      <SettingsSection id="projects-and-threads" title="Projects & threads">
+      <SettingsSection
+        id="projects-and-threads"
+        title="Projects & threads"
+        description="Defaults for new threads, across all projects or one project."
+      >
         <SettingsRow
           {...searchableSetting("new-threads")}
           description="Choose the default model and workspace for all projects or a specific project."
@@ -2599,7 +2620,11 @@ export function GeneralSettingsPanel() {
         />
       </SettingsSection>
 
-      <SettingsSection id="confirmations" title="Confirmations">
+      <SettingsSection
+        id="confirmations"
+        title="Confirmations"
+        description="Actions that ask before they run."
+      >
         <SettingsRow
           {...searchableSetting("unpin-confirmation")}
           description="Ask before unpinning a thread from the pinned section."
@@ -2721,7 +2746,11 @@ export function GeneralSettingsPanel() {
         ) : null}
       </SettingsSection>
 
-      <SettingsSection id="text-generation" title="Text generation">
+      <SettingsSection
+        id="text-generation"
+        title="Text generation"
+        description="The model that writes generated text, such as thread titles."
+      >
         <SettingsRow
           serverScoped
           {...searchableSetting("text-generation-model")}
@@ -2817,7 +2846,11 @@ export function GeneralSettingsPanel() {
         />
       </SettingsSection>
 
-      <SettingsSection id="about" title="About">
+      <SettingsSection
+        id="about"
+        title="About"
+        description="This install and where to check its health."
+      >
         {isElectron || HOSTED_APP_CHANNEL ? (
           <AboutVersionSection />
         ) : (

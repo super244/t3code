@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=27m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=40m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
@@ -58,6 +58,7 @@ import {
   CornerLeftUpIcon,
   FileSearchIcon,
   FlagIcon,
+  HomeIcon,
   KeyboardIcon,
   FolderIcon,
   FolderPlusIcon,
@@ -431,6 +432,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     mode: "command",
     openIntent: null,
   });
+  const navigate = useNavigate();
   const setOpen = useCallback((open: boolean) => dispatch({ _tag: "SetOpen", open }), []);
   const toggleMode = useCallback(
     (mode: SearchOverlayMode) => dispatch({ _tag: "ToggleMode", mode }),
@@ -493,6 +495,14 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         });
         return;
       }
+      // The launchpad is reachable from every screen, not only chat routes,
+      // so its shortcut lives beside the other app-wide shortcuts.
+      if (command === "launchpad.open") {
+        event.preventDefault();
+        event.stopPropagation();
+        void navigate({ to: "/home" });
+        return;
+      }
       const mode = overlayModeForCommand(command);
       if (mode === null) {
         return;
@@ -503,7 +513,16 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [keybindings, previewOpen, resolvedTheme, terminalOpen, theme, themeHalves, toggleMode]);
+  }, [
+    keybindings,
+    navigate,
+    previewOpen,
+    resolvedTheme,
+    terminalOpen,
+    theme,
+    themeHalves,
+    toggleMode,
+  ]);
 
   useEffect(
     () =>
@@ -1738,6 +1757,18 @@ function OpenCommandPaletteDialog(props: {
       });
     }
   }
+
+  actionItems.push({
+    kind: "action",
+    value: "action:launchpad",
+    searchTerms: ["launchpad", "home", "start", "threads", "projects", "recent", "overview"],
+    title: "Go to launchpad",
+    icon: <HomeIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "launchpad.open",
+    run: async () => {
+      await navigate({ to: "/home" });
+    },
+  });
 
   actionItems.push({
     kind: "action",

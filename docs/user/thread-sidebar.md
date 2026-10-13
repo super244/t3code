@@ -20,6 +20,14 @@ on Windows and Linux to start a new thread and immediately open another draft. T
 next draft keeps the workspace mode and base branch you selected. With **New
 worktree**, each background submission creates its own worktree.
 
+## Find your way back to the launchpad
+
+The launchpad lists your recent threads across projects, with each thread's state,
+and a **New thread** button per project. Open it from **Home** at the top of the
+sidebar, from **Go to launchpad** in the command palette, or with `Cmd+Shift+H` on
+macOS or `Ctrl+Shift+H` on Windows and Linux. Opening T3 Code at `/` still starts a
+draft, so use one of these to reach the launchpad on purpose.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.

@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 import { InfoIcon, Undo2Icon } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
@@ -155,25 +156,34 @@ export function useRelativeTimeTick(intervalMs = 1_000) {
   return nowMs;
 }
 
-/** Muted section headings have no descriptions; explanatory copy belongs to individual settings. */
+/**
+ * A settings section: a title, an optional one-line description of what the
+ * group holds, then the grouped rows. `tone="danger"` marks the group that
+ * holds destructive actions so it reads apart from ordinary preferences.
+ */
 export function SettingsSection({
   title,
+  description,
   hideTitle = false,
   icon,
   headerAction,
   variant = "grouped",
+  tone = "default",
   children,
   className,
   ...sectionProps
 }: ComponentPropsWithoutRef<"section"> & {
   title: string;
+  description?: ReactNode;
   hideTitle?: boolean;
   icon?: ReactNode;
   headerAction?: ReactNode;
   variant?: "grouped" | "plain";
+  tone?: "default" | "danger";
   children: ReactNode;
 }) {
   const targetRef = useSettingsSearchTarget<HTMLElement>(sectionProps.id);
+  const isDanger = tone === "danger";
 
   return (
     <section
@@ -189,11 +199,21 @@ export function SettingsSection({
           data-settings-scroll-target
           className="flex min-h-7 items-start justify-between gap-4 px-3 sm:px-4"
         >
-          <div className="min-w-0">
-            <h2 className="flex min-h-7 items-center gap-2 text-sm font-normal tracking-[-0.005em] text-foreground/70">
+          <div className="min-w-0 space-y-0.5">
+            <h2
+              className={cn(
+                "flex min-h-7 items-center gap-2 text-sm font-medium tracking-[-0.005em]",
+                isDanger ? "text-destructive" : "text-foreground",
+              )}
+            >
               {icon}
               {title}
             </h2>
+            {description ? (
+              <p className="max-w-xl text-[13px] leading-[1.45] text-muted-foreground/75">
+                {description}
+              </p>
+            ) : null}
           </div>
           <div className="flex min-h-7 min-w-7 items-center justify-end">{headerAction}</div>
         </div>
@@ -203,7 +223,10 @@ export function SettingsSection({
         className={cn(
           "relative overflow-visible text-foreground",
           variant === "grouped"
-            ? "rounded-xl border border-border/60 bg-card/40 shadow-xs/5 [&>*+*]:border-t [&>*+*]:border-border/50 [&>[data-slot=settings-row]]:rounded-none"
+            ? cn(
+                "rounded-xl border bg-card/40 shadow-xs/5 [&>*+*]:border-t [&>*+*]:border-border/50 [&>[data-slot=settings-row]]:rounded-none",
+                isDanger ? "border-destructive/30 bg-destructive/[0.03]" : "border-border/60",
+              )
             : "space-y-1",
         )}
       >

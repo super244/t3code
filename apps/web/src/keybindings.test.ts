@@ -1,5 +1,7 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 import { assert, describe, it } from "vite-plus/test";
 
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import {
   type KeybindingCommand,
   type KeybindingShortcut,
@@ -1054,6 +1056,49 @@ describe("plus key parsing", () => {
       isTerminalToggleShortcut(event({ key: "+", ctrlKey: true }), plusBindings, {
         platform: "Linux",
       }),
+    );
+  });
+});
+
+describe("launchpad shortcut", () => {
+  it("opens the launchpad from the shipped default binding", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "h", metaKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "MacIntel" },
+      ),
+      "launchpad.open",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "h", ctrlKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "Linux" },
+      ),
+      "launchpad.open",
+    );
+  });
+
+  it("yields to the terminal when it has focus", () => {
+    assert.notStrictEqual(
+      resolveShortcutCommand(
+        event({ key: "h", metaKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "MacIntel", context: { terminalFocus: true } },
+      ),
+      "launchpad.open",
+    );
+  });
+
+  it("shows the keycap label the command palette and sidebar display", () => {
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_RESOLVED_KEYBINDINGS, "launchpad.open", "MacIntel"),
+      "⇧⌘H",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_RESOLVED_KEYBINDINGS, "launchpad.open", "Linux"),
+      "Ctrl+Shift+H",
     );
   });
 });
