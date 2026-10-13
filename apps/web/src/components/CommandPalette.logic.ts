@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=27m; seat=claude-code; date=2026-10-12 */
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import type { CommandPaletteLinkedThreads } from "../commandPaletteBus";
 import {
@@ -329,12 +330,22 @@ function rankSearchFieldMatch(
   return 0;
 }
 
+/**
+ * A plain-text title is searchable too: "open race" must find "Open Race" even
+ * though its curated search terms never say "open".
+ */
+function commandPaletteSearchFields(item: CommandPaletteActionItem | CommandPaletteSubmenuItem) {
+  return typeof item.title === "string" && item.title.trim().length > 0
+    ? [item.title, ...item.searchTerms]
+    : item.searchTerms;
+}
+
 function rankCommandPaletteItemMatch(
   item: CommandPaletteActionItem | CommandPaletteSubmenuItem,
   normalizedQuery: string,
   queryTokens: ReadonlyArray<string>,
 ): number {
-  const terms = item.searchTerms.filter((term) => term.length > 0);
+  const terms = commandPaletteSearchFields(item).filter((term) => term.length > 0);
   if (terms.length === 0) {
     return 0;
   }
@@ -403,7 +414,7 @@ export function filterCommandPaletteGroups(input: {
 
   return searchableGroups.flatMap((group) => {
     const items = Arr.filterMap(group.items, (item, index) => {
-      const haystack = normalizeSearchText(item.searchTerms.join(" "));
+      const haystack = normalizeSearchText(commandPaletteSearchFields(item).join(" "));
       if (!queryTokens.every((token) => haystack.includes(token))) {
         return Result.failVoid;
       }
@@ -496,13 +507,23 @@ export function getCommandPaletteMode(input: {
   return input.isBrowsing ? "root-browse" : "root";
 }
 
+/**
+ * Root groups for the empty-query palette. Recently run commands float to the
+ * top of Actions; the same order breaks ties when a query matches equally well.
+ */
 export function buildRootGroups(input: {
   actionItems: ReadonlyArray<CommandPaletteActionItem | CommandPaletteSubmenuItem>;
   recentThreadItems: ReadonlyArray<CommandPaletteActionItem>;
+  recentCommandKeys?: ReadonlyArray<string>;
 }): CommandPaletteGroup[] {
   const groups: CommandPaletteGroup[] = [];
-  if (input.actionItems.length > 0) {
-    groups.push({ value: "actions", label: "Actions", items: input.actionItems });
+  const actionItems = orderByRecentKeys(
+    input.actionItems,
+    input.recentCommandKeys ?? [],
+    (item) => item.value,
+  );
+  if (actionItems.length > 0) {
+    groups.push({ value: "actions", label: "Actions", items: actionItems });
   }
   if (input.recentThreadItems.length > 0) {
     groups.push({
@@ -540,21 +561,96 @@ export interface GoAnywhereDestination {
 
 /** First-class "go to" targets: every main route + every settings panel. */
 export const GO_ANYWHERE_DESTINATIONS: ReadonlyArray<GoAnywhereDestination> = [
-  { value: "go:command-center", title: "Go to Command Center", searchTerms: ["go to", "command center", "dashboard"], description: "Command Center" },
-  { value: "go:usage", title: "Go to Usage", searchTerms: ["go to", "usage", "costs", "tokens"], description: "Usage" },
-  { value: "go:routines", title: "Go to Routines", searchTerms: ["go to", "routines", "automation"], description: "Routines" },
-  { value: "go:shortcuts", title: "Show keyboard shortcuts", searchTerms: ["keyboard", "shortcuts", "keybindings", "hotkeys", "cheat sheet", "help"], description: "⌘/" },
-  { value: "go:race", title: "Go to Race", searchTerms: ["go to", "race", "compare"], description: "Race" },
-  { value: "go:settings:general", title: "Go to Settings — General", searchTerms: ["go to", "settings", "general", "preferences"], description: "Settings · General" },
-  { value: "go:settings:appearance", title: "Go to Settings — Appearance", searchTerms: ["go to", "settings", "appearance", "theme", "palette"], description: "Settings · Appearance" },
-  { value: "go:settings:projects", title: "Go to Settings — Projects", searchTerms: ["go to", "settings", "projects"], description: "Settings · Projects" },
-  { value: "go:settings:keybindings", title: "Go to Settings — Keybindings", searchTerms: ["go to", "settings", "keybindings", "shortcuts"], description: "Settings · Keybindings" },
-  { value: "go:settings:providers", title: "Go to Settings — Providers", searchTerms: ["go to", "settings", "providers", "models"], description: "Settings · Providers" },
-  { value: "go:settings:integrations", title: "Go to Settings — Integrations", searchTerms: ["go to", "settings", "integrations"], description: "Settings · Integrations" },
-  { value: "go:settings:skills", title: "Go to Settings — Skills", searchTerms: ["go to", "settings", "skills", "rules"], description: "Settings · Skills" },
-  { value: "go:settings:source-control", title: "Go to Settings — Source Control", searchTerms: ["go to", "settings", "source control", "git"], description: "Settings · Source Control" },
-  { value: "go:settings:connections", title: "Go to Settings — Connections", searchTerms: ["go to", "settings", "connections", "devices"], description: "Settings · Connections" },
-  { value: "go:settings:diagnostics", title: "Go to Settings — Diagnostics", searchTerms: ["go to", "settings", "diagnostics", "debug"], description: "Settings · Diagnostics" },
+  {
+    value: "go:command-center",
+    title: "Go to Command Center",
+    searchTerms: ["go to", "command center", "dashboard"],
+    description: "Command Center",
+  },
+  {
+    value: "go:usage",
+    title: "Go to Usage",
+    searchTerms: ["go to", "usage", "costs", "tokens"],
+    description: "Usage",
+  },
+  {
+    value: "go:routines",
+    title: "Go to Routines",
+    searchTerms: ["go to", "routines", "automation"],
+    description: "Routines",
+  },
+  {
+    value: "go:shortcuts",
+    title: "Show keyboard shortcuts",
+    searchTerms: ["keyboard", "shortcuts", "keybindings", "hotkeys", "cheat sheet", "help"],
+    description: "⌘/",
+  },
+  {
+    value: "go:race",
+    title: "Go to Race",
+    searchTerms: ["go to", "race", "compare"],
+    description: "Race",
+  },
+  {
+    value: "go:settings:general",
+    title: "Go to Settings — General",
+    searchTerms: ["go to", "settings", "general", "preferences"],
+    description: "Settings · General",
+  },
+  {
+    value: "go:settings:appearance",
+    title: "Go to Settings — Appearance",
+    searchTerms: ["go to", "settings", "appearance", "theme", "palette"],
+    description: "Settings · Appearance",
+  },
+  {
+    value: "go:settings:projects",
+    title: "Go to Settings — Projects",
+    searchTerms: ["go to", "settings", "projects"],
+    description: "Settings · Projects",
+  },
+  {
+    value: "go:settings:keybindings",
+    title: "Go to Settings — Keybindings",
+    searchTerms: ["go to", "settings", "keybindings", "shortcuts"],
+    description: "Settings · Keybindings",
+  },
+  {
+    value: "go:settings:providers",
+    title: "Go to Settings — Providers",
+    searchTerms: ["go to", "settings", "providers", "models"],
+    description: "Settings · Providers",
+  },
+  {
+    value: "go:settings:integrations",
+    title: "Go to Settings — Integrations",
+    searchTerms: ["go to", "settings", "integrations"],
+    description: "Settings · Integrations",
+  },
+  {
+    value: "go:settings:skills",
+    title: "Go to Settings — Skills",
+    searchTerms: ["go to", "settings", "skills", "rules"],
+    description: "Settings · Skills",
+  },
+  {
+    value: "go:settings:source-control",
+    title: "Go to Settings — Source Control",
+    searchTerms: ["go to", "settings", "source control", "git"],
+    description: "Settings · Source Control",
+  },
+  {
+    value: "go:settings:connections",
+    title: "Go to Settings — Connections",
+    searchTerms: ["go to", "settings", "connections", "devices"],
+    description: "Settings · Connections",
+  },
+  {
+    value: "go:settings:diagnostics",
+    title: "Go to Settings — Diagnostics",
+    searchTerms: ["go to", "settings", "diagnostics", "debug"],
+    description: "Settings · Diagnostics",
+  },
 ];
 
 export function buildGoAnywhereItems(input: {
@@ -574,53 +670,62 @@ export function buildGoAnywhereItems(input: {
   }));
 }
 
-export const RECENT_DESTINATIONS_STORAGE_KEY = "t3code:palette-recent-destinations:v1";
+export const RECENT_COMMANDS_STORAGE_KEY = "t3code:palette-recent-commands:v1";
 export const RECENT_PROJECTS_STORAGE_KEY = "t3code:palette-recent-projects:v1";
-const RECENT_HISTORY_LIMIT = 8;
+const RECENT_COMMAND_LIMIT = 12;
+const RECENT_PROJECT_LIMIT = 8;
 
-function readRecentKeys(storageKey: string): string[] {
+function readRecentKeys(storageKey: string, limit: number): string[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(storageKey);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string").slice(0, RECENT_HISTORY_LIMIT) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is string => typeof entry === "string").slice(0, limit);
   } catch {
     return [];
   }
 }
 
-function writeRecentKeys(storageKey: string, keys: ReadonlyArray<string>): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify(keys.slice(0, RECENT_HISTORY_LIMIT)));
-  } catch {
-    // Blocked storage must never break the palette.
+function recordRecentKey(storageKey: string, limit: number, value: string): string[] {
+  const next = [value, ...readRecentKeys(storageKey, limit).filter((key) => key !== value)].slice(
+    0,
+    limit,
+  );
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      // Blocked storage must never break the palette.
+    }
   }
-}
-
-export function readRecentDestinationKeys(): string[] {
-  return readRecentKeys(RECENT_DESTINATIONS_STORAGE_KEY);
-}
-
-export function recordRecentDestinationKey(value: string): string[] {
-  const next = [value, ...readRecentKeys(RECENT_DESTINATIONS_STORAGE_KEY).filter((key) => key !== value)].slice(0, RECENT_HISTORY_LIMIT);
-  writeRecentKeys(RECENT_DESTINATIONS_STORAGE_KEY, next);
   return next;
+}
+
+/** Commands run from the palette, most recent first, kept per viewer. */
+export function readRecentCommandKeys(): string[] {
+  return readRecentKeys(RECENT_COMMANDS_STORAGE_KEY, RECENT_COMMAND_LIMIT);
+}
+
+export function recordRecentCommandKey(value: string): string[] {
+  return recordRecentKey(RECENT_COMMANDS_STORAGE_KEY, RECENT_COMMAND_LIMIT, value);
 }
 
 export function readRecentProjectKeys(): string[] {
-  return readRecentKeys(RECENT_PROJECTS_STORAGE_KEY);
+  return readRecentKeys(RECENT_PROJECTS_STORAGE_KEY, RECENT_PROJECT_LIMIT);
 }
 
 export function recordRecentProjectKey(value: string): string[] {
-  const next = [value, ...readRecentKeys(RECENT_PROJECTS_STORAGE_KEY).filter((key) => key !== value)].slice(0, RECENT_HISTORY_LIMIT);
-  writeRecentKeys(RECENT_PROJECTS_STORAGE_KEY, next);
-  return next;
+  return recordRecentKey(RECENT_PROJECTS_STORAGE_KEY, RECENT_PROJECT_LIMIT, value);
 }
 
 /** Recent-first stable ordering: recent keys float up, everything else keeps order. */
-export function orderByRecentKeys<TItem>(items: ReadonlyArray<TItem>, recentKeys: ReadonlyArray<string>, keyOf: (item: TItem) => string): TItem[] {
+export function orderByRecentKeys<TItem>(
+  items: ReadonlyArray<TItem>,
+  recentKeys: ReadonlyArray<string>,
+  keyOf: (item: TItem) => string,
+): TItem[] {
   if (recentKeys.length === 0) return [...items];
   const rank = new Map(recentKeys.map((key, index) => [key, index] as const));
   return [...items].toSorted((left, right) => {
@@ -628,4 +733,58 @@ export function orderByRecentKeys<TItem>(items: ReadonlyArray<TItem>, recentKeys
     const rightRank = rank.get(keyOf(right)) ?? Number.MAX_SAFE_INTEGER;
     return leftRank - rightRank;
   });
+}
+
+const MODIFIER_GLYPHS = new Set(["\u2303", "\u2325", "\u21e7", "\u2318"]);
+
+/**
+ * Splits a formatted shortcut label into keycap tokens. Mac labels are glyph
+ * runs ("⇧⌘O", each modifier is one glyph); other platforms join with "+"
+ * ("Ctrl+Shift+O").
+ */
+export function shortcutKeycapTokens(label: string): string[] {
+  const trimmed = label.trim();
+  if (trimmed.length === 0) return [];
+  if (trimmed.includes("+")) {
+    return trimmed
+      .split("+")
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0);
+  }
+  const tokens: string[] = [];
+  let keyBuffer = "";
+  for (const character of trimmed) {
+    if (MODIFIER_GLYPHS.has(character)) {
+      if (keyBuffer.length > 0) {
+        tokens.push(keyBuffer);
+        keyBuffer = "";
+      }
+      tokens.push(character);
+    } else {
+      keyBuffer += character;
+    }
+  }
+  if (keyBuffer.length > 0) tokens.push(keyBuffer);
+  return tokens;
+}
+
+/** Copy for a palette that has no matches for a non-empty query. */
+export function commandPaletteNoMatchCopy(input: {
+  readonly query: string;
+  readonly isActionsOnly: boolean;
+}): { readonly title: string; readonly hint: string } {
+  const term = input.query.replace(/^>/, "").trim();
+  if (input.isActionsOnly) {
+    return {
+      title: term.length > 0 ? `No actions match “${term}”.` : "No actions available.",
+      hint: "Clear the > to search projects and threads too.",
+    };
+  }
+  return {
+    title:
+      term.length > 0
+        ? `Nothing matches “${term}”.`
+        : "No matching commands, projects, or threads.",
+    hint: "Try a command, a project name, or part of a thread title.",
+  };
 }

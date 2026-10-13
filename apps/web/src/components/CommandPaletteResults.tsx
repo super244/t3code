@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=27m; seat=claude-code; date=2026-10-12 */
 import { type ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { ChevronRightIcon } from "lucide-react";
 import { shortcutLabelForCommand } from "../keybindings";
@@ -5,6 +6,8 @@ import {
   type CommandPaletteActionItem,
   type CommandPaletteGroup,
   type CommandPaletteSubmenuItem,
+  commandPaletteNoMatchCopy,
+  shortcutKeycapTokens,
 } from "./CommandPalette.logic";
 import {
   CommandCollection,
@@ -14,7 +17,23 @@ import {
   CommandList,
   CommandShortcut,
 } from "./ui/command";
+import { Kbd, KbdGroup } from "./ui/kbd";
 import { cn } from "~/lib/utils";
+
+function ShortcutKeycaps(props: { label: string }) {
+  const tokens = shortcutKeycapTokens(props.label);
+  return (
+    <CommandShortcut className="inline-flex items-center gap-0.5 tracking-normal">
+      <KbdGroup className="items-center gap-0.5">
+        {tokens.map((token) => (
+          <Kbd key={token} className="h-4.5 min-w-4.5 px-1 text-[0.7rem] leading-none">
+            {token}
+          </Kbd>
+        ))}
+      </KbdGroup>
+    </CommandShortcut>
+  );
+}
 
 function foldAsciiCase(value: string): string {
   return value.replace(/[A-Z]/g, (character) => character.toLowerCase());
@@ -86,16 +105,27 @@ interface CommandPaletteResultsProps {
   isActionsOnly: boolean;
   keybindings: ResolvedKeybindingsConfig;
   onExecuteItem: (item: CommandPaletteActionItem | CommandPaletteSubmenuItem) => void;
+  /** The raw palette query, so the no-match line can name what was searched. */
+  query?: string;
 }
 
 export function CommandPaletteResults(props: CommandPaletteResultsProps) {
   if (props.groups.length === 0) {
+    if (props.emptyStateMessage !== undefined) {
+      return (
+        <div className="py-10 text-center text-sm text-muted-foreground">
+          {props.emptyStateMessage}
+        </div>
+      );
+    }
+    const copy = commandPaletteNoMatchCopy({
+      query: props.query ?? "",
+      isActionsOnly: props.isActionsOnly,
+    });
     return (
-      <div className="py-10 text-center text-sm text-muted-foreground">
-        {props.emptyStateMessage ??
-          (props.isActionsOnly
-            ? "No matching actions."
-            : "No matching commands, projects, or threads.")}
+      <div role="status" className="flex flex-col items-center gap-1 py-10 text-center">
+        <span className="text-sm text-foreground">{copy.title}</span>
+        <span className="text-xs text-muted-foreground/80">{copy.hint}</span>
       </div>
     );
   }
@@ -210,7 +240,7 @@ function CommandPaletteResultRow(props: {
           {props.item.timestamp}
         </span>
       ) : null}
-      {shortcutLabel ? <CommandShortcut>{shortcutLabel}</CommandShortcut> : null}
+      {shortcutLabel ? <ShortcutKeycaps label={shortcutLabel} /> : null}
       {props.item.kind === "submenu" ? (
         <ChevronRightIcon className="-me-0.5 ms-auto size-4 shrink-0 text-muted-foreground/70" />
       ) : null}

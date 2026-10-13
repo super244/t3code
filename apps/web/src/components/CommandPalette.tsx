@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=27m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
@@ -152,8 +153,9 @@ import {
   buildLinkedThreadActionItems,
   enumerateCommandPaletteItems,
   orderByRecentKeys,
+  readRecentCommandKeys,
   readRecentProjectKeys,
-  recordRecentDestinationKey,
+  recordRecentCommandKey,
   recordRecentProjectKey,
   type CommandPaletteActionItem,
   type CommandPaletteOpenIntent,
@@ -608,6 +610,8 @@ function OpenCommandPaletteDialog(props: {
   const pathname = useLocation({ select: (location) => location.pathname });
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState(openIntent?.kind === "search" ? openIntent.query : "");
+  // Read once per open (this dialog mounts with the palette), not on every keystroke.
+  const [recentCommandKeys] = useState(readRecentCommandKeys);
   const [linkedThreadSearch, setLinkedThreadSearch] = useState(
     openIntent?.kind === "search" ? openIntent : null,
   );
@@ -2060,7 +2064,6 @@ function OpenCommandPaletteDialog(props: {
   // Runs record a recent-destination history (localStorage, capped).
   const runGoAnywhereDestination = useCallback(
     async (destination: GoAnywhereDestination) => {
-      recordRecentDestinationKey(destination.value);
       switch (destination.value) {
         case "go:command-center":
           await navigate({ to: "/command-center" });
@@ -2158,7 +2161,7 @@ function OpenCommandPaletteDialog(props: {
   }, [goAnywhereIconFor, runGoAnywhereDestination]);
   for (const item of goAnywhereItems) actionItems.push(item);
 
-  const rootGroups = buildRootGroups({ actionItems, recentThreadItems });
+  const rootGroups = buildRootGroups({ actionItems, recentThreadItems, recentCommandKeys });
   const settingsSearchItems: CommandPaletteActionItem[] = searchSettings(
     deferredQuery,
     availableSettingsSearchItems,
@@ -2751,6 +2754,15 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
 
+    // Only root actions feed the recency list; threads and projects have their own groups.
+    const isRootAction = rootGroups.some(
+      (group) =>
+        group.value === "actions" && group.items.some((entry) => entry.value === item.value),
+    );
+    if (isRootAction) {
+      recordRecentCommandKey(item.value);
+    }
+
     if (!item.keepOpen) {
       setOpen(false);
     }
@@ -3122,6 +3134,7 @@ function OpenCommandPaletteDialog(props: {
         isActionsOnly={isActionsOnly}
         keybindings={keybindings}
         onExecuteItem={executeItem}
+        query={deferredQuery}
         {...(addProjectCloneFlow?.step === "repository"
           ? {
               emptyStateMessage:
