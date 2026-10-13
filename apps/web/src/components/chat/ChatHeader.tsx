@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
 import {
   type EnvironmentId,
   type EditorId,
@@ -23,6 +23,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { isTrailingDoubleClick } from "../Sidebar.logic";
@@ -76,6 +77,11 @@ interface ChatHeaderProps {
   turnRecap?: TurnRecap | null | undefined;
   onOpenTurnDiff?: ((turnId: TurnId, filePath?: string) => void) | undefined;
   readonly onOpenPullRequest?: ((number: number) => void) | undefined;
+  /**
+   * Phone only: the terminal and right panel toggles. When present they move
+   * into the header's More menu instead of floating in the top bar.
+   */
+  readonly panelControls?: ReactNode | undefined;
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
   onRunProjectScript: (script: ProjectScript) => void;
@@ -189,6 +195,44 @@ function CompactProjectMenu({
   );
 }
 
+/**
+ * Phone header overflow: project scripts and editors, plus the terminal and
+ * right panel toggles, so the header keeps only the title, the project, the
+ * turn recap and Publish within reach.
+ */
+function HeaderMoreMenu(props: {
+  readonly projectTools: ReactNode;
+  readonly panelControls: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="More thread controls"
+            className="shrink-0"
+          />
+        }
+      >
+        <EllipsisIcon aria-hidden className="size-4" />
+      </PopoverTrigger>
+      <PopoverPopup side="bottom" align="end" className="w-auto p-3">
+        <p className="mb-2 text-xs text-muted-foreground">Panels</p>
+        <div className="flex items-center gap-2">{props.panelControls}</div>
+        {props.projectTools ? (
+          <>
+            <p className="mt-3 mb-2 text-xs text-muted-foreground">Scripts and editors</p>
+            <div className="flex items-center gap-2">{props.projectTools}</div>
+          </>
+        ) : null}
+      </PopoverPopup>
+    </Popover>
+  );
+}
+
 export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
@@ -206,6 +250,7 @@ export const ChatHeader = memo(function ChatHeader({
   turnRecap,
   onOpenTurnDiff,
   onOpenPullRequest,
+  panelControls,
   onNewThreadInProject,
   onOpenProjectSettings,
   onRunProjectScript,
@@ -290,6 +335,32 @@ export const ChatHeader = memo(function ChatHeader({
     },
     [activeThreadEnvironmentId, activeThreadId, activeThreadTitle, updateThreadMetadata],
   );
+  // Scripts and editors, shared by the phone More menu and the tablet popover.
+  const projectToolControls =
+    activeProjectScripts || showOpenInPicker ? (
+      <>
+        {activeProjectScripts && (
+          <ProjectScriptsControl
+            scripts={activeProjectScripts}
+            fileScripts={fileScripts}
+            keybindings={keybindings}
+            preferredScriptId={preferredScriptId}
+            onRunScript={onRunProjectScript}
+            onAddScript={onAddProjectScript}
+            onUpdateScript={onUpdateProjectScript}
+            onDeleteScript={onDeleteProjectScript}
+          />
+        )}
+        {showOpenInPicker && (
+          <OpenInPicker
+            environmentId={activeThreadEnvironmentId}
+            keybindings={keybindings}
+            availableEditors={availableEditors}
+            openInCwd={openInCwd}
+          />
+        )}
+      </>
+    ) : null;
   const { openMenu, closeMenu } = useThreadActionMenu({
     threadRef: isServerThread ? activeThreadRef : null,
     projectCwd: activeProjectCwd,
@@ -489,7 +560,7 @@ export const ChatHeader = memo(function ChatHeader({
         data-chat-header-actions
         className={cn(
           "flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3",
-          rightPanelOpen ? "pr-0" : "pr-16",
+          rightPanelOpen || panelControls !== undefined ? "pr-0" : "pr-16",
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
@@ -497,7 +568,9 @@ export const ChatHeader = memo(function ChatHeader({
           <TurnRecapControl recap={turnRecap} compact={compact} onOpenTurnDiff={onOpenTurnDiff} />
         ) : null}
         {compact ? (
-          activeProjectScripts || showOpenInPicker ? (
+          panelControls !== undefined ? (
+            <HeaderMoreMenu projectTools={projectToolControls} panelControls={panelControls} />
+          ) : projectToolControls ? (
             <Popover>
               <PopoverTrigger
                 render={
@@ -513,28 +586,7 @@ export const ChatHeader = memo(function ChatHeader({
               </PopoverTrigger>
               <PopoverPopup side="bottom" align="end" className="w-auto p-3">
                 <p className="mb-2 text-xs text-muted-foreground">Scripts and editors</p>
-                <div className="flex items-center gap-2">
-                  {activeProjectScripts && (
-                    <ProjectScriptsControl
-                      scripts={activeProjectScripts}
-                      fileScripts={fileScripts}
-                      keybindings={keybindings}
-                      preferredScriptId={preferredScriptId}
-                      onRunScript={onRunProjectScript}
-                      onAddScript={onAddProjectScript}
-                      onUpdateScript={onUpdateProjectScript}
-                      onDeleteScript={onDeleteProjectScript}
-                    />
-                  )}
-                  {showOpenInPicker && (
-                    <OpenInPicker
-                      environmentId={activeThreadEnvironmentId}
-                      keybindings={keybindings}
-                      availableEditors={availableEditors}
-                      openInCwd={openInCwd}
-                    />
-                  )}
-                </div>
+                <div className="flex items-center gap-2">{projectToolControls}</div>
               </PopoverPopup>
             </Popover>
           ) : null

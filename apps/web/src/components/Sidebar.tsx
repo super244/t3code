@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 /* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
@@ -54,6 +54,7 @@ import {
   ClockIcon,
   FolderIcon,
   FolderPlusIcon,
+  LayersIcon,
   GitBranchIcon,
   PinIcon,
   PinOffIcon,
@@ -148,6 +149,15 @@ import {
   resolveThreadRouteTarget,
 } from "../threadRoutes";
 import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
+import {
+  groupThreadsByProject,
+  parseGroupByProjectPreference,
+  SCAN_SEARCH_SCOPE_HINT,
+  scanEmptyMessage,
+  SIDEBAR_GROUP_BY_PROJECT_STORAGE_KEY,
+} from "./sidebar/threadListScan.logic";
+import { SidebarProjectGroupHeader } from "./sidebar/SidebarProjectGroupHeader";
+import { useSidebarScanKeys } from "./sidebar/useSidebarScanKeys";
 import type { SidebarThreadSummary } from "../types";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
@@ -274,6 +284,11 @@ const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
   return label.endsWith(" ago") ? label.slice(0, -4) : label;
+}
+
+/** Grouping key for the active list: the same key the project lookups use. */
+function activeProjectKeyOf(thread: EnvironmentThreadShell): string {
+  return `${thread.environmentId}:${thread.projectId}`;
 }
 
 function threadTimeLabel(thread: SidebarThreadSummary): string {
@@ -1199,6 +1214,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   environmentMachine: EnvironmentMachineKind;
   project: EnvironmentProject | null;
   projectDisplayName: string | null;
+  /** Set under a project group header, which already names the project. */
+  hideProjectIdentity?: boolean;
   providerEntryByInstanceId: ReadonlyMap<string, ProviderInstanceEntry>;
   timestampFormat: TimestampFormat;
   onThreadClick: (event: ReactMouseEvent, threadRef: ScopedThreadRef) => void;
@@ -1965,6 +1982,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               ref={rowRef}
               role="button"
               tabIndex={0}
+              data-sidebar-thread-row=""
               data-testid="sidebar-row-card"
               aria-busy={isRegeneratingTitle || undefined}
               className={rowSurfaceClassName}
@@ -1978,10 +1996,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           <div className="relative z-10 h-[4.875rem] px-[var(--sidebar-row-content-inset)] py-[var(--sidebar-content-inset)]">
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               {draftIndicator}
-              {props.project ? (
+              {props.project && !props.hideProjectIdentity ? (
                 <ProjectFavicon project={props.project} className="size-4 shrink-0" />
               ) : null}
-              {props.projectDisplayName ? (
+              {props.projectDisplayName && !props.hideProjectIdentity ? (
                 <span
                   className={cn(
                     "min-w-0 flex-1 truncate text-secondary-label text-xs",
@@ -2621,6 +2639,25 @@ export default function Sidebar() {
     reduceSidebarProjectScopeMenuState,
     { open: false, query: "" },
   );
+  // Per-viewer convenience: whether active threads are grouped under project
+  // headers. A failed read or write only means the default (off) applies.
+  const [groupActiveByProject, setGroupActiveByProjectState] = useState(() => {
+    try {
+      return parseGroupByProjectPreference(
+        window.localStorage.getItem(SIDEBAR_GROUP_BY_PROJECT_STORAGE_KEY),
+      );
+    } catch {
+      return false;
+    }
+  });
+  const setGroupActiveByProject = useCallback((next: boolean) => {
+    setGroupActiveByProjectState(next);
+    try {
+      window.localStorage.setItem(SIDEBAR_GROUP_BY_PROJECT_STORAGE_KEY, next ? "1" : "0");
+    } catch {
+      // Private browsing: the choice holds for this session only.
+    }
+  }, []);
   const projectScopeFilter = useComboboxFilter();
   // Filtering derives from the same React state that controls the input, so
   // the visible query and the visible list can never desync — the peer wiring
@@ -2857,6 +2894,14 @@ export default function Sidebar() {
     // web and mobile from the same data.
     const sortedPinned = sortPinnedThreadsForSidebar(pinned);
     const sortedActive = sortThreadsForSidebar(active);
+    const orderedActive =
+      optimisticDrop?.section !== "active" || optimisticDrop.order === null
+        ? sortedActive
+        : orderItemsByPreferredIds({
+            items: sortedActive,
+            preferredIds: optimisticDrop.order,
+            getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          });
     return {
       pinnedThreads:
         optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
@@ -2868,14 +2913,14 @@ export default function Sidebar() {
             }),
       draggableThreadKeys: draggable,
       activeReorderableThreadKeys: activeReorderable,
-      activeThreads:
-        optimisticDrop?.section !== "active" || optimisticDrop.order === null
-          ? sortedActive
-          : orderItemsByPreferredIds({
-              items: sortedActive,
-              preferredIds: optimisticDrop.order,
-              getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-            }),
+      // Grouping reorders the same array the drag planner reads, so a drop
+      // lands where the grouped list shows it. Groups keep first-appearance order.
+      activeThreads: groupActiveByProject
+        ? groupThreadsByProject(orderedActive, {
+            projectKeyOf: activeProjectKeyOf,
+            statusOf: resolveSidebarThreadStatus,
+          }).flatMap((group) => group.threads)
+        : orderedActive,
       // Soonest wake first: "what comes back next" is the shelf's question.
       snoozedThreads: snoozed.toSorted(
         (left, right) =>
@@ -2887,6 +2932,7 @@ export default function Sidebar() {
     };
   }, [
     assignedThreadKeys,
+    groupActiveByProject,
     nowMinute,
     optimisticDrop,
     serverConfigs,
@@ -2897,6 +2943,7 @@ export default function Sidebar() {
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
+  useSidebarScanKeys(threadSearchInputRef);
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
   const searchableThreads = visibleThreads;
   const threadSearchResults = useMemo(
@@ -3650,9 +3697,27 @@ export default function Sidebar() {
     const pinnedRows = rowsOf(pinnedThreads, "pinned");
     items.push(...pinnedRows);
     items.push({ kind: "marker", marker: "pinned-divider" });
-    const activeRows = rowsOf(activeThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
-    items.push(...activeRows);
+    if (groupActiveByProject) {
+      for (const group of groupThreadsByProject(activeThreads, {
+        projectKeyOf: activeProjectKeyOf,
+        statusOf: resolveSidebarThreadStatus,
+      })) {
+        items.push({
+          kind: "marker",
+          marker: "project-group",
+          projectGroup: {
+            projectKey: group.projectKey,
+            count: group.threads.length,
+            workingCount: group.workingCount,
+            awaitingCount: group.awaitingCount,
+          },
+        });
+        items.push(...rowsOf(group.threads, "active"));
+      }
+    } else {
+      items.push(...rowsOf(activeThreads, "active"));
+    }
     if (snoozedThreads.length > 0) {
       items.push({ kind: "marker", marker: "snoozed-header" });
       items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
@@ -3664,6 +3729,7 @@ export default function Sidebar() {
     return items;
   }, [
     activeThreads,
+    groupActiveByProject,
     pinnedThreads,
     renderedSettledThreads,
     settledThreads.length,
@@ -3686,7 +3752,9 @@ export default function Sidebar() {
   const sidebarListOrderKey = useMemo(
     () =>
       sidebarListItems
-        .map((item) => (item.kind === "thread" ? `${item.key}:${item.section}` : item.marker))
+        .map((item) =>
+          item.kind === "thread" ? `${item.key}:${item.section}` : sidebarListItemId(item),
+        )
         .join("\0"),
     [sidebarListItems],
   );
@@ -4803,6 +4871,7 @@ export default function Sidebar() {
                   onKeyDown={handleThreadSearchKeyDown}
                   placeholder="Find threads, PRs"
                   aria-label="Search threads"
+                  aria-keyshortcuts="/"
                   role="combobox"
                   aria-autocomplete="list"
                   aria-expanded={isSearchingThreads && threadSearchResults.length > 0}
@@ -5022,6 +5091,27 @@ export default function Sidebar() {
                     render={
                       <SidebarMenuButton
                         size="icon"
+                        type="button"
+                        aria-pressed={groupActiveByProject}
+                        aria-label="Group active threads by project"
+                        className="relative shrink-0 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                        onClick={() => setGroupActiveByProject(!groupActiveByProject)}
+                      />
+                    }
+                  >
+                    <LayersIcon />
+                  </TooltipTrigger>
+                  <TooltipPopup side="right">
+                    {groupActiveByProject
+                      ? "Stop grouping active threads by project"
+                      : "Group active threads by project"}
+                  </TooltipPopup>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <SidebarMenuButton
+                        size="icon"
                         className="relative shrink-0 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                         onClick={openAddProjectCommandPalette}
                         type="button"
@@ -5093,12 +5183,18 @@ export default function Sidebar() {
                 </ul>
               </TooltipProvider>
             ) : (
-              <p
+              <div
                 role="status"
-                className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground"
+                className="flex flex-col gap-1 px-2 py-6 text-center text-xs text-sidebar-muted-foreground"
               >
-                No threads found
-              </p>
+                <p>
+                  {scanEmptyMessage({
+                    query: threadSearchQuery,
+                    matchCount: threadSearchResults.length,
+                  })}
+                </p>
+                <p className="text-sidebar-muted-foreground/70">{SCAN_SEARCH_SCOPE_HINT}</p>
+              </div>
             )
           ) : null}
           {!isSearchingThreads ? (
@@ -5237,6 +5333,7 @@ export default function Sidebar() {
                               providerEntriesByEnvironment.get(thread.environmentId) ??
                               EMPTY_PROVIDER_ENTRIES
                             }
+                            hideProjectIdentity={groupActiveByProject && section === "active"}
                             timestampFormat={timestampFormat}
                             onThreadClick={handleThreadClick}
                             onThreadActivate={navigateToThread}
@@ -5288,6 +5385,34 @@ export default function Sidebar() {
                         />,
                       ];
                       for (const item of sidebarListItems) {
+                        if (item.kind === "marker" && item.projectGroup !== undefined) {
+                          const group = item.projectGroup;
+                          const groupProject = projectByKey.get(group.projectKey) ?? null;
+                          items.push(
+                            <SidebarProjectGroupHeader
+                              key={sidebarListItemId(item)}
+                              label={
+                                projectDisplayNameByKey.get(
+                                  group.projectKey as Parameters<
+                                    typeof projectDisplayNameByKey.get
+                                  >[0],
+                                ) ?? "Project"
+                              }
+                              icon={
+                                groupProject ? (
+                                  <ProjectFavicon
+                                    project={groupProject}
+                                    className="size-3.5 shrink-0"
+                                  />
+                                ) : null
+                              }
+                              count={group.count}
+                              workingCount={group.workingCount}
+                              awaitingCount={group.awaitingCount}
+                            />,
+                          );
+                          continue;
+                        }
                         if (item.kind === "thread") {
                           items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
                           continue;

@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
@@ -108,18 +109,36 @@ export type SidebarListMarker =
   /** The boundary between pinned and active rows. */
   | "pinned-divider"
   | "snoozed-header"
-  | "settled-header";
+  | "settled-header"
+  /** A project group header inside the active list (see SidebarProjectGroupMarker). */
+  | "project-group";
 
 export function sidebarMarkerId(marker: SidebarListMarker): string {
   return `${SIDEBAR_MARKER_PREFIX}${marker}`;
 }
 
+/** Header data for one project's run of active rows in "group by project" mode. */
+export interface SidebarProjectGroupMarker {
+  readonly projectKey: string;
+  readonly count: number;
+  readonly workingCount: number;
+  readonly awaitingCount: number;
+}
+
 export type SidebarListItem =
   | { readonly kind: "thread"; readonly key: string; readonly section: SidebarSection }
-  | { readonly kind: "marker"; readonly marker: SidebarListMarker };
+  | {
+      readonly kind: "marker";
+      readonly marker: SidebarListMarker;
+      readonly projectGroup?: SidebarProjectGroupMarker;
+    };
 
 export function sidebarListItemId(item: SidebarListItem): string {
-  return item.kind === "thread" ? item.key : sidebarMarkerId(item.marker);
+  if (item.kind === "thread") return item.key;
+  if (item.projectGroup !== undefined) {
+    return `${sidebarMarkerId(item.marker)}:${item.projectGroup.projectKey}`;
+  }
+  return sidebarMarkerId(item.marker);
 }
 
 /** The section a slot belongs to, read off the markers around it: from
@@ -1253,10 +1272,7 @@ function normalizeSidebarFilterToken(value: string): string {
 }
 
 /** Tokenized, case-insensitive match across label, title, and workspace path. */
-export function sidebarProjectMatchesQuery(
-  item: SidebarProjectFilterItem,
-  query: string,
-): boolean {
+export function sidebarProjectMatchesQuery(item: SidebarProjectFilterItem, query: string): boolean {
   const normalized = normalizeSidebarFilterToken(query);
   if (normalized.length === 0) return true;
   const tokens = normalized.split(/\s+/);
