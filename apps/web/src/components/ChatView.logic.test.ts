@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   EnvironmentId,
@@ -70,6 +71,7 @@ import {
   shouldRenderPreviewMiniPlayer,
   shouldShowBranchMismatchBanner,
   shouldShowPlanFollowUpPrompt,
+  keyboardSurfaceClaimsKey,
   shouldWriteThreadErrorToCurrentServerThread,
   toolGroupConsumesUpwardNavigation,
 } from "./ChatView.logic";
@@ -2020,5 +2022,19 @@ describe("threadShellHasStarted", () => {
       threadShellHasStarted({ latestTurn: null, latestUserMessageAt: null, session: null }),
     ).toBe(false);
     expect(threadShellHasStarted(null)).toBe(false);
+  });
+});
+
+describe("keyboardSurfaceClaimsKey", () => {
+  it("keeps only the bare keys a surface lists, so other letters still reach the composer", () => {
+    const diffKeys = "j k [ ] v";
+    for (const key of ["j", "k", "[", "]", "v"]) {
+      expect(keyboardSurfaceClaimsKey(diffKeys, key)).toBe(true);
+    }
+    for (const key of ["x", "a", "J", "", "j k"]) {
+      expect(keyboardSurfaceClaimsKey(diffKeys, key)).toBe(false);
+    }
+    expect(keyboardSurfaceClaimsKey(null, "j")).toBe(false);
+    expect(keyboardSurfaceClaimsKey(undefined, "j")).toBe(false);
   });
 });

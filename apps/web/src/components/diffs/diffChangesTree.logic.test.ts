@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-12 */
 import { describe, expect, it } from "vite-plus/test";
 
@@ -11,12 +12,15 @@ import {
   buildDiffHunkAnchors,
   type DiffChangeEntry,
   type DiffChangesTreeNode,
+  diffEntryAtReadingPosition,
+  diffReviewCursorForScope,
   diffViewedStorageKey,
   flattenDiffChangesTree,
   isDiffEntryViewed,
   parseDiffViewedRecord,
   stepDiffFile,
   stepDiffHunk,
+  startDiffReviewCursor,
   summarizeDiffChanges,
   withDiffEntryViewed,
 } from "./diffChangesTree.logic";
@@ -152,12 +156,87 @@ describe("hunk navigation", () => {
   });
 });
 
+describe("reading position", () => {
+  const [first, second, third] = demoEntries();
+  // A three-file view of a 1000px scroll range in a 200px viewport: tops at 0, 300 and 900.
+  const tops: Record<string, number> = {
+    [first!.key]: 0,
+    [second!.key]: 300,
+    [third!.key]: 900,
+  };
+  const at = (scrollTop: number) => ({
+    getScrollTop: () => scrollTop,
+    getHeight: () => 200,
+    getScrollHeight: () => 1000,
+    getTopForItem: (key: string) => tops[key],
+  });
+  const files = [first!, second!, third!];
+
+  it("follows the file whose top has reached the top of the view", () => {
+    expect(diffEntryAtReadingPosition(files, at(0))).toBe(first);
+    expect(diffEntryAtReadingPosition(files, at(299))).toBe(first);
+    expect(diffEntryAtReadingPosition(files, at(300))).toBe(second);
+    expect(diffEntryAtReadingPosition(files, at(650))).toBe(second);
+  });
+
+  it("picks the last file at the end of the scroll range, where a short file cannot reach the top", () => {
+    expect(diffEntryAtReadingPosition(files, at(800))).toBe(third);
+  });
+
+  it("picks the first file when the whole diff fits the view", () => {
+    const fits = { ...at(0), getHeight: () => 1000 };
+    expect(diffEntryAtReadingPosition(files, fits)).toBe(first);
+    expect(diffEntryAtReadingPosition([], at(500))).toBeNull();
+  });
+
+  it("starts a fresh keyboard position when the diff scope changes and keeps it within one scope", () => {
+    const moved = { ...startDiffReviewCursor("thread:turn-3"), filePath: "src/a.ts", hunkIndex: 5 };
+    expect(diffReviewCursorForScope(moved, "thread:turn-3")).toBe(moved);
+    expect(diffReviewCursorForScope(moved, "thread:turn-4")).toEqual({
+      scopeKey: "thread:turn-4",
+      filePath: null,
+      hunkIndex: -1,
+    });
+  });
+});
+
 describe("viewed marks", () => {
   const entries = demoEntries();
   const app = entries.find((entry) => entry.path === "src/app.ts")!;
 
-  it("keys the stored record per thread", () => {
-    expect(diffViewedStorageKey("env-1", "thread-9")).toBe("t3code.diffViewed.v1:env-1:thread-9");
+  it("keys the stored record per thread and diff scope", () => {
+    expect(diffViewedStorageKey("env-1", "thread-9", "turn:3")).toBe(
+      "t3code.diffViewed.v2:env-1:thread-9:turn:3",
+    );
+    expect(diffViewedStorageKey("env-1", "thread-9", "turn:3")).not.toBe(
+      diffViewedStorageKey("env-1", "thread-9", "unstaged"),
+    );
+  });
+
+  it("keeps a mark made in one scope when another scope of the thread changes", () => {
+    // Stands in for localStorage: the hook reads, updates and writes one key per scope.
+    const storage = new Map<string, string>();
+    const turnThree = diffViewedStorageKey("env-1", "thread-9", "turn:3");
+    const turnFour = diffViewedStorageKey("env-1", "thread-9", "turn:4");
+    const other = entries.find((entry) => entry.path !== app.path)!;
+    const turnFourEntries = entries.filter((entry) => entry.path !== app.path);
+    const setViewed = (
+      key: string,
+      scopeEntries: ReadonlyArray<DiffChangeEntry>,
+      entry: DiffChangeEntry,
+      viewed: boolean,
+    ) => {
+      const record = parseDiffViewedRecord(storage.get(key) ?? null);
+      storage.set(key, JSON.stringify(withDiffEntryViewed(record, scopeEntries, entry, viewed)));
+    };
+    const isViewedIn = (key: string, entry: DiffChangeEntry) =>
+      isDiffEntryViewed(parseDiffViewedRecord(storage.get(key) ?? null), entry);
+
+    setViewed(turnThree, entries, app, true);
+    setViewed(turnFour, turnFourEntries, other, true);
+
+    expect(isViewedIn(turnThree, app)).toBe(true);
+    expect(isViewedIn(turnFour, other)).toBe(true);
   });
 
   it("reads a stored record defensively", () => {

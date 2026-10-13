@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-10 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 /* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
@@ -79,7 +80,12 @@ import {
   WsRpcGroup,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
-import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
+import {
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerRespondable,
+  HttpServerResponse,
+} from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
@@ -3096,9 +3102,19 @@ export const websocketRpcRouteLayer = Layer.unwrap(
             ),
           ),
         );
+        // Auth runs once, at the upgrade, so a revoked client would keep its open socket and every
+        // scope it had. Closing the connection when its own session is revoked stops that.
+        const untilSessionRevoked = sessions.streamChanges.pipe(
+          Stream.filter(
+            (change) => change.type === "clientRemoved" && change.sessionId === session.sessionId,
+          ),
+          Stream.take(1),
+          Stream.runDrain,
+          Effect.as(HttpServerResponse.empty()),
+        );
         return yield* Effect.acquireUseRelease(
           sessions.markConnected(session.sessionId),
-          () => rpcWebSocketHttpEffect,
+          () => rpcWebSocketHttpEffect.pipe(Effect.raceFirst(untilSessionRevoked)),
           () => sessions.markDisconnected(session.sessionId),
         );
       }).pipe(

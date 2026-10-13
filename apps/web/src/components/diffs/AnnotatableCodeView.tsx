@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 import type {
   AnnotationSide,
   CodeViewDiffItem,
@@ -20,6 +21,7 @@ import {
 
 import { nextFileCommentId } from "../files/fileCommentAnnotations";
 import { DiffCommentAnnotation } from "./DiffCommentAnnotation";
+import type { DiffCodeViewGeometry } from "./diffChangesTree.logic";
 import { StyledDiffCodeView, type StyledDiffCodeViewOptions } from "./StyledDiffCodeView";
 
 interface DiffCommentAnnotationEntry {
@@ -85,6 +87,7 @@ interface AnnotatableCodeViewProps {
   composerDraftTarget: ScopedThreadRef | DraftId;
   options: StyledDiffCodeViewOptions<DiffCommentAnnotationGroup>;
   viewerRef?: Ref<AnnotatableCodeViewHandle>;
+  onScroll?: (scrollTop: number, viewer: DiffCodeViewGeometry) => void;
   className?: string;
   renderHeaderFilenameSuffix: (fileDiff: FileDiffMetadata) => ReactNode;
   renderHeaderPrefix: (
@@ -106,6 +109,7 @@ export function AnnotatableCodeView({
   composerDraftTarget,
   options,
   viewerRef,
+  onScroll,
   className,
   renderHeaderFilenameSuffix,
   renderHeaderPrefix,
@@ -245,6 +249,7 @@ export function AnnotatableCodeView({
       key={codeViewKey}
       {...(viewerRef ? { viewerRef } : {})}
       {...(className ? { className } : {})}
+      {...(onScroll ? { onScroll } : {})}
       items={items}
       selectedLines={selectedLines}
       onSelectedLinesChange={setSelectedLines}

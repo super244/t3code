@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
@@ -429,6 +430,7 @@ import {
   codexArtifactTemplatePromptToAppend,
   toolGroupConsumesUpwardNavigation,
   waitForStartedServerThread,
+  keyboardSurfaceClaimsKey,
   shouldRefocusComposerOnWindowFocus,
 } from "./ChatView.logic";
 import type { ThreadSyncPhase } from "../threadSync";
@@ -573,13 +575,10 @@ const TYPE_TO_FOCUS_EDITABLE_SELECTOR = [
   '[contenteditable="plaintext-only"]',
   '[role="textbox"]',
 ].join(",");
-// Surfaces that read bare keys themselves (the diff panel's j/k/v) are not redirected to the
-// composer, so their keys reach the surface's own handler.
 const TYPE_TO_FOCUS_INTERACTIVE_SELECTOR = [
   "button",
   "a[href]",
   "summary",
-  "[data-keyboard-surface]",
   '[role="button"]',
   '[role="checkbox"]',
   '[role="menuitem"]',
@@ -634,6 +633,16 @@ function shouldTypeToFocusComposer(event: KeyboardEvent): boolean {
   if (event.metaKey || event.ctrlKey || event.altKey) return false;
   if (event.key.length !== 1) return false;
   if (!shouldRedirectInputToComposer(event)) return false;
+  // A surface that reads bare keys itself (the diff panel's j/k/[/]/v) keeps those keys.
+  const claimedKeys = event
+    .composedPath()
+    .map((target) =>
+      target instanceof Element
+        ? target.closest("[data-keyboard-keys]")?.getAttribute("data-keyboard-keys")
+        : null,
+    )
+    .find((keys) => keys !== null && keys !== undefined);
+  if (keyboardSurfaceClaimsKey(claimedKeys, event.key)) return false;
 
   // The right-panel surface launcher claims its shortcut letters while it is
   // visible (data attribute set in RightPanelTabs); those keys open surfaces

@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-12 */
 import type { FileDiffMetadata } from "@pierre/diffs";
 
@@ -229,6 +230,64 @@ export function stepDiffFile(
   return entries[Math.min(entries.length - 1, Math.max(0, index + step))]!;
 }
 
+/** The keyboard position in one diff: the file and hunk the j/k and [/] keys step from. */
+export interface DiffReviewCursor {
+  /** The diff scope the position belongs to. A position never carries over to another scope. */
+  readonly scopeKey: string | null;
+  readonly filePath: string | null;
+  /** Index into the diff's hunks; -1 before the first hunk jump. */
+  readonly hunkIndex: number;
+}
+
+export function startDiffReviewCursor(scopeKey: string | null): DiffReviewCursor {
+  return { scopeKey, filePath: null, hunkIndex: -1 };
+}
+
+/** The same position while the reader stays in its scope, a fresh start once they leave it. */
+export function diffReviewCursorForScope(
+  cursor: DiffReviewCursor,
+  scopeKey: string | null,
+): DiffReviewCursor {
+  return cursor.scopeKey === scopeKey ? cursor : startDiffReviewCursor(scopeKey);
+}
+
+/** The part of the code view's geometry that decides which file the reader is on. */
+export interface DiffCodeViewGeometry {
+  getScrollTop(): number;
+  getHeight(): number;
+  getScrollHeight(): number;
+  getTopForItem(itemId: string): number | undefined;
+}
+
+/**
+ * The change the reader is on: the last file whose top has reached the top of the view. At the
+ * end of the scroll range the last file wins, since a short final file can never reach the top.
+ * Tops are found by binary search, so a long diff costs about log(files) per scroll.
+ */
+export function diffEntryAtReadingPosition(
+  entries: ReadonlyArray<DiffChangeEntry>,
+  geometry: DiffCodeViewGeometry,
+): DiffChangeEntry | null {
+  if (entries.length === 0) return null;
+  const scrollTop = geometry.getScrollTop();
+  const maxScrollTop = geometry.getScrollHeight() - geometry.getHeight();
+  if (maxScrollTop > 0 && scrollTop >= maxScrollTop - 1) return entries[entries.length - 1]!;
+  let low = 0;
+  let high = entries.length - 1;
+  let found = 0;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    const top = geometry.getTopForItem(entries[middle]!.key) ?? Number.POSITIVE_INFINITY;
+    if (top <= scrollTop) {
+      found = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return entries[found]!;
+}
+
 /** Where a hunk navigation lands: the first line of the hunk, on the side that has it. */
 export interface DiffHunkAnchor {
   readonly fileKey: string;
@@ -267,8 +326,17 @@ export function stepDiffHunk(count: number, current: number, step: 1 | -1): numb
 /** Viewed marks: file path to the content version the reader last marked viewed. */
 export type DiffViewedRecord = Readonly<Record<string, number>>;
 
-export function diffViewedStorageKey(environmentId: string, threadId: string): string {
-  return `t3code.diffViewed.v1:${environmentId}:${threadId}`;
+/**
+ * One record per thread and diff scope (a turn, Working tree, or a branch against one base).
+ * Each scope's record holds only that scope's files, so marking a file in one scope cannot
+ * prune the marks of another.
+ */
+export function diffViewedStorageKey(
+  environmentId: string,
+  threadId: string,
+  scopeId: string,
+): string {
+  return `t3code.diffViewed.v2:${environmentId}:${threadId}:${scopeId}`;
 }
 
 export function parseDiffViewedRecord(raw: string | null): DiffViewedRecord {

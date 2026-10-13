@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   type AssetCreateUrlInput,
@@ -63,6 +64,19 @@ export const MAX_HIDDEN_MOUNTED_PREVIEW_THREADS = 3;
 export const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
+
+/**
+ * Whether a keyboard surface claims this bare key for itself. Its `data-keyboard-keys` attribute
+ * lists the keys, space-separated. Only those keys stay with the surface; other typing and paste
+ * still reach the composer.
+ */
+export function keyboardSurfaceClaimsKey(
+  claimedKeys: string | null | undefined,
+  key: string,
+): boolean {
+  if (!claimedKeys) return false;
+  return claimedKeys.split(" ").includes(key);
+}
 
 export function agentControlledBrowserCloseConfirmation(
   surfaces: readonly RightPanelSurface[],

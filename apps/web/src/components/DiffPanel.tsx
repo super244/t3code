@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-03 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-12 */
@@ -70,7 +71,12 @@ import {
   buildDiffChangeEntries,
   buildDiffHunkAnchors,
   type DiffChangeEntry,
+  type DiffCodeViewGeometry,
+  diffEntryAtReadingPosition,
+  diffReviewCursorForScope,
+  type DiffReviewCursor,
   diffViewedStorageKey,
+  startDiffReviewCursor,
   stepDiffFile,
   stepDiffHunk,
 } from "./diffs/diffChangesTree.logic";
@@ -159,10 +165,11 @@ export default function DiffPanel({
     Schema.Boolean,
   );
   const [baseRefQuery, setBaseRefQuery] = useState("");
-  // The file the reader is on: moved by the file list, the j/k keys, and hunk navigation.
-  const [focusedFilePath, setFocusedFilePath] = useState<string | null>(null);
-  // Index into the diff's hunks for the n-style hunk keys; -1 before the first jump.
-  const [hunkCursor, setHunkCursor] = useState(-1);
+  // The keyboard position the j/k and [/] keys step from. Scrolling and the file list move its file,
+  // and it restarts whenever the diff scope changes.
+  const [reviewCursor, setReviewCursor] = useState<DiffReviewCursor>(() =>
+    startDiffReviewCursor(null),
+  );
   const [phoneFilesOpen, setPhoneFilesOpen] = useState(false);
   const [collapsedDiffFiles, setCollapsedDiffFiles] = useState<CollapsedDiffFilesState>(() => ({
     scopeKey: null,
@@ -257,12 +264,6 @@ export default function DiffPanel({
   const selectedFilePath = diffSelection.kind === "turn" ? diffSelection.filePath : null;
   const selectedFileRevealRequestId =
     diffSelection.kind === "turn" ? diffSelection.revealRequestId : 0;
-  // A new reveal from the chat's changed-files list moves focus to its file.
-  const [seenRevealRequestId, setSeenRevealRequestId] = useState(selectedFileRevealRequestId);
-  if (seenRevealRequestId !== selectedFileRevealRequestId) {
-    setSeenRevealRequestId(selectedFileRevealRequestId);
-    setFocusedFilePath(selectedFilePath);
-  }
   const selectedTurn =
     selectedTurnId === null
       ? undefined
@@ -284,6 +285,20 @@ export default function DiffPanel({
   const collapseScopeKey = routeThreadRef
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}:${reviewSectionId}`
     : null;
+  // A base ref is its own diff, so its viewed marks and keyboard position are kept apart too.
+  const reviewScopeId = selectedBaseRef ? `${reviewSectionId}@${selectedBaseRef}` : reviewSectionId;
+  const reviewCursorScopeKey = routeThreadRef
+    ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}:${reviewScopeId}`
+    : null;
+  if (reviewCursor.scopeKey !== reviewCursorScopeKey) {
+    setReviewCursor(diffReviewCursorForScope(reviewCursor, reviewCursorScopeKey));
+  }
+  // A new reveal from the chat's changed-files list moves focus to its file.
+  const [seenRevealRequestId, setSeenRevealRequestId] = useState(selectedFileRevealRequestId);
+  if (seenRevealRequestId !== selectedFileRevealRequestId) {
+    setSeenRevealRequestId(selectedFileRevealRequestId);
+    setReviewCursor((cursor) => ({ ...cursor, filePath: selectedFilePath }));
+  }
   const codeViewMountKey = `${collapseScopeKey ?? reviewSectionId}:${codeViewRevision}`;
   const collapsedDiffFileKeys =
     collapsedDiffFiles.scopeKey === collapseScopeKey
@@ -508,10 +523,12 @@ export default function DiffPanel({
   const hunkAnchors = useMemo(() => buildDiffHunkAnchors(renderableFiles), [renderableFiles]);
   const { isViewed, setViewed } = useDiffViewedFiles(
     routeThreadRef
-      ? diffViewedStorageKey(routeThreadRef.environmentId, routeThreadRef.threadId)
+      ? diffViewedStorageKey(routeThreadRef.environmentId, routeThreadRef.threadId, reviewScopeId)
       : null,
   );
-  const treeSelectedPath = focusedFilePath ?? selectedFilePath;
+  // Before any scroll or jump, the reader is at the top of the diff, so its first file is the one in view.
+  const treeSelectedPath =
+    reviewCursor.filePath ?? selectedFilePath ?? changeEntries[0]?.path ?? null;
   const selectedDiffFileKey = selectedFilePath
     ? (codeViewFiles.find((candidate) => candidate.filePath === selectedFilePath)?.fileKey ?? null)
     : null;
@@ -560,10 +577,25 @@ export default function DiffPanel({
     [collapseScopeKey],
   );
 
+  // The position follows the reader: the file at the top of the view is the one j, k and v act on.
+  const handleCodeViewScroll = useCallback(
+    (_scrollTop: number, viewer: DiffCodeViewGeometry) => {
+      const entry = diffEntryAtReadingPosition(changeEntries, viewer);
+      if (!entry) return;
+      setReviewCursor((cursor) =>
+        cursor.filePath === entry.path ? cursor : { ...cursor, filePath: entry.path },
+      );
+    },
+    [changeEntries],
+  );
+
   const focusDiffFile = useCallback(
     (filePath: string) => {
-      setFocusedFilePath(filePath);
-      setHunkCursor(hunkAnchors.findIndex((anchor) => anchor.filePath === filePath));
+      setReviewCursor((cursor) => ({
+        ...cursor,
+        filePath,
+        hunkIndex: hunkAnchors.findIndex((anchor) => anchor.filePath === filePath),
+      }));
       revealDiffFile(filePath);
       const file = codeViewFiles.find((candidate) => candidate.filePath === filePath);
       if (file) {
@@ -586,11 +618,14 @@ export default function DiffPanel({
 
   const stepHunk = useCallback(
     (step: 1 | -1) => {
-      const nextIndex = stepDiffHunk(hunkAnchors.length, hunkCursor, step);
+      const nextIndex = stepDiffHunk(hunkAnchors.length, reviewCursor.hunkIndex, step);
       const anchor = hunkAnchors[nextIndex];
       if (!anchor) return;
-      setHunkCursor(nextIndex);
-      setFocusedFilePath(anchor.filePath);
+      setReviewCursor((cursor) => ({
+        ...cursor,
+        hunkIndex: nextIndex,
+        filePath: anchor.filePath,
+      }));
       setDiffFileCollapsed(anchor.fileKey, false);
       // A file that was collapsed has no rows until this render commits, so the line
       // target waits one frame.
@@ -605,7 +640,7 @@ export default function DiffPanel({
         });
       });
     },
-    [codeView, hunkAnchors, hunkCursor, setDiffFileCollapsed],
+    [codeView, hunkAnchors, reviewCursor.hunkIndex, setDiffFileCollapsed],
   );
 
   // Viewing a file folds it away, the way a review tool does; editing it again clears the mark.
@@ -771,7 +806,7 @@ export default function DiffPanel({
           )}
         </TooltipTrigger>
         <TooltipPopup side="top">
-          {viewed ? "Viewed. Edits clear the mark." : "Mark viewed (V)"}
+          {viewed ? "Viewed. Edits clear the mark." : "Mark viewed"}
         </TooltipPopup>
       </Tooltip>
     );
@@ -1198,6 +1233,7 @@ export default function DiffPanel({
               <div
                 className="flex min-h-0 flex-1 flex-col overflow-hidden"
                 data-keyboard-surface="diff"
+                data-keyboard-keys="j k [ ] v"
               >
                 {isPhoneViewport && (
                   <button
@@ -1259,12 +1295,15 @@ export default function DiffPanel({
                       const file = codeViewFiles.find(
                         (candidate) => candidate.filePath === headerFilePath,
                       );
-                      if (file) toggleDiffFileCollapsed(file.fileKey);
+                      if (!file) return;
+                      setReviewCursor((cursor) => ({ ...cursor, filePath: headerFilePath }));
+                      toggleDiffFileCollapsed(file.fileKey);
                     }}
                   >
                     <AnnotatableCodeView
                       key={collapseScopeKey ?? reviewSectionId}
                       viewerRef={setCodeView}
+                      onScroll={handleCodeViewScroll}
                       codeViewKey={codeViewMountKey}
                       className="h-full min-h-0 overflow-auto"
                       files={codeViewFiles}

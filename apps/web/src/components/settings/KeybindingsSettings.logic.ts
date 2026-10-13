@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=32m; seat=claude-code; date=2026-10-13 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 import {
   STATIC_KEYBINDING_COMMANDS,
   type KeybindingCommand,
@@ -187,6 +187,32 @@ export function whenConditionsCanHoldTogether(
   return false;
 }
 
+/**
+ * True when every context where `narrow` holds is one where `broad` holds too, and the reverse
+ * is not so. An absent condition is always active.
+ */
+function whenConditionNarrows(
+  narrow: KeybindingWhenNode | undefined,
+  broad: KeybindingWhenNode | undefined,
+): boolean {
+  if (!broad) return true;
+  if (!narrow) return false;
+  return !whenConditionsCanHoldTogether(narrow, { type: "not", node: broad });
+}
+
+/**
+ * Two bindings on one chord where the later one (last match wins at runtime) only applies inside
+ * a narrower context than the earlier one. That is an override, so one press still runs one
+ * command, and it is not a conflict. The reverse, a broad binding after a narrow one, shadows it
+ * everywhere and stays a conflict.
+ */
+function isIntendedOverride(
+  earlier: KeybindingWhenNode | undefined,
+  later: KeybindingWhenNode | undefined,
+): boolean {
+  return whenConditionNarrows(later, earlier) && !whenConditionNarrows(earlier, later);
+}
+
 export function keybindingConflictLabels(
   rows: ReadonlyArray<KeybindingRow>,
   input: { readonly rowId: string; readonly key: string; readonly when: string },
@@ -200,29 +226,40 @@ export function keybindingConflictLabels(
     const overlaps = parsedWhen.ok
       ? whenConditionsCanHoldTogether(candidate.binding.whenAst, inputWhenAst)
       : candidate.when === input.when;
-    if (overlaps) conflicts.push(commandLabel(candidate.command));
+    if (!overlaps) continue;
+    // A saved draft lands after the existing rules, so it is the later binding.
+    if (parsedWhen.ok && isIntendedOverride(candidate.binding.whenAst, inputWhenAst)) continue;
+    conflicts.push(commandLabel(candidate.command));
   }
   return [...new Set(conflicts)].toSorted();
 }
 
-/** Each row's conflicts are computed within its own chord, so the work stays linear in chord count. */
+/**
+ * Each row's conflicts are computed within its own chord, so the work stays linear in chord count.
+ * `rows` is in precedence order (the runtime's last match wins), which decides overrides.
+ */
 function withConflicts(rows: ReadonlyArray<KeybindingRow>): ReadonlyArray<KeybindingRow> {
-  const rowsByKey = new Map<string, Array<KeybindingRow>>();
-  for (const row of rows) {
+  const rowsByKey = new Map<
+    string,
+    Array<{ readonly row: KeybindingRow; readonly index: number }>
+  >();
+  rows.forEach((row, index) => {
     const group = rowsByKey.get(row.key);
-    if (group) group.push(row);
-    else rowsByKey.set(row.key, [row]);
-  }
-  return rows.map((row) => {
+    if (group) group.push({ row, index });
+    else rowsByKey.set(row.key, [{ row, index }]);
+  });
+  return rows.map((row, index) => {
     const group = rowsByKey.get(row.key) ?? [];
     const conflicts = new Set<string>();
     for (const candidate of group) {
-      if (
-        candidate.id !== row.id &&
-        whenConditionsCanHoldTogether(candidate.binding.whenAst, row.binding.whenAst)
-      ) {
-        conflicts.add(commandLabel(candidate.command));
+      if (candidate.index === index) continue;
+      if (!whenConditionsCanHoldTogether(candidate.row.binding.whenAst, row.binding.whenAst)) {
+        continue;
       }
+      const earlier = candidate.index < index ? candidate.row : row;
+      const later = candidate.index < index ? row : candidate.row;
+      if (isIntendedOverride(earlier.binding.whenAst, later.binding.whenAst)) continue;
+      conflicts.add(commandLabel(candidate.row.command));
     }
     return conflicts.size > 0
       ? Object.assign({}, row, { conflicts: [...conflicts].toSorted() })

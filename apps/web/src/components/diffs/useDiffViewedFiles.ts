@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-12 */
 import { useCallback, useState } from "react";
 
@@ -44,8 +45,9 @@ function writeStoredRecord(storageKey: string | null, record: DiffViewedRecord):
 }
 
 /**
- * Viewed marks for one thread's diff. The record reloads when the storage key changes (another
- * thread), and a mark applies only while the file still has the content version it was made at.
+ * Viewed marks for one diff scope. The record reloads when the storage key changes (another
+ * thread or scope), and a mark applies only while the file still has the content version it was
+ * made at.
  */
 export function useDiffViewedFiles(storageKey: string | null) {
   const [state, setState] = useState(() => ({

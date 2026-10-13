@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
@@ -4847,6 +4848,75 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(revokeResponse.status, 200);
       assert.equal(pairedClientPairingResponse.status, 401);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("closes an open websocket of a paired client once its session is revoked", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        config: {
+          host: "0.0.0.0",
+        },
+      });
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingResponse = yield* HttpClient.post("/api/auth/pairing-token", {
+        headers: {
+          cookie: ownerCookie,
+        },
+        body: yield* HttpBody.json({}),
+      });
+      const pairingBody = (yield* pairingResponse.json) as {
+        readonly credential: string;
+      };
+      const pairedSessionCookie = yield* getAuthenticatedSessionCookieHeader(
+        pairingBody.credential,
+      );
+
+      const clientsResponse = yield* HttpClient.get("/api/auth/clients", {
+        headers: {
+          cookie: ownerCookie,
+        },
+      });
+      const clients = (yield* clientsResponse.json) as ReadonlyArray<{
+        readonly sessionId: string;
+        readonly current: boolean;
+      }>;
+      const pairedSessionId = clients.find((entry) => !entry.current)?.sessionId;
+      assert.isDefined(pairedSessionId);
+
+      const { cookie, url } = parseSessionCookieFromWsUrl(
+        appendSessionCookieToWsUrl(
+          yield* getWsServerUrl("/ws", { authenticated: false }),
+          pairedSessionCookie,
+        ),
+      );
+      const socket = yield* Effect.acquireRelease(
+        Effect.callback<NodeSocket.NodeWS.WebSocket, Error>((resume) => {
+          const opened = new NodeSocket.NodeWS.WebSocket(
+            url,
+            cookie ? { headers: { cookie } } : undefined,
+          );
+          opened.on("open", () => resume(Effect.succeed(opened)));
+          opened.on("error", (error) => resume(Effect.fail(error)));
+        }),
+        (opened) => Effect.sync(() => opened.close()),
+      );
+      const closed = new Promise<void>((resolve) => {
+        socket.once("close", () => resolve());
+      });
+
+      const revokeResponse = yield* HttpClient.post("/api/auth/clients/revoke", {
+        headers: {
+          cookie: ownerCookie,
+          "content-type": "application/json",
+        },
+        body: HttpBody.text(jsonRequestBody({ sessionId: pairedSessionId }), "application/json"),
+      });
+      assert.equal(revokeResponse.status, 200);
+
+      // The revoked client's socket closes on its own; the test does not close it.
+      yield* Effect.promise(() => closed).pipe(Effect.timeout(Duration.seconds(10)));
+    }).pipe(Effect.scoped, Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("allows reusing the desktop bootstrap credential", () =>

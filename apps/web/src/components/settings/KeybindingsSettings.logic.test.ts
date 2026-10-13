@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=32m; seat=claude-code; date=2026-10-13 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 import { describe, expect, it } from "vite-plus/test";
 import type { ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import {
@@ -362,12 +362,38 @@ describe("KeybindingsSettings.logic conflicts and search", () => {
 
   it("lists only the chords where two bindings can fire on one key press", () => {
     const groups = buildKeybindingConflictGroups(buildAllKeybindingRows(liveBindings));
-    expect(groups.map((group) => group.key)).toEqual(["mod+1", "mod+r"]);
-    expect(groups[0]?.rows.map((row) => row.command)).toEqual([
-      "modelPicker.jump.1",
-      "thread.jump.1",
+    // mod+1 is a narrower model-picker override of thread.jump.1, not a conflict.
+    expect(groups.map((group) => group.key)).toEqual(["mod+r"]);
+    expect(groups[0]?.rows.map((row) => row.command)).toEqual(["chat.new", "preview.refresh"]);
+  });
+
+  it("does not flag a saved draft that narrows an existing broad binding", () => {
+    const defaults = buildAllKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS);
+    // A draft on mod+1 inside the terminal overrides thread.jump.1 there, but still meets the
+    // model picker's binding, which applies in the same context.
+    expect(
+      keybindingConflictLabels(defaults, { rowId: "new", key: "mod+1", when: "terminalFocus" }),
+    ).toHaveLength(1);
+    // A draft with no condition shadows the narrower model picker binding, so it stays flagged.
+    expect(
+      keybindingConflictLabels(defaults, { rowId: "new", key: "mod+1", when: "" }),
+    ).toHaveLength(2);
+  });
+
+  it("does not count the shipped default layering as conflicts", () => {
+    expect(
+      buildKeybindingConflictGroups(buildAllKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS)),
+    ).toEqual([]);
+  });
+
+  it("still flags a broad binding that shadows an earlier narrower one", () => {
+    const shadowed = compileResolvedKeybindingsConfig([
+      { key: "mod+k", command: "thread.jump.1", when: "modelPickerOpen" },
+      { key: "mod+k", command: "chat.new" },
     ]);
-    expect(groups[1]?.rows.map((row) => row.command)).toEqual(["chat.new", "preview.refresh"]);
+    const groups = buildKeybindingConflictGroups(buildAllKeybindingRows(shadowed));
+    expect(groups.map((group) => group.key)).toEqual(["mod+k"]);
+    expect(groups[0]?.rows.map((row) => row.command)).toEqual(["chat.new", "thread.jump.1"]);
   });
 
   it("does not report the shared-key pairs split by terminal focus", () => {
@@ -381,18 +407,18 @@ describe("KeybindingsSettings.logic conflicts and search", () => {
 
   it("keeps a conflict partner visible when the search hides the other side", () => {
     const all = buildAllKeybindingRows(liveBindings);
-    const hiddenBySearch = filterKeybindingRows(all, "thread.jump");
-    expect(hiddenBySearch.map((row) => row.command)).toEqual(["thread.jump.1"]);
-    expect(buildKeybindingConflictGroups(all).map((group) => group.key)).toContain("mod+1");
+    const hiddenBySearch = filterKeybindingRows(all, "preview.refresh");
+    expect(hiddenBySearch.map((row) => row.command)).toEqual(["preview.refresh"]);
+    expect(buildKeybindingConflictGroups(all).map((group) => group.key)).toContain("mod+r");
   });
 
   it("filters conflict groups by any member and drops groups with no match", () => {
     const groups = buildKeybindingConflictGroups(buildAllKeybindingRows(liveBindings));
-    expect(filterKeybindingConflictGroups(groups, "modelpicker").map((group) => group.key)).toEqual(
-      ["mod+1"],
-    );
+    expect(filterKeybindingConflictGroups(groups, "preview").map((group) => group.key)).toEqual([
+      "mod+r",
+    ]);
     expect(
-      filterKeybindingConflictGroups(groups, "modelPicker").map((group) => group.rows.length),
+      filterKeybindingConflictGroups(groups, "preview").map((group) => group.rows.length),
     ).toEqual([1]);
     expect(filterKeybindingConflictGroups(groups, "launchpad")).toEqual([]);
     expect(filterKeybindingConflictGroups(groups, "")).toBe(groups);

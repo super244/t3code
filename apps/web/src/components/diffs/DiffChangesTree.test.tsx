@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-12 */
 import { act, type ReactNode } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
@@ -16,7 +17,7 @@ import {
 import { useDiffViewedFiles } from "./useDiffViewedFiles";
 
 const DEMO_PATCH = WORKING_TREE_DEMO_PATCH;
-const STORAGE_KEY = diffViewedStorageKey("env-demo", "thread-demo");
+const STORAGE_KEY = diffViewedStorageKey("env-demo", "thread-demo", "branch");
 const APP_PATH = "src/app.ts";
 
 function demoEntries(): DiffChangeEntry[] {
@@ -161,7 +162,10 @@ describe("DiffChangesTree viewed marks", () => {
     });
     renderer = undefined;
     mount(
-      <Panel entries={entries} storageKey={diffViewedStorageKey("env-demo", "other-thread")} />,
+      <Panel
+        entries={entries}
+        storageKey={diffViewedStorageKey("env-demo", "other-thread", "branch")}
+      />,
     );
     expect(markButton(APP_PATH).props["aria-pressed"]).toBe(false);
   });
