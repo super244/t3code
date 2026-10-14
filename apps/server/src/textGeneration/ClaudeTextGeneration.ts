@@ -1,9 +1,12 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-13 */
 /**
  * ClaudeTextGeneration – Text generation layer using the Claude CLI.
  *
  * Implements the same TextGeneration service contract as CodexTextGeneration but
  * delegates to the `claude` CLI (`claude -p`) with structured JSON output
- * instead of the `codex exec` CLI.
+ * instead of the `codex exec` CLI. On the default Claude instance it asks
+ * Claude Relay first (Max plan API credit, see `provider/claudeRelay.ts`) and
+ * spawns the CLI only when the relay is not there.
  *
  * @module ClaudeTextGeneration
  */
@@ -49,6 +52,11 @@ import {
   scopeClaudeModelCatalog,
 } from "../provider/ClaudeModelCatalog.ts";
 import { makeClaudeEnvironment } from "../provider/Drivers/ClaudeHome.ts";
+import {
+  ClaudeRelayUnavailable,
+  detectClaudeRelay,
+  relayStructuredTurn,
+} from "../provider/claudeRelay.ts";
 
 const CLAUDE_TIMEOUT_MS = 180_000;
 
@@ -184,6 +192,48 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       "Failed to encode Claude CLI settings.",
     );
 
+    const decodeOutput = Schema.decodeEffect(outputSchemaJson);
+    const invalidOutput = (cause: unknown) =>
+      Effect.fail(
+        new TextGenerationError({
+          operation,
+          detail: "Claude returned invalid structured output.",
+          cause,
+        }),
+      );
+
+    // A configured Claude home may be another account, so only the default
+    // instance bills the relay's credit.
+    const relay = claudeSettings.homePath.trim() === "" ? detectClaudeRelay() : undefined;
+    if (relay) {
+      const relayed = yield* Effect.tryPromise({
+        try: () =>
+          relayStructuredTurn(relay, {
+            prompt,
+            schema: toJsonSchemaObject(outputSchemaJson),
+            model: resolveClaudeCatalogApiModelId(catalog, resolvedModelSelection),
+            timeoutMs: CLAUDE_TIMEOUT_MS,
+          }).then(
+            (value) => ({ value }),
+            (cause: unknown) => {
+              if (cause instanceof ClaudeRelayUnavailable) return undefined;
+              throw cause;
+            },
+          ),
+        catch: (cause) =>
+          new TextGenerationError({
+            operation,
+            detail: cause instanceof Error ? cause.message : "Claude Relay request failed.",
+            cause,
+          }),
+      });
+      if (relayed) {
+        return yield* decodeOutput(relayed.value).pipe(
+          Effect.catchTags({ SchemaError: invalidOutput }),
+        );
+      }
+    }
+
     const runClaudeCommand = Effect.fn("runClaudeJson.runClaudeCommand")(function* () {
       // Titles need only the supplied prompt, not configuration from the checkout.
       const workingDirectory =
@@ -295,18 +345,8 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       ? output
       : output.findLast((message) => message.type === "result");
 
-    const decodeOutput = Schema.decodeEffect(outputSchemaJson);
     return yield* decodeOutput(envelope?.structured_output).pipe(
-      Effect.catchTags({
-        SchemaError: (cause) =>
-          Effect.fail(
-            new TextGenerationError({
-              operation,
-              detail: "Claude returned invalid structured output.",
-              cause,
-            }),
-          ),
-      }),
+      Effect.catchTags({ SchemaError: invalidOutput }),
     );
   });
 

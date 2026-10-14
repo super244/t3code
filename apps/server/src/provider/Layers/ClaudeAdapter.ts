@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-13 */
 /**
  * ClaudeAdapterLive - Scoped live implementation for the Claude Agent provider adapter.
  *
@@ -109,6 +110,7 @@ import {
 } from "../Errors.ts";
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
+import { detectClaudeRelay, reportClaudeSpend } from "../claudeRelay.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 
@@ -331,6 +333,10 @@ interface ClaudeSessionContext {
   lastKnownTotalProcessedTokens: number | undefined;
   lastAssistantUuid: string | undefined;
   lastThreadStartedId: string | undefined;
+  /** From the SDK init message: what paid for this session (Claude Relay ledger). */
+  apiKeySource: string | undefined;
+  /** Opened on an existing resume cursor, so its first cost total includes older turns. */
+  readonly resumedAtStart: boolean;
   /** Limits already announced for the running turn, keyed `window:resetsAt`. */
   announcedUsageLimits: { turnId: string; keys: Set<string> } | undefined;
   stopped: boolean;
@@ -3272,6 +3278,16 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ? "Claude usage limit reached. Send the message again once the limit resets."
         : undefined);
     const { status, errorMessage } = resultOutcome(message, failureHint);
+    // Coding sessions need tools the relay refuses, so they run here; their
+    // spend still goes on the relay's ledger so its monthly cap stays true.
+    // Only the default Claude home bills Luca's credit, the same rule text
+    // generation follows.
+    reportClaudeSpend(claudeSettings.homePath.trim() === "" ? detectClaudeRelay() : undefined, {
+      sessionId: message.session_id,
+      totalCostUsd: message.total_cost_usd,
+      apiKeySource: context.apiKeySource,
+      resumed: context.resumedAtStart,
+    });
 
     if (status === "failed") {
       yield* emitRuntimeError(context, errorMessage ?? "Claude turn failed.");
@@ -3395,6 +3411,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
     switch (message.subtype) {
       case "init":
+        context.apiKeySource =
+          typeof message.apiKeySource === "string" ? message.apiKeySource : undefined;
         yield* offerRuntimeEvent({
           ...base,
           type: "session.configured",
@@ -4798,6 +4816,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         lastKnownTotalProcessedTokens: undefined,
         lastAssistantUuid: resumeState?.resumeSessionAt,
         lastThreadStartedId: undefined,
+        apiKeySource: undefined,
+        resumedAtStart: existingResumeSessionId !== undefined,
         announcedUsageLimits: undefined,
         stopped: false,
       };
