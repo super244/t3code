@@ -2,6 +2,7 @@
 /* agent-watermark: model=haiku-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
+import { projectSettingsTarget } from "./project/projectRoutes";
 import { playSound } from "../lib/soundEffects";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
@@ -2079,8 +2080,7 @@ export default function ChatView(props: ChatViewProps) {
   const handleOpenDraftProjectSettings = useCallback(() => {
     if (!activeDraftLogicalProjectKey) return;
     void navigate({
-      to: "/projects/$projectKey",
-      params: { projectKey: activeDraftLogicalProjectKey },
+      ...projectSettingsTarget(activeDraftLogicalProjectKey),
     });
   }, [activeDraftLogicalProjectKey, navigate]);
   const activeEnvironmentShell = useEnvironmentQuery(

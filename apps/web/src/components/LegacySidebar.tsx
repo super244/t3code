@@ -1,4 +1,6 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=46m; seat=claude-code; date=2026-10-13 */
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
+import { projectSettingsTarget } from "./project/projectRoutes";
 import { GitPullRequestIcon } from "lucide-react";
 import { LinkBranchPullRequestButton } from "./pullRequest/LinkBranchPullRequestButton";
 import {
@@ -1756,8 +1758,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         actionHandlers.set("project-settings", () => {
           if (isMobile) setOpenMobile(false);
           void router.navigate({
-            to: "/projects/$projectKey",
-            params: { projectKey: project.projectKey },
+            ...projectSettingsTarget(project.projectKey),
           });
         });
 
@@ -2266,8 +2267,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (clicked === "project-settings") {
         if (isMobile) setOpenMobile(false);
         void router.navigate({
-          to: "/projects/$projectKey",
-          params: { projectKey: project.projectKey },
+          ...projectSettingsTarget(project.projectKey),
         });
         return;
       }

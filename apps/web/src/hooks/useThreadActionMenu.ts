@@ -1,6 +1,8 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=46m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 /* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
+import { projectSettingsTarget } from "../components/project/projectRoutes";
 import { scopeProjectRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
   type AtomCommandResult,
@@ -212,8 +214,7 @@ export function useThreadActionMenu(input: {
               logicalProjectKeyByPhysicalKey.get(derivePhysicalProjectKey(project)) ??
               deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings);
             void router.navigate({
-              to: "/projects/$projectKey",
-              params: { projectKey },
+              ...projectSettingsTarget(projectKey),
             });
             return;
           }

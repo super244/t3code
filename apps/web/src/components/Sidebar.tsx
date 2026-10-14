@@ -3,6 +3,7 @@
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 /* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
+import { projectSettingsTarget, projectHomeTarget } from "./project/projectRoutes";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { LinkBranchPullRequestButton } from "./pullRequest/LinkBranchPullRequestButton";
 import {
@@ -54,6 +55,7 @@ import {
   CircleDashedIcon,
   ClockIcon,
   FolderIcon,
+  FolderKanbanIcon,
   FolderPlusIcon,
   LayersIcon,
   GitBranchIcon,
@@ -165,6 +167,7 @@ import type { SidebarThreadSummary } from "../types";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { summarizeSidebarTurnRecap, type SidebarTurnRecap } from "~/lib/turnRecap";
+import { SidebarTurnRecapLine } from "./sidebar/SidebarTurnRecapLine";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
 import { openHandoffDialog, openReviewDialog } from "../handoffDialog";
@@ -1126,58 +1129,6 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
     </>
   ),
 };
-
-/**
- * Footer line for a card row's latest turn. Each part is present only when the
- * recap knows it, so an unknown value never shows as a number. Slim rows (Settled
- * and Snoozed) have no footer, so they show no recap.
- */
-function SidebarTurnRecapLine(props: { readonly recap: SidebarTurnRecap }) {
-  const { recap } = props;
-  const parts: ReactNode[] = [];
-  if (recap.filesLabel !== null) parts.push(<span key="files">{recap.filesLabel}</span>);
-  if (
-    recap.additions !== null &&
-    recap.deletions !== null &&
-    recap.additions + recap.deletions > 0
-  ) {
-    parts.push(
-      <span key="stat" className="font-mono">
-        <span className="text-emerald-600 dark:text-emerald-400">+{recap.additions}</span>{" "}
-        <span className="text-red-600 dark:text-red-400">−{recap.deletions}</span>
-      </span>,
-    );
-  }
-  if (recap.durationLabel !== null) parts.push(<span key="duration">{recap.durationLabel}</span>);
-  if (recap.failedCommandCount > 0) {
-    parts.push(
-      <span
-        key="failed"
-        className="inline-flex items-center gap-0.5 text-red-600 dark:text-red-400"
-      >
-        <XIcon aria-hidden className="size-3" />
-        {recap.failedCommandCount}
-        <span className="sr-only">
-          {recap.failedCommandCount === 1 ? "failed command" : "failed commands"}
-        </span>
-      </span>,
-    );
-  }
-  return (
-    <span className="flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap text-[11px] tabular-nums">
-      {parts.map((part, index) => (
-        <Fragment key={index}>
-          {index > 0 ? (
-            <span aria-hidden className="text-muted-foreground/50">
-              ·
-            </span>
-          ) : null}
-          {part}
-        </Fragment>
-      ))}
-    </span>
-  );
-}
 
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
@@ -2796,9 +2747,17 @@ export default function Sidebar() {
         setOpenMobile(false);
       }
       void router.navigate({
-        to: "/projects/$projectKey",
-        params: { projectKey: projectGroup.projectKey },
+        ...projectSettingsTarget(projectGroup.projectKey),
       });
+    },
+    [isMobile, router, setOpenMobile],
+  );
+  const openProjectHome = useCallback(
+    (projectGroup: SidebarProjectSnapshot) => {
+      if (isMobile) {
+        setOpenMobile(false);
+      }
+      void router.navigate(projectHomeTarget(projectGroup.projectKey));
     },
     [isMobile, router, setOpenMobile],
   );
@@ -5103,6 +5062,24 @@ export default function Sidebar() {
                     </ComboboxList>
                   </ComboboxPopup>
                 </Combobox>
+                {scopedProjectGroup ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <SidebarMenuButton
+                          size="icon"
+                          type="button"
+                          aria-label={`Open ${scopedProjectGroup.displayName} project home`}
+                          className="relative shrink-0 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                          onClick={() => openProjectHome(scopedProjectGroup)}
+                        />
+                      }
+                    >
+                      <FolderKanbanIcon />
+                    </TooltipTrigger>
+                    <TooltipPopup side="right">Project home</TooltipPopup>
+                  </Tooltip>
+                ) : null}
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -5426,6 +5403,11 @@ export default function Sidebar() {
                               marker="project-group"
                             >
                               <SidebarProjectGroupHeader
+                                projectKey={group.projectKey}
+                                onOpen={() => {
+                                  const project = projectGroupByScopeKey.get(group.projectKey);
+                                  if (project) openProjectHome(project);
+                                }}
                                 label={
                                   projectGroupByScopeKey.get(group.projectKey)?.displayName ??
                                   "Project"

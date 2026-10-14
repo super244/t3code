@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=42m; seat=claude-code; date=2026-10-13 */
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { Link } from "@tanstack/react-router";
 import { FolderIcon, MessageSquareIcon, PlusIcon, SearchIcon } from "lucide-react";
@@ -8,6 +8,7 @@ import { openCommandPalette } from "../commandPaletteBus";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { isElectron } from "../env";
 import { buildThreadRouteParams } from "../threadRoutes";
+import { projectHomeTarget } from "./project/projectRoutes";
 import {
   useAllEnvironmentShellsBootstrapped,
   useProjects,
@@ -275,7 +276,12 @@ function ProjectStartRow(props: {
     <div className="flex min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-accent/40">
       <FolderIcon aria-hidden className="size-4 shrink-0 text-icon-muted" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-sm font-medium text-foreground">{project.title}</span>
+        <Link
+          {...projectHomeTarget(project.key)}
+          className="truncate rounded-sm text-sm font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {project.title}
+        </Link>
         <span className="truncate text-xs text-muted-foreground/75">
           {project.folder}
           <span aria-hidden className="mx-1 text-muted-foreground/50">

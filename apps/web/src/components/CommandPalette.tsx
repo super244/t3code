@@ -10,6 +10,7 @@
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=35m; seat=codex; date=2026-10-02 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=20m; seat=antigravity; date=2026-10-03 */
 
+import { projectSettingsTarget, projectHomeTarget } from "./project/projectRoutes";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -2122,9 +2123,34 @@ function OpenCommandPaletteDialog(props: {
       icon: <FolderIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         await navigate({
-          to: "/projects/$projectKey",
-          params: { projectKey: contextualProjectGroup.projectKey },
+          ...projectSettingsTarget(contextualProjectGroup.projectKey),
         });
+      },
+    });
+  }
+
+  // The project home is the place to read a project; settings stay one step away.
+  // One action per project, so a project is one search away from anywhere.
+  for (const projectGroup of projectGroups) {
+    actionItems.push({
+      kind: "action",
+      value: `action:project-home:${projectGroup.projectKey}`,
+      searchTerms: [
+        "project",
+        "home",
+        "overview",
+        "threads",
+        "usage",
+        "branches",
+        "worktrees",
+        "pull requests",
+        projectGroup.displayName,
+      ],
+      title: "Project home",
+      description: projectGroup.displayName,
+      icon: <FolderIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate(projectHomeTarget(projectGroup.projectKey));
       },
     });
   }
