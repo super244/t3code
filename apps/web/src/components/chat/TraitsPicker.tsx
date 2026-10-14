@@ -18,9 +18,10 @@ import {
 } from "@t3tools/shared/model";
 import { memo, useCallback } from "react";
 import type { VariantProps } from "class-variance-authority";
-import { ZapIcon } from "lucide-react";
+import { CoinsIcon, ZapIcon } from "lucide-react";
 import { buttonVariants } from "../ui/button";
 import {
+  MenuCheckboxItem,
   Menu,
   MenuGroup,
   MenuPopup,
@@ -334,6 +335,8 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     allowPromptInjectedEffort,
     planModeEnabled,
   });
+  const promoCreditsDescriptor =
+    booleanDescriptors.find((descriptor) => descriptor.id === PROMO_CREDITS_ID) ?? null;
   const updateDescriptors = (nextDescriptors: ReadonlyArray<ProviderOptionDescriptor>) => {
     updateModelOptions(buildProviderOptionSelectionsFromDescriptors(nextDescriptors));
   };
@@ -445,44 +448,123 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
           </div>
         );
       })}
-      {booleanDescriptors.map((descriptor, index) => {
-        const selectedValue = descriptor.currentValue === true ? "on" : "off";
+      {booleanDescriptors
+        .filter((descriptor) => descriptor.id !== PROMO_CREDITS_ID)
+        .map((descriptor, index) => {
+          const selectedValue = descriptor.currentValue === true ? "on" : "off";
 
-        return (
-          <div key={descriptor.id}>
-            {index > 0 || selectDescriptors.length > 0 ? <MenuDivider /> : null}
-            <MenuGroup>
-              <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
-                {descriptor.label}
-              </div>
-              {descriptor.description ? (
-                <div className="max-w-56 px-2 pb-1.5 text-pretty text-muted-foreground/80 text-xs">
-                  {descriptor.description}
+          return (
+            <div key={descriptor.id}>
+              {index > 0 || selectDescriptors.length > 0 ? <MenuDivider /> : null}
+              <MenuGroup>
+                <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
+                  {descriptor.label}
                 </div>
-              ) : null}
-              <MenuRadioGroup
-                value={selectedValue}
-                onValueChange={(value) => {
-                  updateDescriptors(
-                    replaceDescriptorCurrentValue(descriptors, descriptor.id, value === "on"),
-                  );
-                }}
-              >
-                {(["on", "off"] as const).map((value) => (
-                  <MenuRadioItem key={value} value={value} hideIndicator closeOnClick>
-                    <span className="flex w-full min-w-0 items-center justify-between gap-3">
-                      <span>{value === "on" ? "On" : "Off"}</span>
-                    </span>
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-            </MenuGroup>
-          </div>
-        );
-      })}
+                {descriptor.description ? (
+                  <div className="max-w-56 px-2 pb-1.5 text-pretty text-muted-foreground/80 text-xs">
+                    {descriptor.description}
+                  </div>
+                ) : null}
+                <MenuRadioGroup
+                  value={selectedValue}
+                  onValueChange={(value) => {
+                    updateDescriptors(
+                      replaceDescriptorCurrentValue(descriptors, descriptor.id, value === "on"),
+                    );
+                  }}
+                >
+                  {(["on", "off"] as const).map((value) => (
+                    <MenuRadioItem key={value} value={value} hideIndicator closeOnClick>
+                      <span className="flex w-full min-w-0 items-center justify-between gap-3">
+                        <span>{value === "on" ? "On" : "Off"}</span>
+                      </span>
+                    </MenuRadioItem>
+                  ))}
+                </MenuRadioGroup>
+              </MenuGroup>
+            </div>
+          );
+        })}
+      {promoCreditsDescriptor ? (
+        <PromoCreditsSection
+          descriptor={promoCreditsDescriptor}
+          showDivider={descriptors.length > 1}
+          onChange={(checked) =>
+            updateDescriptors(replaceDescriptorCurrentValue(descriptors, PROMO_CREDITS_ID, checked))
+          }
+        />
+      ) : null}
     </>
   );
 });
+
+const PROMO_CREDITS_ID = "promoCredits";
+
+/**
+ * Who pays for a Claude thread: the Max plan's monthly API credit, or the
+ * subscription. A switch rather than an On/Off pair, because it is a setting
+ * that stays put, and the line under it always says which one is paying now.
+ */
+function PromoCreditsSection({
+  descriptor,
+  showDivider,
+  onChange,
+}: {
+  descriptor: Extract<ProviderOptionDescriptor, { type: "boolean" }>;
+  showDivider: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  const on = descriptor.currentValue === true;
+  // The server sends a description only while the subscription is not set
+  // up; then "off" cannot send, and the line says so instead of promising it.
+  const subscriptionMissing = Boolean(descriptor.description);
+  return (
+    <div>
+      {showDivider ? <MenuDivider /> : null}
+      <MenuGroup>
+        <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">Billing</div>
+        <MenuCheckboxItem
+          variant="switch"
+          checked={on}
+          closeOnClick={false}
+          onCheckedChange={(checked) => onChange(checked)}
+        >
+          <span className="flex min-w-0 items-start gap-2">
+            <CoinsIcon
+              aria-hidden
+              className={cn(
+                "mt-0.5 size-4 shrink-0 transition-colors",
+                on ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground",
+              )}
+            />
+            <span className="flex min-w-0 flex-col">
+              <span>{descriptor.label}</span>
+              <span
+                className={cn(
+                  "max-w-52 text-pretty text-xs",
+                  !on && subscriptionMissing
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-muted-foreground/80",
+                )}
+              >
+                {on
+                  ? "The Max plan's monthly API credit pays for this thread."
+                  : subscriptionMissing
+                    ? "The subscription isn't connected yet, so this thread can't send."
+                    : "Your Max subscription pays for this thread."}
+              </span>
+            </span>
+          </span>
+        </MenuCheckboxItem>
+        {descriptor.description ? (
+          <div className="max-w-60 px-2 pt-0.5 pb-1.5 text-pretty text-muted-foreground/70 text-xs">
+            {descriptor.description}
+          </div>
+        ) : null}
+      </MenuGroup>
+    </div>
+  );
+}
 
 /**
  * Build the traits trigger's text label plus whether the fast-mode bolt should
@@ -497,8 +579,9 @@ export function buildTraitsTriggerDisplay(input: {
   descriptors: ReadonlyArray<ProviderOptionDescriptor>;
   primarySelectDescriptorId: string | null;
   ultrathinkPromptControlled: boolean;
-}): { label: string; showFastModeIcon: boolean } {
+}): { label: string; showFastModeIcon: boolean; showPromoCreditsIcon?: boolean } {
   let fastModeFallbackLabel: string | null = null;
+  let promoCreditsOn = false;
   let fastModeEnabled = false;
   const labels: Array<string> = [];
   for (const descriptor of input.descriptors) {
@@ -509,8 +592,9 @@ export function buildTraitsTriggerDisplay(input: {
     }
     // Claude's billing switch: name the credit when it is in use, say nothing
     // for the subscription, which is the ordinary case.
-    if (descriptor.id === "promoCredits" && descriptor.type === "boolean") {
-      if (descriptor.currentValue === true) labels.push("Credits");
+    if (descriptor.id === PROMO_CREDITS_ID && descriptor.type === "boolean") {
+      promoCreditsOn = descriptor.currentValue === true;
+      if (promoCreditsOn) labels.push("Credits");
       continue;
     }
     if (
@@ -545,7 +629,11 @@ export function buildTraitsTriggerDisplay(input: {
   if (labels.length === 0 && fastModeFallbackLabel !== null) {
     return { label: fastModeFallbackLabel, showFastModeIcon: false };
   }
-  return { label: labels.join(" · "), showFastModeIcon: fastModeEnabled };
+  return {
+    label: labels.join(" · "),
+    showFastModeIcon: fastModeEnabled,
+    ...(promoCreditsOn ? { showPromoCreditsIcon: true } : {}),
+  };
 }
 
 export const TraitsPicker = memo(function TraitsPicker({
@@ -594,7 +682,11 @@ export const TraitsPicker = memo(function TraitsPicker({
     return null;
   }
 
-  const { label: triggerLabel, showFastModeIcon } = buildTraitsTriggerDisplay({
+  const {
+    label: triggerLabel,
+    showFastModeIcon,
+    showPromoCreditsIcon,
+  } = buildTraitsTriggerDisplay({
     provider,
     descriptors,
     primarySelectDescriptorId: primarySelectDescriptor?.id ?? null,
@@ -615,6 +707,17 @@ export const TraitsPicker = memo(function TraitsPicker({
         )}
       />
       <span className="sr-only">Fast mode on</span>
+    </>
+  ) : null;
+
+  const promoCreditsIcon = showPromoCreditsIcon ? (
+    <>
+      <ComposerControlIcon
+        icon={CoinsIcon}
+        size={size}
+        className="text-emerald-600 opacity-90 dark:text-emerald-400"
+      />
+      <span className="sr-only">Billed to promo credits</span>
     </>
   ) : null;
 
@@ -647,12 +750,14 @@ export const TraitsPicker = memo(function TraitsPicker({
           <span
             className={cn("flex min-w-0 w-full items-center", size === "xs" ? "gap-1" : "gap-1.5")}
           >
+            {promoCreditsIcon}
             {fastModeIcon}
             <span className="min-w-0 truncate">{triggerLabel}</span>
             <ComposerControlChevron size={size} />
           </span>
         ) : (
           <>
+            {promoCreditsIcon}
             {fastModeIcon}
             <span>{triggerLabel}</span>
             <ComposerControlChevron size={size} />

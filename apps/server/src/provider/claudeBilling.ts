@@ -90,9 +90,13 @@ export const promoCreditsDescriptor = (
 ): ProviderOptionDescriptor => ({
   id: PROMO_CREDITS_OPTION_ID,
   label: "Promo credits",
-  description: credentials.subscriptionToken
-    ? "Bill this thread to the Max plan's monthly API credit instead of the subscription."
-    : "Billed to the Max plan's monthly API credit. Store a `claude setup-token` token as Keychain claude-relay/subscription to switch threads to the subscription.",
+  // Shown under the switch only while the subscription cannot be used yet.
+  ...(credentials.subscriptionToken
+    ? {}
+    : {
+        description:
+          "To use the subscription instead, run claude setup-token once and save the token as Keychain item claude-relay/subscription.",
+      }),
   type: "boolean",
   currentValue: credentials.subscriptionToken === undefined,
 });
