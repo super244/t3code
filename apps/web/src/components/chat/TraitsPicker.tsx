@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-13 */
 import {
   type ProviderDriverKind,
   type ProviderInstanceId,
@@ -454,6 +455,11 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
               <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
                 {descriptor.label}
               </div>
+              {descriptor.description ? (
+                <div className="max-w-56 px-2 pb-1.5 text-pretty text-muted-foreground/80 text-xs">
+                  {descriptor.description}
+                </div>
+              ) : null}
               <MenuRadioGroup
                 value={selectedValue}
                 onValueChange={(value) => {
@@ -499,6 +505,12 @@ export function buildTraitsTriggerDisplay(input: {
     if (descriptor.id === "fastMode" && descriptor.type === "boolean") {
       fastModeEnabled = descriptor.currentValue === true;
       fastModeFallbackLabel = fastModeEnabled ? "Fast" : "Normal";
+      continue;
+    }
+    // Claude's billing switch: name the credit when it is in use, say nothing
+    // for the subscription, which is the ordinary case.
+    if (descriptor.id === "promoCredits" && descriptor.type === "boolean") {
+      if (descriptor.currentValue === true) labels.push("Credits");
       continue;
     }
     if (

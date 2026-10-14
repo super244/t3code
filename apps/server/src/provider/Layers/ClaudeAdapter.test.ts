@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-13 */
 import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
@@ -376,6 +377,106 @@ describe("ClaudeAdapterLive", () => {
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(layer),
     );
+  });
+
+  describe("promo credits switch", () => {
+    const billingEnvironment = (extra: Record<string, string>) => ({
+      ...process.env,
+      T3CODE_CLAUDE_BILLING: "1",
+      CLAUDE_CODE_OAUTH_TOKEN: "inherited-oauth",
+      ANTHROPIC_API_KEY: "inherited-key",
+      ...extra,
+    });
+    const start = (promoCredits: boolean | undefined) =>
+      Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        return yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("claudeAgent"),
+            model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            ...(promoCredits === undefined
+              ? {}
+              : { options: [{ id: "promoCredits", value: promoCredits }] }),
+          },
+          runtimeMode: "full-access",
+        });
+      });
+
+    it.effect("on: the session runs on the credit key, with no subscription token", () => {
+      const harness = makeHarness({
+        environment: billingEnvironment({
+          T3CODE_CLAUDE_CREDIT_KEY: "sk-credit",
+          T3CODE_CLAUDE_SUBSCRIPTION_TOKEN: "oat-sub",
+        }),
+      });
+      return Effect.gen(function* () {
+        yield* start(true);
+        const env = harness.getLastCreateQueryInput()?.options.env ?? {};
+        assert.equal(env.ANTHROPIC_API_KEY, "sk-credit");
+        assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    });
+
+    it.effect("off: the session runs on the subscription token, with no API key", () => {
+      const harness = makeHarness({
+        environment: billingEnvironment({ T3CODE_CLAUDE_SUBSCRIPTION_TOKEN: "oat-sub" }),
+      });
+      return Effect.gen(function* () {
+        yield* start(false);
+        const env = harness.getLastCreateQueryInput()?.options.env ?? {};
+        assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, "oat-sub");
+        assert.equal(env.ANTHROPIC_API_KEY, undefined);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    });
+
+    it.effect("unset follows what can be billed: credits until a subscription token exists", () => {
+      const harness = makeHarness({ environment: billingEnvironment({}) });
+      return Effect.gen(function* () {
+        yield* start(undefined);
+        const env = harness.getLastCreateQueryInput()?.options.env ?? {};
+        assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+        assert.equal(env.ANTHROPIC_API_KEY, "inherited-key");
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    });
+
+    it.effect("off without a subscription token refuses with the way to fix it", () => {
+      const harness = makeHarness({ environment: billingEnvironment({}) });
+      return Effect.gen(function* () {
+        const error = yield* start(false).pipe(Effect.flip);
+        assert.match(String((error as { detail?: string }).detail), /claude setup-token/u);
+        assert.equal(harness.getLastCreateQueryInput(), undefined);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    });
+
+    it.effect("an instance with its own config dir keeps its own login untouched", () => {
+      const harness = makeHarness({
+        claudeConfig: { homePath: "/tmp/other-claude-home" },
+        environment: billingEnvironment({ T3CODE_CLAUDE_SUBSCRIPTION_TOKEN: "oat-sub" }),
+      });
+      return Effect.gen(function* () {
+        yield* start(false);
+        const env = harness.getLastCreateQueryInput()?.options.env ?? {};
+        assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, "inherited-oauth");
+        assert.equal(env.ANTHROPIC_API_KEY, "inherited-key");
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    });
   });
 
   it.effect("derives bypass permission mode from full-access runtime policy", () => {

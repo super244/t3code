@@ -111,6 +111,12 @@ import {
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { detectClaudeRelay, reportClaudeSpend } from "../claudeRelay.ts";
+import {
+  PROMO_CREDITS_OPTION_ID,
+  claudeBillingEnvironment,
+  readClaudeCredentials,
+  wantsPromoCredits,
+} from "../claudeBilling.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 
@@ -4656,6 +4662,29 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const thinking = thinkingSupported
         ? getModelSelectionBooleanOptionValue(modelSelection, "thinking")
         : undefined;
+      // The "Promo credits" switch picks the credential this session starts
+      // with; toggling it restarts the session with its resume cursor.
+      const credentials =
+        claudeSettings.homePath.trim() === ""
+          ? readClaudeCredentials(claudeEnvironment)
+          : undefined;
+      const billing = credentials
+        ? claudeBillingEnvironment(
+            claudeEnvironment,
+            wantsPromoCredits(
+              getModelSelectionBooleanOptionValue(modelSelection, PROMO_CREDITS_OPTION_ID),
+              credentials,
+            ),
+            credentials,
+          )
+        : ({ ok: true, billing: undefined, env: claudeEnvironment } as const);
+      if (!billing.ok) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "session/start",
+          detail: billing.reason,
+        });
+      }
       const ultracode = isClaudeCatalogUltracodeEffort(effort);
       const effectiveEffort = getEffectiveClaudeAgentEffort(
         modelCatalog,
@@ -4714,7 +4743,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         canUseTool,
         onUserDialog,
         supportedDialogKinds: ["resume_return"],
-        env: claudeEnvironment,
+        env: billing.env,
         additionalDirectories,
         ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
         ...(mcpSession

@@ -1,5 +1,7 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-13 */
 import {
   type ClaudeSettings,
+  type ServerProviderModel,
   type ModelCapabilities,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
@@ -32,6 +34,7 @@ import {
   spawnAndCollect,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
+import { readClaudeCredentials, withPromoCreditsOption } from "../claudeBilling.ts";
 import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
 import { discoverClaudeSkills } from "../Drivers/ClaudeSkills.ts";
@@ -433,10 +436,28 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
 > {
   const resolvedEnvironment = environment ?? process.env;
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
-  const allModels = providerModelsFromSettings(
-    modelCatalog.models.map((entry) => entry.model),
-    claudeSettings.customModels,
-    DEFAULT_CLAUDE_MODEL_CAPABILITIES,
+  // The default instance offers a per-thread "Promo credits" switch (see
+  // claudeBilling.ts); an instance with its own config dir chose its account.
+  const offerBillingSwitch = claudeSettings.homePath.trim() === "";
+  const credentials = offerBillingSwitch ? readClaudeCredentials(resolvedEnvironment) : undefined;
+  const withBillingSwitch = (
+    models: ReadonlyArray<ServerProviderModel>,
+  ): ReadonlyArray<ServerProviderModel> =>
+    credentials
+      ? models.map((model) => ({
+          ...model,
+          capabilities: withPromoCreditsOption(
+            model.capabilities ?? { optionDescriptors: [] },
+            credentials,
+          ),
+        }))
+      : models;
+  const allModels = withBillingSwitch(
+    providerModelsFromSettings(
+      modelCatalog.models.map((entry) => entry.model),
+      claudeSettings.customModels,
+      DEFAULT_CLAUDE_MODEL_CAPABILITIES,
+    ),
   );
 
   if (!claudeSettings.enabled) {
@@ -523,10 +544,12 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     });
   }
 
-  const models = providerModelsFromSettings(
-    resolveClaudeModelsForVersion(modelCatalog, parsedVersion),
-    claudeSettings.customModels,
-    DEFAULT_CLAUDE_MODEL_CAPABILITIES,
+  const models = withBillingSwitch(
+    providerModelsFromSettings(
+      resolveClaudeModelsForVersion(modelCatalog, parsedVersion),
+      claudeSettings.customModels,
+      DEFAULT_CLAUDE_MODEL_CAPABILITIES,
+    ),
   );
   const versionUpgradeMessage = formatClaudeVersionUpgradeMessage(modelCatalog, parsedVersion);
 

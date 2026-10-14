@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-13 */
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind, type ProviderOptionDescriptor } from "@t3tools/contracts";
 import { buildTraitsTriggerDisplay, buildUnavailableModelOptionDescriptors } from "./TraitsPicker";
@@ -61,6 +62,17 @@ function display(descriptors: ReadonlyArray<ProviderOptionDescriptor>) {
 }
 
 describe("buildTraitsTriggerDisplay", () => {
+  it("names the promo credit when a thread bills it, and says nothing for the subscription", () => {
+    const promo = (currentValue: boolean): ProviderOptionDescriptor => ({
+      id: "promoCredits",
+      label: "Promo credits",
+      type: "boolean",
+      currentValue,
+    });
+    expect(display([EFFORT, promo(true)]).label).toBe("High · Credits");
+    expect(display([EFFORT, promo(false)]).label).toBe("High");
+  });
+
   it("omits fast mode from the label entirely when it is off", () => {
     expect(display([EFFORT, fastModeDescriptor(false), CONTEXT_WINDOW])).toEqual({
       label: "High · 1M",
