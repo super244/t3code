@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=27m; seat=claude-code; date=2026-10-12 */
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import type { CommandPaletteLinkedThreads } from "../commandPaletteBus";
@@ -58,7 +59,7 @@ export function browseInputEndPaddingClass(input: {
  * search (⇧⌘F). One reducer owns open/mode state so the surfaces can never
  * stack and re-triggering a mode's shortcut toggles it closed.
  */
-export type SearchOverlayMode = "command" | "files" | "content";
+export type SearchOverlayMode = "command" | "files" | "content" | "threads";
 
 export type CommandPaletteOpenIntent =
   | { readonly kind: "add-project" | "new-thread-in" }
@@ -66,7 +67,8 @@ export type CommandPaletteOpenIntent =
       readonly kind: "search";
       readonly query: string;
       readonly linkedThreads?: CommandPaletteLinkedThreads;
-    };
+    }
+  | { readonly kind: "thread-search"; readonly query: string };
 
 export interface CommandPaletteUiState {
   readonly open: boolean;
@@ -82,6 +84,7 @@ export type CommandPaletteUiAction =
       readonly query: string;
       readonly linkedThreads?: CommandPaletteLinkedThreads;
     }
+  | { readonly _tag: "OpenThreadSearch"; readonly query: string }
   | { readonly _tag: "OpenAddProject" }
   | { readonly _tag: "OpenNewThreadIn" }
   | { readonly _tag: "ClearOpenIntent" };
@@ -109,6 +112,12 @@ export function reduceCommandPaletteUiState(
           ...(action.linkedThreads ? { linkedThreads: action.linkedThreads } : {}),
         },
       };
+    case "OpenThreadSearch":
+      return {
+        open: true,
+        mode: "threads",
+        openIntent: { kind: "thread-search", query: action.query },
+      };
     case "OpenAddProject":
       return { open: true, mode: "command", openIntent: { kind: "add-project" } };
     case "OpenNewThreadIn":
@@ -122,6 +131,7 @@ export interface CommandPaletteThreadContentMatch {
   readonly source: "user" | "assistant";
   readonly snippet: string;
   readonly query: string;
+  readonly messageId: string;
 }
 
 export interface CommandPaletteItem {
@@ -245,7 +255,11 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   /** Optional rich description (e.g. favicon + workspace icons). Falls back to text. */
   renderDescription?: (thread: TThread, meta: { projectTitle: string | undefined }) => ReactNode;
   getContentMatch?: (thread: TThread) => CommandPaletteThreadContentMatch | undefined;
-  runThread: (thread: Pick<SidebarThreadSummary, "environmentId" | "id">) => Promise<void>;
+  /** `messageId` is set when the thread was picked by one of its messages. */
+  runThread: (
+    thread: Pick<SidebarThreadSummary, "environmentId" | "id">,
+    messageId?: string,
+  ) => Promise<void>;
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
@@ -299,7 +313,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
       contentMatch ? { threadContentMatch: contentMatch } : {},
       {
         run: async () => {
-          await input.runThread(thread);
+          await input.runThread(thread, contentMatch?.messageId);
         },
       },
     );

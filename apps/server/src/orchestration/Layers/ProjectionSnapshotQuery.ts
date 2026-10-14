@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 import {
@@ -190,10 +191,13 @@ const EventReplayStatsRowSchema = Schema.Struct({
 const ProjectionThreadSearchRequest = Schema.Struct({
   pattern: Schema.String,
   limit: Schema.Int,
+  perThreadLimit: Schema.Int,
+  includeArchived: Schema.Int,
 });
 const ProjectionThreadSearchRow = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
+  messageId: MessageId,
   source: OrchestrationThreadSearchSource,
   matchText: Schema.String,
   messageCreatedAt: Schema.NullOr(IsoDateTime),
@@ -1070,15 +1074,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const searchActiveThreadRows = SqlSchema.findAll({
+  const searchThreadMessageRows = SqlSchema.findAll({
     Request: ProjectionThreadSearchRequest,
     Result: ProjectionThreadSearchRow,
-    execute: ({ pattern, limit }) =>
+    execute: ({ pattern, limit, perThreadLimit, includeArchived }) =>
       sql`
         WITH ranked AS (
           SELECT
             threads.thread_id AS thread_id,
             threads.project_id AS project_id,
+            messages.message_id AS message_id,
             CASE messages.role
               WHEN 'user' THEN 'user'
               ELSE 'assistant'
@@ -1106,7 +1111,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           INNER JOIN projection_projects AS projects
             ON projects.project_id = threads.project_id
           WHERE threads.deleted_at IS NULL
-            AND threads.archived_at IS NULL
+            AND (${includeArchived} = 1 OR threads.archived_at IS NULL)
             AND projects.deleted_at IS NULL
             AND messages.is_streaming = 0
             AND (
@@ -1125,15 +1130,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          message_id AS "messageId",
           source,
           match_text AS "matchText",
           message_created_at AS "messageCreatedAt"
         FROM ranked
-        WHERE thread_match_rank = 1
+        WHERE thread_match_rank <= ${perThreadLimit}
         ORDER BY
           match_rank ASC,
           thread_updated_at DESC,
-          thread_id ASC
+          thread_id ASC,
+          thread_match_rank ASC
         LIMIT ${limit}
       `,
   });
@@ -2971,9 +2978,11 @@ pending_approval_requests AS (
     "ProjectionSnapshotQuery.searchThreads",
   )(function* (input) {
     const escapedQuery = escapeLikePattern(input.query);
-    const rows = yield* searchActiveThreadRows({
+    const rows = yield* searchThreadMessageRows({
       pattern: `%${escapedQuery}%`,
       limit: input.limit ?? 50,
+      perThreadLimit: input.matchesPerThread ?? 1,
+      includeArchived: input.includeArchived === true ? 1 : 0,
     }).pipe(
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
@@ -2986,6 +2995,7 @@ pending_approval_requests AS (
       matches: rows.map((row) => ({
         threadId: row.threadId,
         projectId: row.projectId,
+        messageId: row.messageId,
         source: row.source,
         snippet: buildSearchSnippet(row.matchText, input.query),
         messageCreatedAt: row.messageCreatedAt,

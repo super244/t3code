@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 import {
   EnvironmentId,
   OrchestrationSearchThreadsInput,
@@ -17,18 +18,47 @@ export interface ThreadSearchResultsState {
   readonly isLoading: boolean;
 }
 
+/**
+ * How many matches a search returns per thread, and whether archived threads
+ * are searched. The palette keeps the defaults (one snippet per active thread);
+ * the thread search surface asks for more.
+ */
+export interface ThreadSearchOptions {
+  readonly matchesPerThread: number;
+  readonly includeArchived: boolean;
+}
+
+export const DEFAULT_THREAD_SEARCH_OPTIONS: ThreadSearchOptions = Object.freeze({
+  matchesPerThread: 1,
+  includeArchived: false,
+});
+
+const ThreadSearchOptionsSchema = Schema.Struct({
+  matchesPerThread: Schema.Int,
+  includeArchived: Schema.Boolean,
+});
+
 const ThreadSearchKey = Schema.fromJsonString(
-  Schema.Tuple([Schema.Array(EnvironmentId), OrchestrationSearchThreadsInput.fields.query]),
+  Schema.Tuple([
+    Schema.Array(EnvironmentId),
+    OrchestrationSearchThreadsInput.fields.query,
+    ThreadSearchOptionsSchema,
+  ]),
 );
 const decodeThreadSearchKey = Schema.decodeUnknownOption(ThreadSearchKey);
 
 export function makeThreadSearchKey(
   environmentIds: ReadonlyArray<EnvironmentId>,
   query: string,
+  options: ThreadSearchOptions = DEFAULT_THREAD_SEARCH_OPTIONS,
 ): string {
   return JSON.stringify([
     [...environmentIds].sort((left, right) => left.localeCompare(right)),
     query,
+    {
+      matchesPerThread: options.matchesPerThread,
+      includeArchived: options.includeArchived,
+    },
   ]);
 }
 
@@ -51,6 +81,7 @@ export function createThreadSearchResultsAtomFamily<E>(options: {
   readonly getSearchAtom: (
     environmentId: EnvironmentId,
     query: string,
+    options: ThreadSearchOptions,
   ) => Atom.Atom<AsyncResult.AsyncResult<OrchestrationSearchThreadsResult, E>>;
   readonly labelPrefix: string;
 }) {
@@ -61,12 +92,12 @@ export function createThreadSearchResultsAtomFamily<E>(options: {
         return { matches: [], isLoading: false };
       }
 
-      const [environmentIds, query] = parsedKey.value;
+      const [environmentIds, query, searchOptions] = parsedKey.value;
       const matches: EnvironmentThreadSearchMatch[] = [];
       let isLoading = false;
 
       for (const environmentId of environmentIds) {
-        const result = get(options.getSearchAtom(environmentId, query));
+        const result = get(options.getSearchAtom(environmentId, query, searchOptions));
         isLoading ||= result.waiting;
         const value = Option.getOrNull(AsyncResult.value(result));
         if (value !== null) {

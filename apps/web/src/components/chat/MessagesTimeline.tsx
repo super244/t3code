@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=28m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=25m; seat=opencode; date=2026-10-10 */
 import { GitPullRequestIcon } from "lucide-react";
@@ -135,6 +136,7 @@ import {
   type AssistantCitationTarget,
 } from "./AssistantCitationSource";
 import { useAssistantCitationTarget, type CitationHistoryPage } from "./useAssistantCitationTarget";
+import { useMessageFocusTarget } from "./useMessageFocusTarget";
 import {
   computeStableMessagesTimelineRows,
   deriveMessagesTimelineRowsWithState,
@@ -361,6 +363,9 @@ interface MessagesTimelineProps {
   topFadeEnabled?: boolean;
   /** Non-null when older turns exist beyond the loaded window. */
   loadEarlier?: CitationHistoryPage | null;
+  /** A message to scroll to and flash, usually from a thread search result. */
+  focusMessageId?: string | null;
+  onFocusMessageHandled?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -408,6 +413,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   hideEmptyPlaceholder = false,
   topFadeEnabled = false,
   loadEarlier = null,
+  focusMessageId = null,
+  onFocusMessageHandled,
 }: MessagesTimelineProps) {
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
   const citationThreadRef = useMemo(() => parseScopedThreadKey(routeThreadKey), [routeThreadKey]);
@@ -598,6 +605,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     loadEarlier,
     onExpandTurn: expandCitedTurn,
     onManualNavigation,
+  });
+  const handleFocusMessageHandled = useCallback(() => {
+    onFocusMessageHandled?.();
+  }, [onFocusMessageHandled]);
+  useMessageFocusTarget({
+    messageId: focusMessageId,
+    entries: timelineEntries,
+    rows,
+    listRef,
+    history: loadEarlier,
+    onExpandTurn: expandCitedTurn,
+    onManualNavigation,
+    onHandled: handleFocusMessageHandled,
   });
   const [minimapHasPersistentGutter, setMinimapHasPersistentGutter] = useState(false);
   const [minimapHitStripWidth, setMinimapHitStripWidth] = useState(0);

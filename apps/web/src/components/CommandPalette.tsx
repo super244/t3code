@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=40m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
@@ -182,6 +183,7 @@ import { ProjectFavicon } from "./ProjectFavicon";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
+import { ThreadSearchDialog } from "./search/ThreadSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
 import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
 import {
@@ -417,6 +419,7 @@ const OVERLAY_MODE_BY_COMMAND = {
   "commandPalette.toggle": "command",
   "filePicker.toggle": "files",
   "projectSearch.toggle": "content",
+  "threadSearch.toggle": "threads",
 } as const satisfies Partial<Record<string, SearchOverlayMode>>;
 
 function overlayModeForCommand(command: string | null): SearchOverlayMode | null {
@@ -531,6 +534,8 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           openNewThreadIn();
         } else if (detail.open === "add-project") {
           openAddProject();
+        } else if (detail.threadSearchQuery !== undefined) {
+          dispatch({ _tag: "OpenThreadSearch", query: detail.threadSearchQuery });
         } else if (detail.query !== undefined) {
           dispatch({
             _tag: "OpenSearch",
@@ -589,9 +594,14 @@ function CommandPaletteDialog(props: {
           ? "File picker"
           : props.mode === "content"
             ? "Search project contents"
-            : "Command palette"
+            : props.mode === "threads"
+              ? "Search threads and messages"
+              : "Command palette"
       }
-      className={cn("overflow-hidden p-0", props.mode === "content" && "h-105")}
+      className={cn(
+        "overflow-hidden p-0",
+        (props.mode === "content" || props.mode === "threads") && "h-105",
+      )}
       data-command-palette="true"
       data-palette-mode={props.mode}
       data-testid="command-palette"
@@ -607,6 +617,13 @@ function CommandPaletteDialog(props: {
         <ProjectFilePicker setOpen={props.setOpen} />
       ) : props.mode === "content" ? (
         <ProjectContentSearchDialog onOpenChange={props.setOpen} />
+      ) : props.mode === "threads" ? (
+        <ThreadSearchDialog
+          initialQuery={
+            props.openIntent?.kind === "thread-search" ? props.openIntent.query : undefined
+          }
+          onOpenChange={props.setOpen}
+        />
       ) : (
         <OpenCommandPaletteDialog
           openIntent={props.openIntent}
@@ -1245,13 +1262,15 @@ function OpenCommandPaletteDialog(props: {
                 source: match.source,
                 snippet: match.snippet,
                 query: threadSearchQuery,
+                messageId: match.messageId,
               }
             : undefined;
         },
-        runThread: async (thread) => {
+        runThread: async (thread, messageId) => {
           await navigate({
             to: "/$environmentId/$threadId",
             params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
+            ...(messageId ? { search: { message: messageId } } : {}),
           });
         },
       }),
@@ -1867,6 +1886,26 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "projectSearch.toggle",
     run: async () => {
       openOverlayMode("content");
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:search-threads",
+    searchTerms: [
+      "search threads",
+      "search messages",
+      "find in threads",
+      "find message",
+      "conversation search",
+      "chat history",
+    ],
+    title: "Search threads and messages",
+    icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+    keepOpen: true,
+    shortcutCommand: "threadSearch.toggle",
+    run: async () => {
+      openOverlayMode("threads");
     },
   });
 

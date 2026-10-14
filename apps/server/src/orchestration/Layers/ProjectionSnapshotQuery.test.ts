@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 import {
   type AgentSessionImportSource,
@@ -2536,6 +2537,148 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         [],
       );
     }),
+  );
+
+  // Message ids and timestamps follow the shape of real rows in a developer
+  // vault (see state.sqlite projection_thread_messages), not synthetic ids.
+  it.effect(
+    "returns per-thread matches with message ids, optionally including archived threads",
+    () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+
+        const realUserMessage = "user:0f6c1d2a-3b4c-4d5e-8f70-1a2b3c4d5e6f";
+        const realCanonicalAssistant =
+          "assistant:assistant:e8260b2c-ca47-4ef1-8b2c-903f788e6866:runtime:cb3b3a13-3947-4ec1-a1ef-d645426fc02b:segment:64";
+        const realInterimAssistant =
+          "assistant:assistant:e8260b2c-ca47-4ef1-8b2c-903f788e6866:runtime:cb3b3a13-3947-4ec1-a1ef-d645426fc02b:segment:62";
+        const archivedAssistant =
+          "assistant:assistant:7a9b0c1d-2e3f-4a5b-9c6d-7e8f9a0b1c2d:runtime:5d6e7f8a-9b0c-4d1e-8f2a-3b4c5d6e7f80:segment:3";
+
+        yield* sql`DELETE FROM projection_thread_messages`;
+        yield* sql`DELETE FROM projection_turns`;
+        yield* sql`DELETE FROM projection_threads`;
+        yield* sql`DELETE FROM projection_projects`;
+
+        yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, default_model_selection_json, scripts_json,
+          created_at, updated_at, deleted_at
+        )
+        VALUES (
+          'project-mylifeos', 'MyLifeOS', '/tmp/mylifeos',
+          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:01.000Z', NULL
+        )
+      `;
+
+        yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode,
+          branch, worktree_path, latest_turn_id, latest_user_message_at, pending_approval_count,
+          pending_user_input_count, has_actionable_proposed_plan, created_at, updated_at,
+          archived_at, deleted_at
+        )
+        VALUES
+          (
+            'd1443945-34e3-4ef4-8e98-f1016c33f063', 'project-mylifeos', 'Products to enterprise v1',
+            '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+            'main', NULL, 'turn-enterprise', '2026-10-09T20:50:00.000Z', 0, 0, 0,
+            '2026-10-09T20:00:00.000Z', '2026-10-09T20:51:46.000Z', NULL, NULL
+          ),
+          (
+            'c024af79-2c23-4099-a835-0f914b646415', 'project-mylifeos', 'Old enterprise notes',
+            '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+            'main', NULL, NULL, NULL, 0, 0, 0,
+            '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:01.000Z', '2026-09-02T00:00:00.000Z', NULL
+          )
+      `;
+
+        yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id, thread_id, turn_id, role, text, is_streaming, created_at, updated_at
+        )
+        VALUES
+          (
+            ${realUserMessage}, 'd1443945-34e3-4ef4-8e98-f1016c33f063', 'turn-enterprise', 'user',
+            'Make the enterprise telemetry ultimate and premium.', 0,
+            '2026-10-09T20:50:00.000Z', '2026-10-09T20:50:00.000Z'
+          ),
+          (
+            ${realInterimAssistant}, 'd1443945-34e3-4ef4-8e98-f1016c33f063', 'turn-enterprise',
+            'assistant', 'Checking the enterprise cockpit before the final answer.', 0,
+            '2026-10-09T20:50:54.000Z', '2026-10-09T20:50:54.000Z'
+          ),
+          (
+            ${realCanonicalAssistant}, 'd1443945-34e3-4ef4-8e98-f1016c33f063', 'turn-enterprise',
+            'assistant', 'I have completed all objectives for the enterprise v1 release.', 0,
+            '2026-10-09T20:51:11.000Z', '2026-10-09T20:51:11.000Z'
+          ),
+          (
+            ${archivedAssistant}, 'c024af79-2c23-4099-a835-0f914b646415', 'turn-archived',
+            'assistant', 'An enterprise note from the archived planning thread.', 0,
+            '2026-09-01T00:00:05.000Z', '2026-09-01T00:00:05.000Z'
+          )
+      `;
+
+        yield* sql`
+        INSERT INTO projection_turns (
+          thread_id, turn_id, pending_message_id, assistant_message_id, state,
+          requested_at, started_at, completed_at, checkpoint_files_json
+        )
+        VALUES (
+          'd1443945-34e3-4ef4-8e98-f1016c33f063', 'turn-enterprise', ${realUserMessage},
+          ${realCanonicalAssistant}, 'completed',
+          '2026-10-09T20:50:00.000Z', '2026-10-09T20:50:01.000Z', '2026-10-09T20:51:11.000Z', '[]'
+        ),
+        (
+          'c024af79-2c23-4099-a835-0f914b646415', 'turn-archived', NULL, ${archivedAssistant},
+          'completed', '2026-09-01T00:00:04.000Z', '2026-09-01T00:00:05.000Z',
+          '2026-09-01T00:00:06.000Z', '[]'
+        )
+      `;
+
+        // Default search: one match per active thread, the user message preferred.
+        const defaults = yield* snapshotQuery.searchThreads({ query: "enterprise" });
+        assert.deepStrictEqual(
+          defaults.matches.map((match) => [match.threadId, match.source, match.messageId]),
+          [["d1443945-34e3-4ef4-8e98-f1016c33f063", "user", realUserMessage]],
+        );
+
+        // Several matches per thread: the user message, then the canonical assistant
+        // output. The interim assistant text is never a search target.
+        const perThread = yield* snapshotQuery.searchThreads({
+          query: "enterprise",
+          matchesPerThread: 5,
+        });
+        assert.deepStrictEqual(
+          perThread.matches.map((match) => match.messageId).toSorted(),
+          [realCanonicalAssistant, realUserMessage].toSorted(),
+        );
+
+        // Archived threads stay out unless the caller asks for them.
+        const withArchived = yield* snapshotQuery.searchThreads({
+          query: "enterprise",
+          matchesPerThread: 5,
+          includeArchived: true,
+        });
+        assert.deepStrictEqual(
+          withArchived.matches
+            .filter((match) => match.threadId === "c024af79-2c23-4099-a835-0f914b646415")
+            .map((match) => [match.source, match.messageId]),
+          [["assistant", archivedAssistant]],
+        );
+
+        // The total limit still bounds the response, even with several matches per thread.
+        const capped = yield* snapshotQuery.searchThreads({
+          query: "enterprise",
+          matchesPerThread: 5,
+          includeArchived: true,
+          limit: 2,
+        });
+        assert.equal(capped.matches.length, 2);
+      }),
   );
 });
 

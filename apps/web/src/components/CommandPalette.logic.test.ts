@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 import { describe, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import type { Project, Thread } from "../types";
@@ -441,6 +442,28 @@ describe("buildThreadActionItems", () => {
     }
   });
 
+  it("passes the matched message to the run so a message result opens at that message", async () => {
+    const runThread = vi.fn(async (_thread: unknown, _messageId?: string) => undefined);
+    const [item] = buildThreadActionItems({
+      threads: [makeThread({ branch: "feat/search" })],
+      projectTitleById: new Map([[PROJECT_ID, "T3 Code"]]),
+      sortOrder: "updated_at",
+      icon: null,
+      getContentMatch: () => ({
+        source: "user",
+        snippet: "Please reconnect the relay.",
+        query: "reconnect",
+        messageId: "user:0f6c1d2a-3b4c-4d5e-8f70-1a2b3c4d5e6f",
+      }),
+      runThread,
+    });
+    await item?.run();
+    expect(runThread).toHaveBeenCalledWith(
+      expect.anything(),
+      "user:0f6c1d2a-3b4c-4d5e-8f70-1a2b3c4d5e6f",
+    );
+  });
+
   it("keeps message excerpts searchable without replacing thread metadata", () => {
     const [item] = buildThreadActionItems({
       threads: [makeThread({ branch: "feat/search" })],
@@ -451,6 +474,8 @@ describe("buildThreadActionItems", () => {
         source: "assistant",
         snippet: "The relay reconnect is now bounded.",
         query: "reconnect",
+        messageId:
+          "assistant:assistant:e8260b2c-ca47-4ef1-8b2c-903f788e6866:runtime:cb3b3a13:segment:64",
       }),
       runThread: async (_thread) => undefined,
     });
@@ -460,6 +485,8 @@ describe("buildThreadActionItems", () => {
       source: "assistant",
       snippet: "The relay reconnect is now bounded.",
       query: "reconnect",
+      messageId:
+        "assistant:assistant:e8260b2c-ca47-4ef1-8b2c-903f788e6866:runtime:cb3b3a13:segment:64",
     });
     expect(item?.description).toBe("T3 Code · #feat/search");
   });
@@ -618,4 +645,29 @@ it.each([
   expect(groups.flatMap((group) => group.items.map((item) => item.title))).toEqual([
     "Implementation",
   ]);
+});
+
+describe("reduceCommandPaletteUiState thread search", () => {
+  const closed = { open: false, mode: "command", openIntent: null } as const;
+
+  it("opens the thread search surface with the query it was given", () => {
+    expect(
+      reduceCommandPaletteUiState(closed, { _tag: "OpenThreadSearch", query: "telemetry" }),
+    ).toEqual({
+      open: true,
+      mode: "threads",
+      openIntent: { kind: "thread-search", query: "telemetry" },
+    });
+  });
+
+  it("closes again when its own shortcut is pressed twice, and never stacks with other surfaces", () => {
+    const open = reduceCommandPaletteUiState(closed, { _tag: "ToggleMode", mode: "threads" });
+    expect(open.mode).toBe("threads");
+    expect(reduceCommandPaletteUiState(open, { _tag: "ToggleMode", mode: "threads" }).open).toBe(
+      false,
+    );
+    expect(reduceCommandPaletteUiState(open, { _tag: "ToggleMode", mode: "content" }).mode).toBe(
+      "content",
+    );
+  });
 });

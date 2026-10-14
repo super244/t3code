@@ -1,7 +1,8 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { MessageSquareOffIcon } from "lucide-react";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 
 import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
@@ -31,6 +32,17 @@ import { environmentShell } from "../state/shell";
 
 function ChatThreadRouteView() {
   const navigate = useNavigate();
+  const navigateWithinThreadRoute = useNavigate({ from: Route.fullPath });
+  const clearFocusMessageRequest = useCallback(() => {
+    void navigateWithinThreadRoute({
+      search: (previous) => {
+        const { message: _message, ...rest } = previous;
+        return rest;
+      },
+      replace: true,
+      resetScroll: false,
+    });
+  }, [navigateWithinThreadRoute]);
   const threadRef = Route.useParams({
     select: (params) => resolveThreadRouteRef(params),
   });
@@ -114,6 +126,7 @@ function ChatThreadRouteView() {
           threadId={threadRef.threadId}
           routeKind="server"
           threadSyncPhase={threadSyncPhase}
+          onFocusMessageHandled={clearFocusMessageRequest}
         />
       ) : environmentUnknown || (renderState === "missing" && !environmentHasAnyThreads) ? (
         <Empty className="h-full">
@@ -139,6 +152,15 @@ function ChatThreadRouteView() {
   );
 }
 
+const MAX_FOCUS_MESSAGE_ID_LENGTH = 512;
+
 export const Route = createFileRoute("/_chat/$environmentId/$threadId")({
+  // `message` names a message to scroll to and flash, set by thread search.
+  validateSearch: (raw: Record<string, unknown>): { readonly message?: string } =>
+    typeof raw.message === "string" &&
+    raw.message.length > 0 &&
+    raw.message.length <= MAX_FOCUS_MESSAGE_ID_LENGTH
+      ? { message: raw.message }
+      : {},
   component: ChatThreadRouteView,
 });

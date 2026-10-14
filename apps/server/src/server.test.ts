@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
@@ -8234,6 +8234,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   {
                     threadId: ThreadId.make("thread-1"),
                     projectId: ProjectId.make("project-a"),
+                    messageId: MessageId.make("message-final"),
                     source: "assistant",
                     snippet: "Search reached the final response.",
                     messageCreatedAt: now,
@@ -8309,6 +8310,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         {
           threadId: ThreadId.make("thread-1"),
           projectId: ProjectId.make("project-a"),
+          messageId: MessageId.make("message-final"),
           source: "assistant",
           snippet: "Search reached the final response.",
           messageCreatedAt: now,

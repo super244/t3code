@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 import { useAtomValue } from "@effect/atom-react";
 import {
   type CheckpointDiffTarget,
@@ -5,8 +6,10 @@ import {
 } from "@t3tools/client-runtime/state/threads";
 import {
   createThreadSearchResultsAtomFamily,
+  DEFAULT_THREAD_SEARCH_OPTIONS,
   makeThreadSearchKey,
   type EnvironmentThreadSearchMatch,
+  type ThreadSearchOptions,
 } from "@t3tools/client-runtime/state/thread-search";
 import { type VcsRefTarget } from "@t3tools/client-runtime/state/vcs";
 import type {
@@ -45,10 +48,14 @@ const EMPTY_THREAD_SEARCH_ATOM = Atom.make({
 }).pipe(Atom.withLabel("web:thread-search:empty"));
 
 const threadSearchResultsAtom = createThreadSearchResultsAtomFamily({
-  getSearchAtom: (environmentId, query) =>
+  getSearchAtom: (environmentId, query, options) =>
     orchestrationEnvironment.threadSearch({
       environmentId,
-      input: { query },
+      input: {
+        query,
+        matchesPerThread: options.matchesPerThread,
+        includeArchived: options.includeArchived,
+      },
     }),
   labelPrefix: "web:thread-search",
 });
@@ -79,6 +86,7 @@ export function useDebouncedValue<A>(value: A, delayMs: number): A {
 export function useThreadSearch(
   environmentIds: ReadonlyArray<EnvironmentId>,
   query: string,
+  options: ThreadSearchOptions = DEFAULT_THREAD_SEARCH_OPTIONS,
 ): {
   readonly matches: ReadonlyArray<EnvironmentThreadSearchMatch>;
   readonly isPending: boolean;
@@ -88,8 +96,9 @@ export function useThreadSearch(
   const canSearch = environmentIds.length > 0 && normalizedQuery.length >= 2;
   const settledQuery = canSearch && normalizedQuery === debouncedQuery ? debouncedQuery : null;
   const searchKey = useMemo(
-    () => (settledQuery === null ? null : makeThreadSearchKey(environmentIds, settledQuery)),
-    [environmentIds, settledQuery],
+    () =>
+      settledQuery === null ? null : makeThreadSearchKey(environmentIds, settledQuery, options),
+    [environmentIds, options, settledQuery],
   );
   const result = useAtomValue(
     searchKey === null ? EMPTY_THREAD_SEARCH_ATOM : threadSearchResultsAtom(searchKey),

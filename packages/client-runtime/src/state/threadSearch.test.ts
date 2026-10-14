@@ -1,5 +1,7 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 import {
   EnvironmentId,
+  MessageId,
   ProjectId,
   ThreadId,
   type OrchestrationSearchThreadsResult,
@@ -23,12 +25,20 @@ it("creates stable keys regardless of environment order", () => {
   );
 });
 
+it("keys searches by their options so the palette and the thread search surface never share results", () => {
+  expect(makeThreadSearchKey([envA], "needle")).not.toBe(
+    makeThreadSearchKey([envA], "needle", { matchesPerThread: 3, includeArchived: true }),
+  );
+});
+
 it("creates keys without array methods unavailable in Hermes", () => {
   const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, "toSorted");
   Reflect.deleteProperty(Array.prototype, "toSorted");
 
   try {
-    expect(makeThreadSearchKey([envB, envA], "needle")).toBe('[["env-a","env-b"],"needle"]');
+    expect(makeThreadSearchKey([envB, envA], "needle")).toBe(
+      '[["env-a","env-b"],"needle",{"matchesPerThread":1,"includeArchived":false}]',
+    );
   } finally {
     if (descriptor !== undefined) {
       Reflect.defineProperty(Array.prototype, "toSorted", descriptor);
@@ -100,6 +110,7 @@ it("merges successful environments and silently ignores failures", () => {
       {
         threadId: ThreadId.make("thread-a"),
         projectId: ProjectId.make("project-a"),
+        messageId: MessageId.make("user:thread-a:1"),
         source: "user",
         snippet: "needle",
         messageCreatedAt: "2026-07-30T00:00:00.000Z",

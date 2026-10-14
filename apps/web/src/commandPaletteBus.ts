@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 import type { EnvironmentId, PullRequestLinkedThreadsResult } from "@t3tools/contracts";
 
 export interface CommandPaletteLinkedThreads {
@@ -12,6 +13,8 @@ const COMMAND_PALETTE_OPEN_EVENT = "t3code:open-command-palette";
 export interface CommandPaletteOpenDetail {
   readonly open?: "add-project" | "new-thread-in";
   readonly query?: string;
+  /** Opens the thread search surface with this query, for the sidebar's "search messages" row. */
+  readonly threadSearchQuery?: string;
   readonly linkedThreads?: CommandPaletteLinkedThreads;
 }
 

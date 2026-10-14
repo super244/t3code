@@ -1,4 +1,4 @@
-/* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
@@ -95,7 +95,7 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
@@ -693,6 +693,8 @@ type ChatViewProps =
       reserveTitleBarControlInset?: boolean;
       forceExpandedMobileComposer?: boolean;
       threadSyncPhase?: ThreadSyncPhase | null;
+      /** Clears the `?message=` request once the timeline has reached it. */
+      onFocusMessageHandled?: () => void;
       routeKind: "server";
       draftId?: never;
     }
@@ -1417,6 +1419,8 @@ export default function ChatView(props: ChatViewProps) {
   } = props;
   const draftId = routeKind === "draft" ? props.draftId : null;
   const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
+  const onFocusMessageHandledFromRoute =
+    routeKind === "server" ? props.onFocusMessageHandled : undefined;
   const threadDetailLoading = threadSyncPhase === "loading";
   const handleNewThread = useNewThreadHandler();
   const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
@@ -1530,6 +1534,16 @@ export default function ChatView(props: ChatViewProps) {
       key: location.state.assistantCitationActivation ?? location.state.__TSR_key,
     }),
   });
+  // A thread search result opens the thread with `?message=<id>`; the timeline
+  // scrolls to it once and the parameter is then cleared so a reload stays put.
+  const focusMessageId = useSearch({
+    strict: false,
+    select: (search) =>
+      typeof search.message === "string" && search.message.length > 0 ? search.message : null,
+  });
+  const handleFocusMessageHandled = useCallback(() => {
+    onFocusMessageHandledFromRoute?.();
+  }, [onFocusMessageHandledFromRoute]);
   const citationRequest = useMemo<AssistantCitationRequest | null>(() => {
     const citation = assistantCitationFromLocation(citationLocation.href);
     return citation && citation.environmentId === environmentId && citation.threadId === threadId
@@ -8360,6 +8374,8 @@ export default function ChatView(props: ChatViewProps) {
                 hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
                 topFadeEnabled={!hasTimelineTopBanner}
                 loadEarlier={loadEarlierTurns}
+                focusMessageId={focusMessageId}
+                onFocusMessageHandled={handleFocusMessageHandled}
               />
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}

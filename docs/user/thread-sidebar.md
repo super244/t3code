@@ -127,6 +127,12 @@ On web and desktop, open the command palette with `Cmd/Ctrl+K` to search threads
 across connected environments. Message search starts after two characters and
 includes your messages and final agent responses.
 
+To search every thread's messages in one list, grouped by project and thread,
+press `Cmd/Ctrl+Alt+F` or choose **Search threads and messages** in the palette.
+Archived threads are included. Selecting a message opens its thread at that
+message and briefly highlights it. The sidebar's **Search messages** row opens
+the same list with your sidebar query.
+
 Use **Settings → Keybindings** to find or customize shortcuts for searching files
 and copying a thread reference. A copied reference uses the thread's pull request
 link when available, otherwise its thread ID. See [keybindings](./keybindings.md)

@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-03 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-03 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
@@ -547,6 +548,30 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   syntax: "<number>";
   inherits: true;
   initial-value: 0;
+}
+
+/* A message reached from thread search: one brief tint, then it is plain again. */
+@keyframes message-focus-flash {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  20%,
+  60% {
+    background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+  }
+}
+
+.message-focus-flash {
+  border-radius: var(--radius-lg);
+  animation: message-focus-flash 1.6s ease-out 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-focus-flash {
+    animation: none;
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 45%, transparent);
+  }
 }
 
 @layer base {

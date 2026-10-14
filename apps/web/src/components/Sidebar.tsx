@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
@@ -263,6 +264,7 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { THREAD_SEARCH_MIN_QUERY_LENGTH } from "./search/threadSearch.logic";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -5211,6 +5213,20 @@ export default function Sidebar() {
                 <p className="text-sidebar-muted-foreground/70">{SCAN_SEARCH_SCOPE_HINT}</p>
               </div>
             )
+          ) : null}
+          {isSearchingThreads &&
+          threadSearchQuery.trim().length >= THREAD_SEARCH_MIN_QUERY_LENGTH ? (
+            <button
+              type="button"
+              className="mt-1 flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+              onClick={() => openCommandPalette({ threadSearchQuery: threadSearchQuery.trim() })}
+            >
+              <SearchIcon className="size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Search messages</span>
+              <span className="shrink-0 tabular-nums text-sidebar-muted-foreground/70">
+                {searchableThreads.length} {searchableThreads.length === 1 ? "thread" : "threads"}
+              </span>
+            </button>
           ) : null}
           {!isSearchingThreads ? (
             <TooltipProvider

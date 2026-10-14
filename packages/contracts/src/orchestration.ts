@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=45m; seat=opencode; date=2026-10-08 */
 import * as Effect from "effect/Effect";
@@ -2157,13 +2158,22 @@ export type OrchestrationThreadSearchSource = typeof OrchestrationThreadSearchSo
 // scan input and response size so a search cannot monopolize that connection.
 export const OrchestrationSearchThreadsInput = Schema.Struct({
   query: TrimmedString.check(Schema.isMinLength(2), Schema.isMaxLength(200)),
+  /** Total matches returned across all threads. */
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 }))),
+  /** Matches returned per thread, best-ranked first. Default 1 keeps one snippet per thread. */
+  matchesPerThread: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 5 })),
+  ),
+  /** Archived threads are excluded unless the caller asks for them. */
+  includeArchived: Schema.optionalKey(Schema.Boolean),
 });
 export type OrchestrationSearchThreadsInput = typeof OrchestrationSearchThreadsInput.Type;
 
 export const OrchestrationThreadSearchMatch = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
+  /** The message that matched, so a client can open the thread at that message. */
+  messageId: MessageId,
   source: OrchestrationThreadSearchSource,
   snippet: Schema.String.check(Schema.isMaxLength(240)),
   messageCreatedAt: Schema.NullOr(IsoDateTime),

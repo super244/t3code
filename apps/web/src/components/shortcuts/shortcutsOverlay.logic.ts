@@ -1,3 +1,4 @@
+/* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-11 */
 import type { KeybindingCommand } from "@t3tools/contracts";
 
@@ -24,7 +25,15 @@ const GROUPS: ReadonlyArray<{ id: string; title: string; prefixes: ReadonlyArray
   {
     id: "general",
     title: "General",
-    prefixes: ["commandPalette", "filePicker", "projectSearch", "sidebar", "themeEditor", "editor"],
+    prefixes: [
+      "commandPalette",
+      "filePicker",
+      "projectSearch",
+      "threadSearch",
+      "sidebar",
+      "themeEditor",
+      "editor",
+    ],
   },
   { id: "threads", title: "Threads", prefixes: ["chat", "thread", "composer", "modelPicker"] },
   { id: "panels", title: "Panels & diff", prefixes: ["rightPanel", "diff", "preview"] },
