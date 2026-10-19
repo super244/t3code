@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=25m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-10 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
@@ -137,6 +138,7 @@ import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
 import * as ReviewService from "./review/ReviewService.ts";
+import { makeRaceHistoryStore } from "./race/RaceHistoryStore.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import { importRecentAgentThreads } from "./project/AgentSessionImporter.ts";
@@ -556,6 +558,7 @@ const makeWsRpcLayer = (
       const providerInstallation = yield* makeProviderInstallation();
       const serverUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
+      const raceHistory = yield* makeRaceHistoryStore(config.stateDir);
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
@@ -2683,6 +2686,18 @@ const makeWsRpcLayer = (
             review.getDiffFileContents(input),
             { "rpc.aggregate": "review" },
           ),
+        [WS_METHODS.raceRecordResult]: (input) =>
+          observeRpcEffect(WS_METHODS.raceRecordResult, raceHistory.record(input), {
+            "rpc.aggregate": "race",
+          }),
+        [WS_METHODS.raceListHistory]: (input) =>
+          observeRpcEffect(WS_METHODS.raceListHistory, raceHistory.list(input), {
+            "rpc.aggregate": "race",
+          }),
+        [WS_METHODS.raceForgetResult]: (input) =>
+          observeRpcEffect(WS_METHODS.raceForgetResult, raceHistory.forget(input.raceId), {
+            "rpc.aggregate": "race",
+          }),
         [WS_METHODS.terminalOpen]: (input) =>
           observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
             "rpc.aggregate": "terminal",

@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=4m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=40m; seat=claude-code; date=2026-10-18 */
 /**
  * Pure helpers behind the Race Arena: splitting each entrant's worktree diff
@@ -360,4 +361,28 @@ export function raceJudgePhase(thread: {
     return "judging";
   if (status === "running" || status === "starting") return "judging";
   return "done";
+}
+
+/**
+ * The cost a provider reported for an entrant's session, or null when it
+ * reported none. Claude's SDK reports a running session total with each
+ * turn, so the largest value is the session's cost so far.
+ */
+export function reportedSessionCostUsd(
+  activities: ReadonlyArray<{ readonly kind: string; readonly payload: unknown }>,
+): number | null {
+  let cost: number | null = null;
+  for (const activity of activities) {
+    if (activity.kind !== "turn.cost") continue;
+    const value = (activity.payload as { readonly totalCostUsd?: unknown } | null)?.totalCostUsd;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) continue;
+    cost = cost === null ? value : Math.max(cost, value);
+  }
+  return cost;
+}
+
+export function formatRaceCost(costUsd: number | null): string {
+  if (costUsd === null) return "—";
+  if (costUsd < 0.01) return "<$0.01";
+  return `$${costUsd.toFixed(costUsd < 1 ? 3 : 2)}`;
 }

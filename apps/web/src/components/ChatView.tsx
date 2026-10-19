@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=3m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
@@ -338,6 +339,7 @@ import { resolveTimelineIsAtEnd } from "./chat/MessagesTimeline.logic";
 import { resolveComposerTimelineInset, resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
 import { HandoffLinks } from "./handoff/HandoffLinks";
+import { RaceLinks } from "./race/RaceLinks";
 import { openHandoffDialog } from "../handoffDialog";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { expandedImageKey, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -8323,6 +8325,9 @@ export default function ChatView(props: ChatViewProps) {
               />
               {isServerThread && activeServerThread ? (
                 <HandoffLinks thread={activeServerThread} />
+              ) : null}
+              {isServerThread && activeServerThread ? (
+                <RaceLinks thread={activeServerThread} />
               ) : null}
             </div>
             {/* Messages Wrapper */}

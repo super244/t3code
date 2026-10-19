@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=muse-spark; effort=high; duration=35m; seat=opencode; date=2026-10-10 */
 export * from "./baseSchemas.ts";
 export * from "./assistantCitations.ts";
@@ -34,6 +35,7 @@ export * from "./filesystem.ts";
 export * from "./agentSessions.ts";
 export * from "./assets.ts";
 export * from "./review.ts";
+export * from "./raceHistory.ts";
 export * from "./browserImport.ts";
 export * from "./browserProfile.ts";
 export * from "./preview.ts";

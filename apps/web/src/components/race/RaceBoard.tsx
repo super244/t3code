@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-18 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=110m; seat=claude-code; date=2026-10-04 */
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -5,10 +6,9 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import type { ServerProvider } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowUpRightIcon, CheckIcon, ColumnsIcon, Trash2Icon } from "lucide-react";
+import { useEffect } from "react";
 
 import { cn } from "../../lib/utils";
-import { useEnvironmentQuery } from "../../state/query";
-import { vcsEnvironment } from "../../state/vcs";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { useUiStateStore } from "../../uiStateStore";
@@ -17,7 +17,7 @@ import { resolveThreadStatusPill } from "../Sidebar.logic";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { raceModelLabel, raceProviderLabel } from "./RaceComposer";
+import { raceModelLabel, raceProviderLabel } from "./raceLabels";
 import {
   canKeepRaceEntrant,
   raceEntrantPhase,
@@ -30,6 +30,8 @@ import {
   useRaceEntrantActions,
   type RaceBoardContext,
 } from "./useRaceEntrantActions";
+import { useEntrantReport, useEntrantReports, type EntrantReport } from "./useEntrantReport";
+import { useRaceRecorder } from "./useRaceRecorder";
 
 type Race = RaceGroup<EnvironmentThreadShell>;
 type Entrant = RaceEntrant<EnvironmentThreadShell>;
@@ -80,6 +82,15 @@ export function RaceCard({ race, context }: { race: Race; context: RaceBoardCont
     race,
     context,
   );
+  const [reports, report] = useEntrantReports();
+  const recordResult = useRaceRecorder(race, context, reports);
+  const keepAndRecord = async (entrant: Entrant) => {
+    // Snapshot before Keep discards the losers, so their lines are recorded too.
+    const entrants = race.entrants;
+    if (await keep(entrant)) {
+      await recordResult({ outcome: "kept", keptSlot: entrant.slot }, entrants);
+    }
+  };
   const finishedCount = race.entrants.filter(
     (entrant) => raceEntrantPhase(entrant.thread) === "finished",
   ).length;
@@ -145,7 +156,8 @@ export function RaceCard({ race, context }: { race: Race; context: RaceBoardCont
             busy={pendingThreadId !== null}
             pending={pendingThreadId === entrant.thread.id}
             keepTarget={checkoutBranch}
-            onKeep={() => void keep(entrant)}
+            onReport={report}
+            onKeep={() => void keepAndRecord(entrant)}
             onDiscard={() => void discard(entrant)}
           />
         ))}
@@ -162,6 +174,7 @@ function EntrantCard({
   keepTarget,
   onKeep,
   onDiscard,
+  onReport,
 }: {
   entrant: Entrant;
   provider: ServerProvider | null;
@@ -170,20 +183,19 @@ function EntrantCard({
   keepTarget: string | null;
   onKeep: () => void;
   onDiscard: () => void;
+  onReport: (threadId: string, report: EntrantReport) => void;
 }) {
   const { thread } = entrant;
+  // The same diff the arena reads, so new untracked files count here too.
+  const { report } = useEntrantReport(thread);
+  useEffect(() => {
+    onReport(thread.id, report);
+  }, [onReport, thread.id, report]);
+  const changes = report.changes;
   const navigate = useNavigate();
   const threadRef = scopeThreadRef(thread.environmentId, thread.id);
   const lastVisitedAt = useUiStateStore(
     (state) => state.threadLastVisitedAtById[scopedThreadKey(threadRef)],
-  );
-  const worktreeStatus = useEnvironmentQuery(
-    thread.worktreePath
-      ? vcsEnvironment.status({
-          environmentId: thread.environmentId,
-          input: { cwd: thread.worktreePath },
-        })
-      : null,
   );
   const phase = raceEntrantPhase(thread);
   const pill = resolveThreadStatusPill({ thread: { ...thread, lastVisitedAt } });
@@ -191,8 +203,8 @@ function EntrantCard({
     ? { label: pill.label, colorClass: pill.colorClass, dotClass: pill.dotClass }
     : PHASE_PRESENTATION[phase];
   const ProviderIcon = provider ? PROVIDER_ICON_BY_PROVIDER[provider.driver] : undefined;
-  const workingTree = worktreeStatus.data?.workingTree;
-  const keepable = canKeepRaceEntrant(thread);
+  const nothingToKeep = changes?.files.length === 0;
+  const keepable = canKeepRaceEntrant(thread) && !nothingToKeep;
 
   return (
     <article
@@ -230,21 +242,23 @@ function EntrantCard({
       </header>
 
       <dl className="flex min-w-0 items-baseline gap-3 text-xs tabular-nums">
-        {workingTree ? (
+        {changes ? (
           <>
             <div className="flex items-baseline gap-1">
               <dt className="sr-only">Insertions</dt>
-              <dd className="text-success">+{workingTree.insertions}</dd>
+              <dd className="text-success">+{changes.additions}</dd>
             </div>
             <div className="flex items-baseline gap-1">
               <dt className="sr-only">Deletions</dt>
-              <dd className="text-destructive">−{workingTree.deletions}</dd>
+              <dd className="text-destructive">−{changes.deletions}</dd>
             </div>
             <div className="flex items-baseline gap-1 text-muted-foreground">
-              <dd>{workingTree.files.length}</dd>
-              <dt>{workingTree.files.length === 1 ? "file" : "files"}</dt>
+              <dd>{changes.files.length}</dd>
+              <dt>{changes.files.length === 1 ? "file" : "files"}</dt>
             </div>
           </>
+        ) : report.diffError ? (
+          <dd className="truncate text-destructive">{report.diffError}</dd>
         ) : (
           <dd className="text-muted-foreground">
             {thread.worktreePath ? "Reading changes…" : "Creating worktree…"}
@@ -278,7 +292,13 @@ function EntrantCard({
         <Tooltip>
           <TooltipTrigger
             render={<span className="ml-auto" />}
-            aria-label={keepable ? undefined : "Available when the entrant finishes"}
+            aria-label={
+              keepable
+                ? undefined
+                : nothingToKeep
+                  ? "Nothing to keep: this entrant changed no files"
+                  : "Available when the entrant finishes"
+            }
           >
             <Button size="sm" disabled={busy || !keepable} onClick={onKeep}>
               <CheckIcon /> {pending ? "Keeping…" : "Keep"}
@@ -287,7 +307,9 @@ function EntrantCard({
           <TooltipPopup side="top">
             {keepable
               ? `Merge into ${keepTarget ?? "the project checkout"} and discard the rest`
-              : "Available when the entrant finishes"}
+              : nothingToKeep
+                ? "Nothing to keep: this entrant changed no files"
+                : "Available when the entrant finishes"}
           </TooltipPopup>
         </Tooltip>
       </footer>

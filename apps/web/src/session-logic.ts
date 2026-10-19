@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-19 */
 import {
   requestKindFromRequestType,
   type PendingApproval,
@@ -462,6 +463,7 @@ export function deriveWorkLogEntries(
     if (activity.kind === "task.updated") continue;
     if (activity.kind === "tool.progress") continue;
     if (activity.kind === "context-window.updated") continue;
+    if (activity.kind === "turn.cost") continue;
     if (activity.kind === "turn.plan.updated") continue;
     if (activity.summary === "Checkpoint captured") continue;
     if (isNoContentRuntimeWarning(activity)) continue;

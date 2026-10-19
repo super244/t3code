@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=40m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=95m; seat=claude-code; date=2026-10-18 */
 import { FileDiff } from "@pierre/diffs/react";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -6,7 +7,16 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import { DEFAULT_RUNTIME_MODE, type ModelSelection, type ServerProvider } from "@t3tools/contracts";
+import {
+  DEFAULT_RUNTIME_MODE,
+  type ModelSelection,
+  type OrchestrationMessage,
+  type RaceHistoryJudge,
+  type RaceHistoryRecord,
+  type RaceTaskKind,
+  type ServerProvider,
+} from "@t3tools/contracts";
+import { guessRaceTaskKind, RACE_TASK_KIND_LABELS } from "@t3tools/shared/raceHistory";
 import {
   buildRaceJudgeBrief,
   buildRaceJudgeTitle,
@@ -20,12 +30,14 @@ import {
   ArrowUpRightIcon,
   CheckIcon,
   ChevronRightIcon,
+  CircleSlashIcon,
   CrownIcon,
   FileDiffIcon,
   FlagIcon,
   GavelIcon,
   Trash2Icon,
   TriangleAlertIcon,
+  TrophyIcon,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -37,7 +49,7 @@ import { cn, newMessageId, newThreadId } from "../../lib/utils";
 import { deriveWorkLogEntries } from "../../session-logic";
 import { useThread, useThreadShells, waitForThreadShell } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
-import { reviewEnvironment } from "../../state/review";
+import { raceHistoryEnvironment } from "../../state/raceHistory";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
@@ -56,16 +68,13 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { PHASE_PRESENTATION } from "./RaceBoard";
-import {
-  formatRaceAgentLabel,
-  raceModelLabel,
-  raceProviderLabel,
-  RaceSelect,
-} from "./RaceComposer";
+import { RaceSelect } from "./RaceComposer";
+import { formatRaceAgentLabel, raceModelLabel, raceProviderLabel } from "./raceLabels";
+import { useEntrantReport, useEntrantReports, type EntrantReport } from "./useEntrantReport";
+import { useRaceRecorder } from "./useRaceRecorder";
 import {
   buildRaceEntrantFeed,
   buildRaceFileMatrix,
-  combineEntrantChanges,
   formatRaceDuration,
   raceEntrantElapsedMs,
   raceJudgePhase,
@@ -92,15 +101,7 @@ type Race = RaceGroup<EnvironmentThreadShell>;
 type Entrant = RaceEntrant<EnvironmentThreadShell>;
 type EntrantFile = RaceEntrantChanges["files"][number];
 
-/** What each lane learns about its entrant and hands up to the arena. */
-interface LaneReport {
-  readonly changes: RaceEntrantChanges | null;
-  readonly diffText: string;
-  readonly diffError: string | null;
-  readonly finalMessage: string | null;
-  /** The shared race prompt as this entrant received it. */
-  readonly prompt: string | null;
-}
+const EMPTY_MESSAGES: ReadonlyArray<OrchestrationMessage> = [];
 
 // Each lane is a column on wide screens; literal classes so Tailwind sees them.
 const LANE_COLUMNS: Record<number, string> = {
@@ -117,8 +118,6 @@ const LANE_ACCENTS = [
   "bg-amber-500 dark:bg-amber-400",
   "bg-emerald-500 dark:bg-emerald-400",
 ] as const;
-
-const DIFF_REFRESH_WHILE_WORKING_MS = 4_000;
 
 function laneAccent(slot: number): string {
   return LANE_ACCENTS[(slot - 1) % LANE_ACCENTS.length]!;
@@ -211,34 +210,26 @@ export function RaceArena({
 
 function RaceArenaBody({ race, context }: { race: Race; context: RaceBoardContext }) {
   const actions = useRaceEntrantActions(race, context);
-  const [reports, setReports] = useState<ReadonlyMap<string, LaneReport>>(() => new Map());
+  const [reports, report] = useEntrantReports();
+  const recordResult = useRaceRecorder(race, context, reports);
   const [expandedPath, setExpandedPath] = useState<string | null>(null);
   const [kept, setKept] = useState<{ readonly slot: number; readonly label: string } | null>(null);
+  const judgeForKeep = useRef<RaceHistoryJudge | null>(null);
   const keepEntrant = useCallback(
     async (entrant: Entrant) => {
       const label = raceEntrantLabel(race, entrant, context);
-      if (await actions.keep(entrant)) setKept({ slot: entrant.slot, label });
-    },
-    [actions, context, race],
-  );
-  const report = useCallback((threadId: string, next: LaneReport) => {
-    setReports((current) => {
-      const previous = current.get(threadId);
-      if (
-        previous &&
-        previous.diffText === next.diffText &&
-        previous.finalMessage === next.finalMessage &&
-        previous.diffError === next.diffError &&
-        previous.prompt === next.prompt &&
-        (previous.changes === null) === (next.changes === null)
-      ) {
-        return current;
+      // Snapshot before Keep discards the losers, so their lines are recorded too.
+      const entrants = race.entrants;
+      if (await actions.keep(entrant)) {
+        setKept({ slot: entrant.slot, label });
+        await recordResult(
+          { outcome: "kept", keptSlot: entrant.slot, judge: judgeForKeep.current },
+          entrants,
+        );
       }
-      const copy = new Map(current);
-      copy.set(threadId, next);
-      return copy;
-    });
-  }, []);
+    },
+    [actions, context, race, recordResult],
+  );
 
   const phases = race.entrants.map((entrant) => raceEntrantPhase(entrant.thread));
   const anyWorking = phases.some((phase) => phase === "working" || phase === "preparing");
@@ -256,7 +247,32 @@ function RaceArenaBody({ race, context }: { race: Race; context: RaceBoardContex
   );
 
   const judge = useRaceJudge(race);
-  const entrantSlots = race.entrants.map((entrant) => entrant.slot);
+  const judgeOfRecord = judge.report?.judge ?? null;
+  useEffect(() => {
+    judgeForKeep.current = judgeOfRecord;
+  }, [judgeOfRecord]);
+  const entrantSlots = useMemo(() => race.entrants.map((entrant) => entrant.slot), [race.entrants]);
+
+  // A judge's finished verdict goes into the history as soon as it is in.
+  const recordedJudge = useRef<string | null>(null);
+  const judgeReport = judge.report;
+  const allLoaded = race.entrants.every((entrant) => reports.get(entrant.thread.id)?.changes);
+  const history = useEnvironmentQuery(
+    raceHistoryEnvironment.list({ environmentId: race.environmentId, input: {} }),
+  );
+  const historyLoaded = history.data !== null;
+  const recorded = history.data?.records.find((item) => item.raceId === race.raceId) ?? null;
+  const recordedJudgeKey = recorded?.judge
+    ? `${recorded.judge.label}:${recorded.judge.pickSlot ?? "none"}`
+    : null;
+  useEffect(() => {
+    if (!judgeReport?.done || judgeReport.verdict === null || !allLoaded || !historyLoaded) return;
+    const key = `${judgeReport.judge.label}:${judgeReport.judge.pickSlot ?? "none"}`;
+    // Already in the history (this visit or an earlier one): nothing to send.
+    if (recordedJudge.current === key || recordedJudgeKey === key) return;
+    recordedJudge.current = key;
+    void recordResult({ outcome: "open", judge: judgeReport.judge });
+  }, [judgeReport, allLoaded, historyLoaded, recordedJudgeKey, recordResult]);
 
   return (
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 pt-5 pb-14 sm:px-6">
@@ -282,6 +298,27 @@ function RaceArenaBody({ race, context }: { race: Race; context: RaceBoardContex
           </dl>
         </div>
         <RacePrompt race={race} />
+        <RaceRecordBar
+          record={recorded}
+          historyError={history.error}
+          guessedKind={guessRaceTaskKind(
+            reports.get(race.entrants[0]?.thread.id ?? "")?.prompt ?? race.titleSeed,
+          )}
+          canClose={
+            phases.every((phase) => phase === "finished" || phase === "failed") && allLoaded
+          }
+          onKindChange={(taskKind) =>
+            void recordResult({
+              outcome: recorded?.outcome ?? "open",
+              keptSlot: recorded?.keptSlot ?? null,
+              judge: judge.report?.judge ?? null,
+              taskKind,
+            })
+          }
+          onCloseWithoutWinner={() =>
+            void recordResult({ outcome: "none", judge: judge.report?.judge ?? null })
+          }
+        />
         {kept ? (
           <div
             role="status"
@@ -349,6 +386,92 @@ function RaceArenaBody({ race, context }: { race: Race; context: RaceBoardContex
   );
 }
 
+const TASK_KIND_OPTIONS = (Object.keys(RACE_TASK_KIND_LABELS) as RaceTaskKind[]).map((kind) => ({
+  value: kind,
+  label: RACE_TASK_KIND_LABELS[kind],
+}));
+
+/**
+ * Where this race stands in the history: its kind of task (a guess until the
+ * user picks one), whether a result is recorded, and a way to close it without
+ * a winner so a race nobody keeps still counts on the scoreboard.
+ */
+function RaceRecordBar({
+  record,
+  historyError,
+  guessedKind,
+  canClose,
+  onKindChange,
+  onCloseWithoutWinner,
+}: {
+  record: RaceHistoryRecord | null;
+  historyError: string | null;
+  guessedKind: RaceTaskKind;
+  canClose: boolean;
+  onKindChange: (kind: RaceTaskKind) => void;
+  onCloseWithoutWinner: () => void;
+}) {
+  const kind = record?.taskKind ?? guessedKind;
+  const guessed = !record || record.taskKindSource === "guessed";
+  const keptEntrant =
+    record?.outcome === "kept"
+      ? (record.entrants.find((entrant) => entrant.slot === record.keptSlot) ?? null)
+      : null;
+  const decided = record?.outcome === "kept" || record?.outcome === "none";
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground">Kind of task</span>
+        <div className="w-32">
+          <RaceSelect
+            ariaLabel="Kind of task"
+            value={kind}
+            options={TASK_KIND_OPTIONS}
+            onChange={(value) => onKindChange(value as RaceTaskKind)}
+          />
+        </div>
+        {guessed ? (
+          <span className="text-[11px] text-muted-foreground/80">guessed from the prompt</span>
+        ) : null}
+      </div>
+      <span aria-hidden className="hidden h-4 w-px bg-border sm:block" />
+      <span className="inline-flex min-w-0 items-center gap-1.5">
+        <TrophyIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        {historyError ? (
+          <span className="truncate text-destructive">History unavailable: {historyError}</span>
+        ) : record?.outcome === "kept" ? (
+          <span className="truncate">
+            On the scoreboard · kept <span className="font-medium">#{record.keptSlot}</span>
+            {keptEntrant ? ` ${keptEntrant.label}` : ""}
+          </span>
+        ) : record?.outcome === "none" ? (
+          <span>On the scoreboard · no winner</span>
+        ) : record ? (
+          <span>Judged · not decided yet</span>
+        ) : (
+          <span className="text-muted-foreground">
+            Not on the scoreboard yet — keep a winner or close it without one
+          </span>
+        )}
+      </span>
+      {!decided ? (
+        <Tooltip>
+          <TooltipTrigger render={<span className="sm:ml-auto" />}>
+            <Button size="sm" variant="ghost" disabled={!canClose} onClick={onCloseWithoutWinner}>
+              <CircleSlashIcon /> No winner
+            </Button>
+          </TooltipTrigger>
+          <TooltipPopup side="top">
+            {canClose
+              ? "Record this race as having no winner; its entrants stay until you discard them"
+              : "Available when every entrant has stopped"}
+          </TooltipPopup>
+        </Tooltip>
+      ) : null}
+    </div>
+  );
+}
+
 function SummaryStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5 px-3.5 py-2">
@@ -409,74 +532,29 @@ function EntrantLane({
   pending: boolean;
   keepTarget: string | null;
   judgePick: boolean;
-  onReport: (threadId: string, report: LaneReport) => void;
+  onReport: (threadId: string, report: EntrantReport) => void;
   onKeep: () => void;
   onDiscard: () => void;
 }) {
   const navigate = useNavigate();
   const shell = entrant.thread;
   const threadRef = scopeThreadRef(shell.environmentId, shell.id);
-  const thread = useThread(threadRef);
+  const { thread, report, phase, working } = useEntrantReport(shell);
+  const { changes } = report;
+  const messages = thread?.messages ?? EMPTY_MESSAGES;
   const lastVisitedAt = useUiStateStore(
     (state) => state.threadLastVisitedAtById[scopedThreadKey(threadRef)],
   );
   const provider = raceEntrantProvider(race, entrant, context);
   const ProviderIcon = provider ? PROVIDER_ICON_BY_PROVIDER[provider.driver] : undefined;
-  const phase = raceEntrantPhase(shell);
   const pill = resolveThreadStatusPill({ thread: { ...shell, lastVisitedAt } });
   const status = pill
     ? { label: pill.label, colorClass: pill.colorClass, dotClass: pill.dotClass }
     : PHASE_PRESENTATION[phase];
-  const working = phase === "working" || phase === "preparing";
-
-  const diff = useEnvironmentQuery(
-    shell.worktreePath
-      ? reviewEnvironment.diffPreview({
-          environmentId: shell.environmentId,
-          input: { cwd: shell.worktreePath },
-        })
-      : null,
-  );
-  const refreshDiff = diff.refresh;
-  useEffect(() => {
-    if (!working || !shell.worktreePath) return;
-    const handle = window.setInterval(refreshDiff, DIFF_REFRESH_WHILE_WORKING_MS);
-    return () => window.clearInterval(handle);
-  }, [working, refreshDiff, shell.worktreePath]);
-  // One more read when the entrant stops, so the final state is what's compared.
-  const completedAt = shell.latestTurn?.completedAt ?? null;
-  useEffect(() => {
-    if (completedAt) refreshDiff();
-  }, [completedAt, refreshDiff]);
-
-  const sources = diff.data?.sources ?? null;
-  const committed = sources?.find((source) => source.kind === "branch-range") ?? null;
-  const uncommitted = sources?.find((source) => source.kind === "working-tree") ?? null;
-  const changes = useMemo(
-    () =>
-      sources
-        ? combineEntrantChanges({
-            committed: committed?.diff,
-            uncommitted: uncommitted?.diff,
-            truncated: (committed?.truncated ?? false) || (uncommitted?.truncated ?? false),
-          })
-        : null,
-    [sources, committed, uncommitted],
-  );
-  const diffText = [committed?.diff ?? "", uncommitted?.diff ?? ""]
-    .filter((text) => text.trim().length > 0)
-    .join("\n");
-
-  const messages = thread?.messages ?? [];
-  const finalMessage =
-    messages.toReversed().find((message) => message.role === "assistant" && !message.streaming)
-      ?.text ?? null;
-
-  const prompt = messages.find((message) => message.role === "user")?.text ?? null;
 
   useEffect(() => {
-    onReport(shell.id, { changes, diffText, diffError: diff.error, finalMessage, prompt });
-  }, [onReport, shell.id, changes, diffText, diff.error, finalMessage, prompt]);
+    onReport(shell.id, report);
+  }, [onReport, shell.id, report]);
 
   const feed = useMemo(
     () =>
@@ -586,10 +664,10 @@ function EntrantLane({
               </Badge>
             ) : null}
           </>
-        ) : diff.error ? (
+        ) : report.diffError ? (
           <span className="inline-flex min-w-0 items-center gap-1 text-destructive">
             <TriangleAlertIcon className="size-3.5 shrink-0" />
-            <span className="truncate">{diff.error}</span>
+            <span className="truncate">{report.diffError}</span>
           </span>
         ) : (
           <span className="text-muted-foreground">
@@ -791,10 +869,30 @@ const EntrantFeed = memo(function EntrantFeed({
 // Judge
 // ---------------------------------------------------------------------------
 
+/** What the arena knows about the judge it is showing, for marking and recording. */
+interface RaceJudgeReport {
+  readonly threadId: string;
+  readonly verdict: RaceJudgeVerdict | null;
+  readonly judge: RaceHistoryJudge;
+  readonly done: boolean;
+}
+
 interface RaceJudgeState {
   readonly candidates: ReadonlyArray<EnvironmentThreadShell>;
   readonly verdict: RaceJudgeVerdict | null;
-  readonly setVerdict: (verdict: RaceJudgeVerdict | null) => void;
+  readonly report: RaceJudgeReport | null;
+  readonly setReport: (report: RaceJudgeReport | null) => void;
+}
+
+function sameJudgeReport(left: RaceJudgeReport | null, right: RaceJudgeReport | null): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    left.threadId === right.threadId &&
+    left.done === right.done &&
+    left.judge.pickSlot === right.judge.pickSlot &&
+    left.judge.label === right.judge.label &&
+    left.verdict?.kind === right.verdict?.kind
+  );
 }
 
 /** Judge threads are found by title, then confirmed by their brief's marker. */
@@ -814,8 +912,11 @@ function useRaceJudge(race: Race): RaceJudgeState {
         .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt)),
     [threads, race.environmentId, race.projectId, judgeTitle],
   );
-  const [verdict, setVerdict] = useState<RaceJudgeVerdict | null>(null);
-  return { candidates, verdict, setVerdict };
+  const [report, setReportState] = useState<RaceJudgeReport | null>(null);
+  const setReport = useCallback((next: RaceJudgeReport | null) => {
+    setReportState((current) => (sameJudgeReport(current, next) ? current : next));
+  }, []);
+  return { candidates, verdict: report?.verdict ?? null, report, setReport };
 }
 
 function RaceJudgePanel({
@@ -832,7 +933,7 @@ function RaceJudgePanel({
   race: Race;
   context: RaceBoardContext;
   judge: RaceJudgeState;
-  reports: ReadonlyMap<string, LaneReport>;
+  reports: ReadonlyMap<string, EntrantReport>;
   entrantSlots: ReadonlyArray<number>;
   checkoutBranch: string | null;
   projectWorkspaceRoot: string | null;
@@ -869,7 +970,7 @@ function JudgeCandidate(props: {
   race: Race;
   context: RaceBoardContext;
   judge: RaceJudgeState;
-  reports: ReadonlyMap<string, LaneReport>;
+  reports: ReadonlyMap<string, EntrantReport>;
   entrantSlots: ReadonlyArray<number>;
   checkoutBranch: string | null;
   projectWorkspaceRoot: string | null;
@@ -943,7 +1044,7 @@ function JudgeStarter({
 }: {
   race: Race;
   context: RaceBoardContext;
-  reports: ReadonlyMap<string, LaneReport>;
+  reports: ReadonlyMap<string, EntrantReport>;
   checkoutBranch: string | null;
   projectWorkspaceRoot: string | null;
   secondOpinion?: boolean;
@@ -1180,11 +1281,44 @@ function JudgeVerdictView({
     () => parseRaceJudgeVerdict(answer, entrantSlots),
     [answer, entrantSlots],
   );
-  const { setVerdict } = judge;
+  const { setReport } = judge;
+  const done = phase === "done";
+  const pickSlot = verdict?.kind === "winner" ? verdict.slot : null;
+  const hasVerdict = verdict !== null;
+  const judgeLabel = formatRaceAgentLabel(provider, judgeShell.modelSelection);
+  const judgeInstanceId = judgeShell.modelSelection.instanceId;
+  const judgeModel = judgeShell.modelSelection.model;
+  const judgeDriver = provider?.driver ?? judgeInstanceId;
   useEffect(() => {
-    setVerdict(verdict);
-    return () => setVerdict(null);
-  }, [verdict, setVerdict]);
+    setReport({
+      threadId: judgeShell.id,
+      verdict:
+        pickSlot !== null
+          ? { kind: "winner", slot: pickSlot }
+          : hasVerdict
+            ? { kind: "none" }
+            : null,
+      judge: {
+        instanceId: judgeInstanceId,
+        driver: judgeDriver,
+        model: judgeModel,
+        label: judgeLabel,
+        pickSlot,
+      },
+      done,
+    });
+  }, [
+    setReport,
+    judgeShell.id,
+    judgeInstanceId,
+    judgeModel,
+    judgeDriver,
+    judgeLabel,
+    pickSlot,
+    hasVerdict,
+    done,
+  ]);
+  useEffect(() => () => setReport(null), [setReport]);
   const winner =
     verdict?.kind === "winner"
       ? (race.entrants.find((entrant) => entrant.slot === verdict.slot) ?? null)
@@ -1350,7 +1484,7 @@ function RaceChangesMatrix({
   race: Race;
   context: RaceBoardContext;
   matrix: ReturnType<typeof buildRaceFileMatrix<EntrantFile>>;
-  reports: ReadonlyMap<string, LaneReport>;
+  reports: ReadonlyMap<string, EntrantReport>;
   expandedPath: string | null;
   onToggle: (path: string) => void;
 }) {

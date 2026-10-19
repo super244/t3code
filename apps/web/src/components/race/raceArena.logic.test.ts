@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=3m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-18 */
 import { describe, expect, it } from "vite-plus/test";
 
@@ -5,9 +6,11 @@ import {
   buildRaceEntrantFeed,
   buildRaceFileMatrix,
   combineEntrantChanges,
+  formatRaceCost,
   formatRaceDuration,
   raceEntrantElapsedMs,
   raceJudgePhase,
+  reportedSessionCostUsd,
   splitUnifiedDiff,
 } from "./raceArena.logic";
 
@@ -247,5 +250,26 @@ describe("raceJudgePhase", () => {
     expect(raceJudgePhase({ ...base, latestTurn: null, session: null })).toBe("starting");
     expect(raceJudgePhase({ ...base, hasPendingApprovals: true })).toBe("attention");
     expect(raceJudgePhase({ ...base, session: { status: "error" } })).toBe("failed");
+  });
+});
+
+describe("reported cost", () => {
+  it("takes the session total the provider reported and ignores anything else", () => {
+    expect(
+      reportedSessionCostUsd([
+        { kind: "turn.cost", payload: { totalCostUsd: 0.02 } },
+        { kind: "context-window.updated", payload: { usedTokens: 900 } },
+        { kind: "turn.cost", payload: { totalCostUsd: 0.05 } },
+        { kind: "turn.cost", payload: { totalCostUsd: "lots" } },
+      ]),
+    ).toBe(0.05);
+    expect(reportedSessionCostUsd([{ kind: "tool.completed", payload: {} }])).toBeNull();
+  });
+
+  it("formats unknown, tiny and normal costs", () => {
+    expect(formatRaceCost(null)).toBe("—");
+    expect(formatRaceCost(0.004)).toBe("<$0.01");
+    expect(formatRaceCost(0.0513)).toBe("$0.051");
+    expect(formatRaceCost(2.5)).toBe("$2.50");
   });
 });

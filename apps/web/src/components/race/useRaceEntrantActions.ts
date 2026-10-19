@@ -18,7 +18,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { vcsEnvironment } from "../../state/vcs";
 import { toastManager } from "../ui/toast";
-import { formatRaceAgentLabel } from "./RaceComposer";
+import { formatRaceAgentLabel } from "./raceLabels";
 import {
   describeRaceKeepResult,
   raceKeepConfirmation,

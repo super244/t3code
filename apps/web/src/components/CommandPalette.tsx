@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=3m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=40m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
@@ -51,6 +52,8 @@ import {
 } from "@t3tools/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { openHandoffDialog, openReviewDialog } from "../handoffDialog";
+import { openRaceDialogForThread } from "../raceDialog";
+import { parseRaceBranchName } from "@t3tools/shared/race";
 import { copyThreadReport, exportThreadReport } from "../threadReportActions";
 import * as Option from "effect/Option";
 import {
@@ -76,6 +79,8 @@ import {
   ArrowRightLeftIcon,
   FileDownIcon,
   ScanSearchIcon,
+  ColumnsIcon,
+  TrophyIcon,
 } from "lucide-react";
 import {
   useCallback,
@@ -1676,6 +1681,39 @@ function OpenCommandPaletteDialog(props: {
   }
 
   if (activeThread !== null) {
+    const raceSource = activeThread;
+    actionItems.push({
+      kind: "action",
+      value: "action:race-this-prompt",
+      searchTerms: ["race", "race this prompt", "best of", "compare agents", "parallel", "rerun"],
+      title: "Race this prompt…",
+      description: activeThread.title,
+      icon: <FlagIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        openRaceDialogForThread(raceSource);
+      },
+    });
+    const raceIdentity = parseRaceBranchName(activeThread.branch);
+    if (raceIdentity) {
+      const environmentId = activeThread.environmentId;
+      actionItems.push({
+        kind: "action",
+        value: "action:compare-race",
+        searchTerms: ["compare race", "arena", "race", "entrants", "judge", "keep"],
+        title: "Compare this race",
+        description: `Entrant ${raceIdentity.slot} of ${raceIdentity.count}`,
+        icon: <ColumnsIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          await navigate({
+            to: "/race",
+            search: { race: raceIdentity.raceId, env: environmentId },
+          });
+        },
+      });
+    }
+  }
+
+  if (activeThread !== null) {
     const handoffRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
     actionItems.push({
       kind: "action",
@@ -1839,6 +1877,17 @@ function OpenCommandPaletteDialog(props: {
     icon: <CalendarClockIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/routines" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:race-scoreboard",
+    searchTerms: ["race scoreboard", "leaderboard", "race history", "which agent wins", "wins"],
+    title: "Open Race scoreboard",
+    icon: <TrophyIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/race", search: { view: "scoreboard" } });
     },
   });
 

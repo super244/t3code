@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=14m; seat=codex; date=2026-10-02 */
 import * as Schema from "effect/Schema";
@@ -82,6 +83,14 @@ import {
   ReviewDiffPreviewInput,
   ReviewDiffPreviewResult,
 } from "./review.ts";
+import {
+  RaceHistoryError,
+  RaceHistoryForgetInput,
+  RaceHistoryListInput,
+  RaceHistoryListResult,
+  RaceHistoryRecord,
+  RaceHistoryRecordInput,
+} from "./raceHistory.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
   ClientOrchestrationCommand,
@@ -295,6 +304,11 @@ export const WS_METHODS = {
   // Review methods
   reviewGetDiffPreview: "review.getDiffPreview",
   reviewGetDiffFileContents: "review.getDiffFileContents",
+
+  // Race history methods
+  raceRecordResult: "race.recordResult",
+  raceListHistory: "race.listHistory",
+  raceForgetResult: "race.forgetResult",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -978,6 +992,23 @@ const WsReviewGetDiffFileContentsRpc = Rpc.make(WS_METHODS.reviewGetDiffFileCont
   error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
 });
 
+const WsRaceRecordResultRpc = Rpc.make(WS_METHODS.raceRecordResult, {
+  payload: RaceHistoryRecordInput,
+  success: RaceHistoryRecord,
+  error: Schema.Union([RaceHistoryError, EnvironmentAuthorizationError]),
+});
+
+const WsRaceListHistoryRpc = Rpc.make(WS_METHODS.raceListHistory, {
+  payload: RaceHistoryListInput,
+  success: RaceHistoryListResult,
+  error: Schema.Union([RaceHistoryError, EnvironmentAuthorizationError]),
+});
+
+const WsRaceForgetResultRpc = Rpc.make(WS_METHODS.raceForgetResult, {
+  payload: RaceHistoryForgetInput,
+  error: Schema.Union([RaceHistoryError, EnvironmentAuthorizationError]),
+});
+
 const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -1299,6 +1330,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsInitRpc,
   WsReviewGetDiffPreviewRpc,
   WsReviewGetDiffFileContentsRpc,
+  WsRaceRecordResultRpc,
+  WsRaceListHistoryRpc,
+  WsRaceForgetResultRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalWriteRpc,
