@@ -10,6 +10,7 @@ import {
   buildRaceJudgeTitle,
   createRaceId,
   parseRaceBranchName,
+  parseRaceJudgeHeat,
   parseRaceJudgeMarker,
   parseRaceJudgeVerdict,
 } from "./race.ts";
@@ -151,5 +152,15 @@ describe("race judge", () => {
     expect(parseRaceJudgeVerdict("The winner of this round is unclear", [1, 2])).toBeNull();
     expect(parseRaceJudgeVerdict("Winner: Entrant 4", [1, 2])).toBeNull();
     expect(parseRaceJudgeVerdict(undefined, [1, 2])).toBeNull();
+  });
+});
+
+describe("race judge heats", () => {
+  it("names the rematch heat it judges and reads it back", () => {
+    const brief = buildRaceJudgeBrief({ raceId: "k3f9a2", heat: 2, prompt: "x", entrants: [] });
+    expect(parseRaceJudgeMarker(brief)).toBe("k3f9a2");
+    expect(parseRaceJudgeHeat(brief)).toBe(2);
+    expect(parseRaceJudgeHeat("[Judge of race k3f9a2]\n")).toBe(1);
+    expect(parseRaceJudgeHeat("no marker")).toBeNull();
   });
 });

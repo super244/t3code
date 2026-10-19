@@ -14,6 +14,15 @@ import type {
  */
 
 export const RACE_HISTORY_MAX_RECORDS = 500;
+
+/** One ladder entry per harness, model and reasoning effort. */
+export function raceAgentKey(entrant: {
+  readonly driver: string;
+  readonly model: string;
+  readonly effort?: string | null | undefined;
+}): string {
+  return `${entrant.driver}\0${entrant.model}\0${entrant.effort ?? ""}`;
+}
 const RACE_HISTORY_PROMPT_MAX_CHARS = 2_000;
 
 /** A heat as the ladder and history read it: heat 1 is the original race. */
@@ -241,6 +250,7 @@ export interface RaceLeaderboardRow {
   readonly key: string;
   readonly driver: string;
   readonly model: string;
+  readonly effort: string | null;
   readonly label: string;
   /** Races entered. */
   readonly races: number;
@@ -270,6 +280,7 @@ export function buildRaceLeaderboard(
     {
       driver: string;
       model: string;
+      effort: string | null;
       label: string;
       races: number;
       decided: number;
@@ -285,10 +296,11 @@ export function buildRaceLeaderboard(
     if (filter.taskKind && record.taskKind !== filter.taskKind) continue;
     const bySlot = new Map(record.entrants.map((entrant) => [entrant.slot, entrant] as const));
     const rowFor = (entrant: RaceHistoryEntrant) => {
-      const key = `${entrant.driver}\0${entrant.model}`;
+      const key = raceAgentKey(entrant);
       const row = rows.get(key) ?? {
         driver: entrant.driver,
         model: entrant.model,
+        effort: entrant.effort ?? null,
         label: entrant.label,
         races: 0,
         decided: 0,
@@ -333,6 +345,7 @@ export function buildRaceLeaderboard(
       key,
       driver: row.driver,
       model: row.model,
+      effort: row.effort,
       label: row.label,
       races: row.races,
       decided: row.decided,
@@ -395,6 +408,7 @@ export interface RaceLadderRow {
   readonly key: string;
   readonly driver: string;
   readonly model: string;
+  readonly effort: string | null;
   readonly label: string;
   readonly rating: number;
   /** A rough ± that shrinks as head-to-heads accumulate; not a statistical interval. */
@@ -426,17 +440,26 @@ export function buildRaceLadder(
 ): RaceLadderRow[] {
   const ratings = new Map<
     string,
-    { driver: string; model: string; label: string; rating: number; wins: number; losses: number }
+    {
+      driver: string;
+      model: string;
+      effort: string | null;
+      label: string;
+      rating: number;
+      wins: number;
+      losses: number;
+    }
   >();
   const heats = records
     .filter((record) => !filter.taskKind || record.taskKind === filter.taskKind)
     .flatMap((record) => raceHeats(record).map((heat) => ({ record, heat })))
     .toSorted((left, right) => left.heat.startedAt.localeCompare(right.heat.startedAt));
   const entryFor = (entrant: RaceHistoryEntrant) => {
-    const key = `${entrant.driver}\0${entrant.model}`;
+    const key = raceAgentKey(entrant);
     const entry = ratings.get(key) ?? {
       driver: entrant.driver,
       model: entrant.model,
+      effort: entrant.effort ?? null,
       label: entrant.label,
       rating: RACE_LADDER_START_RATING,
       wins: 0,
@@ -475,6 +498,7 @@ export function buildRaceLadder(
         key,
         driver: entry.driver,
         model: entry.model,
+        effort: entry.effort,
         label: entry.label,
         rating: Math.round(entry.rating),
         spread: Math.round(350 / Math.sqrt(1 + games)),
@@ -511,6 +535,7 @@ export function recommendRaceEntrants(
 ): RaceRecommendation[] {
   const runnable = (row: RaceLadderRow) =>
     row.games > 0 &&
+    // Effort is a setting on a runnable model, so a model being available is enough.
     available.some((item) => item.driver === row.driver && item.model === row.model);
   const byKind = buildRaceLadder(records, { taskKind }).filter(runnable);
   if (byKind.length > 0) {

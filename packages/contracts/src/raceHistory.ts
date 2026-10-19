@@ -51,7 +51,9 @@ export const RaceHistoryEntrant = Schema.Struct({
   /** Provider driver (codex, claudeAgent, …), so instances of one harness group together. */
   driver: TrimmedNonEmptyString,
   model: TrimmedNonEmptyString,
-  /** "Claude Haiku 5.5", "Codex GPT-6.1-Sol". */
+  /** Reasoning effort the entrant ran with, when its model has one; a separate ladder entry. */
+  effort: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  /** "Claude Haiku 5.5", "Codex GPT-6.1-Sol · high". */
   label: TrimmedNonEmptyString,
   phase: RaceEntrantOutcomePhase,
   elapsedMs: Schema.NullOr(NonNegativeInt),

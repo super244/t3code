@@ -78,7 +78,7 @@ export function createRaceId(
  * its title finds candidates and the marker line confirms the race.
  */
 const RACE_JUDGE_TITLE_PREFIX = "Judge · ";
-const RACE_JUDGE_MARKER_PATTERN = /^\[Judge of race ([0-9a-z]{6})\]/;
+const RACE_JUDGE_MARKER_PATTERN = /^\[Judge of race ([0-9a-z]{6})(?: heat ([1-9]))?\]/;
 const RACE_JUDGE_VERDICT_PATTERN = /^[\s>*_#-]*winner[\s*_]*:[\s*_]*(?:entrant\s*)?#?(\d)\b/im;
 const RACE_JUDGE_NO_WINNER_PATTERN =
   /^[\s>*_#-]*winner[\s*_]*:[\s*_]*(?:none|no winner|neither)\b/im;
@@ -106,6 +106,8 @@ export interface RaceJudgeEntrant {
 
 export interface RaceJudgeBriefInput {
   readonly raceId: string;
+  /** A rematch heat (2+); the original race when absent. */
+  readonly heat?: number;
   readonly prompt: string;
   readonly entrants: ReadonlyArray<RaceJudgeEntrant>;
   readonly focus?: string | null;
@@ -129,6 +131,12 @@ export function buildRaceJudgeTitle(titleSeed: string): string {
 }
 
 /** The race a judge brief belongs to, read from its marker line. */
+/** Which heat a judge brief judges: 1 (the original race) unless it names a rematch. */
+export function parseRaceJudgeHeat(firstMessageText: string | null | undefined): number | null {
+  const match = RACE_JUDGE_MARKER_PATTERN.exec((firstMessageText ?? "").trimStart());
+  return match ? Number(match[2] ?? 1) : null;
+}
+
 export function parseRaceJudgeMarker(firstMessageText: string | null | undefined): string | null {
   const match = RACE_JUDGE_MARKER_PATTERN.exec((firstMessageText ?? "").trimStart());
   return match ? match[1]! : null;
@@ -161,7 +169,9 @@ export function parseRaceJudgeVerdict(
 /** The judge's first message: the task, every entrant's work, and how to answer. */
 export function buildRaceJudgeBrief(input: RaceJudgeBriefInput): string {
   const lines = [
-    `[Judge of race ${input.raceId}]`,
+    input.heat && input.heat > 1
+      ? `[Judge of race ${input.raceId} heat ${input.heat}]`
+      : `[Judge of race ${input.raceId}]`,
     "",
     `${input.entrants.length} coding agents were given the same task, each in its own git worktree. Compare their work and pick the one to keep. This is a read-only review: do not edit files, commit, or run commands that change state in any worktree.`,
     "",

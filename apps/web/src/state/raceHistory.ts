@@ -38,6 +38,12 @@ export const raceHistoryEnvironment = {
     tag: WS_METHODS.raceRecordResult,
     onSettled: bumpRevision,
   }),
+  /** The commit a race started from, read from an entrant's branch history. */
+  resolveBase: createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+    label: "environment-data:race:resolve-base",
+    tag: WS_METHODS.raceResolveBase,
+    staleTimeMs: 5 * 60_000,
+  }),
   forget: createEnvironmentRpcCommand(connectionAtomRuntime, {
     label: "environment-data:race:forget-result",
     tag: WS_METHODS.raceForgetResult,

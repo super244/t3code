@@ -1,4 +1,4 @@
-/* agent-watermark: model=opus-5.5; effort=high; duration=4m; seat=claude-code; date=2026-10-19 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=7m; seat=claude-code; date=2026-10-19 */
 import type { EnvironmentId, ModelSelection, ProjectId, ThreadId } from "@t3tools/contracts";
 
 /**
@@ -17,6 +17,25 @@ export interface RaceDialogSeed {
   readonly sourceModel: ModelSelection | null;
   /** Text to race; null means the source thread's last request. */
   readonly prompt: string | null;
+  /** Set for a rematch: new entrants join this race on its prompt and base commit. */
+  readonly rematch?: RaceRematchSeed;
+}
+
+export interface RaceRematchSeed {
+  readonly raceId: string;
+  readonly titleSeed: string;
+  readonly startedAt: string;
+  /** Highest slot the race has used; new entrants take the slots after it. */
+  readonly existingCount: number;
+  /** Slots still in the arena; they defend in the new heat. */
+  readonly liveSlots: ReadonlyArray<number>;
+  readonly baseCommit: string;
+  readonly heat: number;
+  readonly projectTitle: string;
+}
+
+export function openRematchDialog(seed: RaceDialogSeed & { readonly rematch: RaceRematchSeed }) {
+  publish(seed);
 }
 
 let state: RaceDialogSeed | null = null;

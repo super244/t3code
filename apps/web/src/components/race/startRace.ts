@@ -13,11 +13,17 @@ import { buildRaceBranchName } from "@t3tools/shared/race";
 import { truncate } from "@t3tools/shared/String";
 
 import { buildRaceEntrantTitle } from "./race.logic";
-import { formatRaceAgentLabel } from "./raceLabels";
+import { formatRaceAgentLabel, raceEffortDescriptor } from "./raceLabels";
 
 export interface RaceStartEntrant {
   readonly provider: ServerProvider;
   readonly model: string;
+  readonly effort?: string | null;
+}
+
+/** A rematch appends entrants after the race's existing slots. */
+export interface RaceStartAppend {
+  readonly existingCount: number;
 }
 
 /**
@@ -36,14 +42,22 @@ export function buildRaceStartTurns(input: {
   readonly createdAt: string;
   readonly newThreadId: () => ThreadId;
   readonly newMessageId: () => MessageId;
+  readonly append?: RaceStartAppend;
 }) {
   const text = input.prompt.trim();
   const titleSeed = truncate(text);
-  const count = input.entrants.length;
+  const offset = input.append?.existingCount ?? 0;
+  const count = offset + input.entrants.length;
   return input.entrants.map((entrant, index) => {
+    const effortDescriptor = entrant.effort
+      ? raceEffortDescriptor(entrant.provider, entrant.model)
+      : null;
     const modelSelection: ModelSelection = {
       instanceId: entrant.provider.instanceId,
       model: entrant.model,
+      ...(effortDescriptor && entrant.effort
+        ? { options: [{ id: effortDescriptor.id, value: entrant.effort }] }
+        : {}),
     };
     const title = buildRaceEntrantTitle(
       titleSeed,
@@ -79,7 +93,7 @@ export function buildRaceStartTurns(input: {
           prepareWorktree: {
             projectCwd: input.projectCwd,
             baseBranch: input.baseBranch,
-            branch: buildRaceBranchName({ raceId: input.raceId, slot: index + 1, count }),
+            branch: buildRaceBranchName({ raceId: input.raceId, slot: offset + index + 1, count }),
           },
           runSetupScript: true,
         },
