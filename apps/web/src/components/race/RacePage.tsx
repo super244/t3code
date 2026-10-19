@@ -28,10 +28,12 @@ export function RacePage({
   arenaRaceId = null,
   arenaEnvironmentId = null,
   view = "board",
+  promptKey = null,
 }: {
   readonly arenaRaceId?: string | null;
   readonly arenaEnvironmentId?: string | null;
   readonly view?: "board" | "scoreboard";
+  readonly promptKey?: string | null;
 } = {}) {
   const navigate = useNavigate();
   const threads = useThreadShells();
@@ -130,7 +132,11 @@ export function RacePage({
                   Every finished race, and which agent you kept for which kind of task.
                 </p>
               </div>
-              <RaceScoreboard environments={scoreboardEnvironments} liveRaceKeys={liveRaceKeys} />
+              <RaceScoreboard
+                environments={scoreboardEnvironments}
+                liveRaceKeys={liveRaceKeys}
+                promptKey={promptKey}
+              />
             </WorkspacePageContainer>
           ) : (
             <WorkspacePageContainer width="expanded">

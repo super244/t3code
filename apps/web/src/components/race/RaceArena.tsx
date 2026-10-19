@@ -496,7 +496,8 @@ function RaceRecordBar({
           <span className="truncate text-destructive">History unavailable: {historyError}</span>
         ) : heat?.outcome === "kept" ? (
           <span className="truncate">
-            {heatLabel}On the scoreboard · kept <span className="font-medium">#{heat.keptSlot}</span>
+            {heatLabel}On the scoreboard · kept{" "}
+            <span className="font-medium">#{heat.keptSlot}</span>
             {keptEntrant ? ` ${keptEntrant.label}` : ""}
           </span>
         ) : heat?.outcome === "none" ? (
@@ -514,7 +515,12 @@ function RaceRecordBar({
       {decided ? (
         <Tooltip>
           <TooltipTrigger render={<span className="sm:ml-auto" />}>
-            <Button size="sm" variant="outline" disabled={!rematch.available} onClick={rematch.onStart}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!rematch.available}
+              onClick={rematch.onStart}
+            >
               <SwordsIcon /> Rematch
             </Button>
           </TooltipTrigger>

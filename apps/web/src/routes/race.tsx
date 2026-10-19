@@ -12,6 +12,8 @@ export interface RaceSearch {
   readonly env?: string;
   /** The board (default) or the scoreboard of finished races. */
   readonly view?: "scoreboard";
+  /** A prompt's key: the scoreboard shows every run of that prompt. */
+  readonly prompt?: string;
 }
 
 export const Route = createFileRoute("/race")({
@@ -19,17 +21,21 @@ export const Route = createFileRoute("/race")({
     ...(typeof raw.race === "string" && /^[0-9a-z]{6}$/.test(raw.race) ? { race: raw.race } : {}),
     ...(typeof raw.env === "string" && raw.env.length > 0 ? { env: raw.env } : {}),
     ...(raw.view === "scoreboard" ? { view: "scoreboard" as const } : {}),
+    ...(typeof raw.prompt === "string" && /^[0-9a-z]{1,13}$/.test(raw.prompt)
+      ? { prompt: raw.prompt }
+      : {}),
   }),
   component: RaceRoute,
 });
 
 function RaceRoute() {
-  const { race, env, view } = Route.useSearch();
+  const { race, env, view, prompt } = Route.useSearch();
   return (
     <RacePage
       arenaRaceId={race ?? null}
       arenaEnvironmentId={env ?? null}
       view={view === "scoreboard" ? "scoreboard" : "board"}
+      promptKey={prompt ?? null}
     />
   );
 }

@@ -69,6 +69,10 @@ export function formatRaceAgentLabel(
   const base = modelLabel.toLowerCase().startsWith(providerLabel.toLowerCase())
     ? modelLabel
     : `${providerLabel} ${modelLabel}`;
-  const effort = raceEffortLabel(provider, selection.model, raceSelectionEffort(provider, selection));
+  const effort = raceEffortLabel(
+    provider,
+    selection.model,
+    raceSelectionEffort(provider, selection),
+  );
   return effort ? `${base} · ${effort}` : base;
 }
