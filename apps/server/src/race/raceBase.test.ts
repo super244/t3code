@@ -1,9 +1,9 @@
 /* agent-watermark: model=opus-5.5; effort=high; duration=8m; seat=claude-code; date=2026-10-19 */
 // @effect-diagnostics nodeBuiltinImport:off
-import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -13,15 +13,22 @@ import type { ExecuteGitInput } from "../vcs/GitVcsDriver.ts";
 import { oldestReflogCommit, resolveRaceBase } from "./raceBase.ts";
 
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], {
-    cwd,
-    encoding: "utf8",
-  }).trim();
+  NodeChildProcess.execFileSync(
+    "git",
+    ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args],
+    {
+      cwd,
+      encoding: "utf8",
+    },
+  ).trim();
 
 // The real command, run the way GitVcsDriver.execute would run it.
 const execute = (input: ExecuteGitInput) =>
   Effect.sync(() => {
-    const result = spawnSync("git", [...input.args], { cwd: input.cwd, encoding: "utf8" });
+    const result = NodeChildProcess.spawnSync("git", [...input.args], {
+      cwd: input.cwd,
+      encoding: "utf8",
+    });
     return {
       exitCode: result.status ?? 1,
       stdout: result.stdout,
@@ -32,24 +39,24 @@ const execute = (input: ExecuteGitInput) =>
   });
 
 function raceRepo() {
-  const root = mkdtempSync(join(tmpdir(), "t3-race-base-"));
-  const repo = join(root, "repo");
-  const worktrees = join(root, "worktrees");
-  mkdirSync(repo);
-  mkdirSync(worktrees);
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-race-base-"));
+  const repo = NodePath.join(root, "repo");
+  const worktrees = NodePath.join(root, "worktrees");
+  NodeFS.mkdirSync(repo);
+  NodeFS.mkdirSync(worktrees);
   git(repo, "init", "-q", "-b", "main");
-  writeFileSync(join(repo, "a.txt"), "a\n");
+  NodeFS.writeFileSync(NodePath.join(repo, "a.txt"), "a\n");
   git(repo, "add", "-A");
   git(repo, "commit", "-qm", "base");
   const base = git(repo, "rev-parse", "HEAD");
   const branch = "t3code/race-k3f9a2-1of2";
-  const worktree = join(worktrees, "repo", "race-1");
+  const worktree = NodePath.join(worktrees, "repo", "race-1");
   git(repo, "worktree", "add", "-q", "-b", branch, worktree, base);
   // The entrant commits, and the base branch moves on (as Keep would move it).
-  writeFileSync(join(worktree, "b.txt"), "b\n");
+  NodeFS.writeFileSync(NodePath.join(worktree, "b.txt"), "b\n");
   git(worktree, "add", "-A");
   git(worktree, "commit", "-qm", "entrant work");
-  writeFileSync(join(repo, "c.txt"), "c\n");
+  NodeFS.writeFileSync(NodePath.join(repo, "c.txt"), "c\n");
   git(repo, "add", "-A");
   git(repo, "commit", "-qm", "main moved");
   return { root, worktrees, worktree, branch, base };
@@ -71,7 +78,10 @@ describe("resolveRaceBase", () => {
     Effect.gen(function* () {
       const { root, worktrees, worktree, branch } = raceRepo();
       const outside = yield* Effect.result(
-        resolveRaceBase({ cwd: join(root, "repo"), branch }, { worktreesDir: worktrees, execute }),
+        resolveRaceBase(
+          { cwd: NodePath.join(root, "repo"), branch },
+          { worktreesDir: worktrees, execute },
+        ),
       );
       assert.strictEqual(outside._tag, "Failure");
       const notRace = yield* Effect.result(

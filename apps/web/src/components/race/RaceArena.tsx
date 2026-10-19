@@ -55,7 +55,6 @@ import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
 import { cn, newMessageId, newThreadId } from "../../lib/utils";
 import { deriveWorkLogEntries } from "../../session-logic";
 import { useThread, useThreadShells, waitForThreadShell } from "../../state/entities";
-import { useEnvironmentQuery } from "../../state/query";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
