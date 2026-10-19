@@ -1,24 +1,13 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-18 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=110m; seat=claude-code; date=2026-10-04 */
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import {
-  isAtomCommandInterrupted,
-  settlePromise,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
-import type {
-  EnvironmentProject,
-  EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/models";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { ServerProvider } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowUpRightIcon, CheckIcon, Trash2Icon } from "lucide-react";
-import { useState } from "react";
+import { ArrowUpRightIcon, CheckIcon, ColumnsIcon, Trash2Icon } from "lucide-react";
 
-import { useThreadActions } from "../../hooks/useThreadActions";
 import { cn } from "../../lib/utils";
-import { readLocalApi } from "../../localApi";
 import { useEnvironmentQuery } from "../../state/query";
-import { useAtomCommand } from "../../state/use-atom-command";
 import { vcsEnvironment } from "../../state/vcs";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -27,18 +16,20 @@ import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
 import { resolveThreadStatusPill } from "../Sidebar.logic";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { raceModelLabel, raceProviderLabel } from "./RaceComposer";
 import {
   canKeepRaceEntrant,
-  describeRaceKeepResult,
-  raceKeepConfirmation,
   raceEntrantPhase,
   type RaceEntrant,
   type RaceEntrantPhase,
   type RaceGroup,
 } from "./race.logic";
+import {
+  raceEntrantProvider,
+  useRaceEntrantActions,
+  type RaceBoardContext,
+} from "./useRaceEntrantActions";
 
 type Race = RaceGroup<EnvironmentThreadShell>;
 type Entrant = RaceEntrant<EnvironmentThreadShell>;
@@ -50,7 +41,7 @@ const GRID_COLUMNS: Record<number, string> = {
   4: "lg:grid-cols-2 xl:grid-cols-4",
 };
 
-const PHASE_PRESENTATION: Record<
+export const PHASE_PRESENTATION: Record<
   RaceEntrantPhase,
   { readonly label: string; readonly colorClass: string; readonly dotClass: string }
 > = {
@@ -81,151 +72,17 @@ const PHASE_PRESENTATION: Record<
   },
 };
 
-export interface RaceBoardContext {
-  readonly projectsByKey: ReadonlyMap<string, EnvironmentProject>;
-  readonly providersByKey: ReadonlyMap<string, ServerProvider>;
-  readonly environmentLabels: ReadonlyMap<string, string>;
-}
-
-// Entrants merged by Keep this session, per race. Losers can survive a Keep
-// when their discard fails, so a second Keep must say it stacks another squash.
-const keptEntrantByRace = new Map<string, { readonly threadId: string; readonly label: string }>();
-
-function confirmAction(message: string): Promise<boolean> {
-  const localApi = readLocalApi();
-  if (!localApi) return Promise.resolve(false);
-  return localApi.dialogs.confirm(message, { variant: "destructive" });
-}
+export type { RaceBoardContext };
 
 export function RaceCard({ race, context }: { race: Race; context: RaceBoardContext }) {
-  const project = context.projectsByKey.get(`${race.environmentId}\0${race.projectId}`) ?? null;
-  const { deleteThread } = useThreadActions();
-  const integrateWorktree = useAtomCommand(vcsEnvironment.integrateWorktree, {
-    reportFailure: false,
-  });
-  const [pendingThreadId, setPendingThreadId] = useState<string | null>(null);
-  const checkoutStatus = useEnvironmentQuery(
-    project
-      ? vcsEnvironment.status({
-          environmentId: race.environmentId,
-          input: { cwd: project.workspaceRoot },
-        })
-      : null,
+  const navigate = useNavigate();
+  const { project, checkoutBranch, pendingThreadId, keep, discard } = useRaceEntrantActions(
+    race,
+    context,
   );
-  const checkoutBranch = checkoutStatus.data?.refName ?? null;
   const finishedCount = race.entrants.filter(
     (entrant) => raceEntrantPhase(entrant.thread) === "finished",
   ).length;
-
-  const entrantLabel = (entrant: Entrant) => {
-    const provider = context.providersByKey.get(
-      `${race.environmentId}\0${entrant.thread.modelSelection.instanceId}`,
-    );
-    return `${provider ? raceProviderLabel(provider) : entrant.thread.modelSelection.instanceId} ${raceModelLabel(provider, entrant.thread.modelSelection.model)}`;
-  };
-
-  const discardEntrants = async (entrants: ReadonlyArray<Entrant>) => {
-    let failed = 0;
-    for (const entrant of entrants) {
-      const result = await deleteThread(scopeThreadRef(race.environmentId, entrant.thread.id), {
-        worktree: "delete",
-      });
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) failed += 1;
-    }
-    return failed;
-  };
-
-  const discard = async (entrant: Entrant) => {
-    if (pendingThreadId !== null) return;
-    const confirmed = await settlePromise(() =>
-      confirmAction(
-        [
-          `Discard ${entrantLabel(entrant)}?`,
-          "This deletes the entrant's thread and its worktree, including uncommitted changes.",
-        ].join("\n"),
-      ),
-    );
-    if (confirmed._tag === "Failure" || !confirmed.value) return;
-    setPendingThreadId(entrant.thread.id);
-    try {
-      const failed = await discardEntrants([entrant]);
-      if (failed > 0) {
-        toastManager.add({ type: "error", title: "Could not fully discard the entrant" });
-      }
-    } finally {
-      setPendingThreadId(null);
-    }
-  };
-
-  const keep = async (entrant: Entrant) => {
-    if (pendingThreadId !== null || !project) return;
-    const { worktreePath, branch } = entrant.thread;
-    if (!worktreePath || !branch) return;
-    const others = race.entrants.filter((other) => other.thread.id !== entrant.thread.id);
-    const previouslyKept = keptEntrantByRace.get(race.key);
-    const confirmed = await settlePromise(() =>
-      confirmAction(
-        raceKeepConfirmation({
-          entrantLabel: entrantLabel(entrant),
-          target: checkoutBranch ?? "the project checkout",
-          otherCount: others.length,
-          previouslyKeptLabel:
-            previouslyKept && previouslyKept.threadId !== entrant.thread.id
-              ? previouslyKept.label
-              : null,
-        }),
-      ),
-    );
-    if (confirmed._tag === "Failure" || !confirmed.value) return;
-    setPendingThreadId(entrant.thread.id);
-    try {
-      const result = await integrateWorktree({
-        environmentId: race.environmentId,
-        input: {
-          cwd: project.workspaceRoot,
-          worktreePath,
-          branch,
-          commitMessage: `race: ${race.titleSeed}`,
-        },
-      });
-      if (result._tag === "Failure") {
-        if (isAtomCommandInterrupted(result)) return;
-        const error = squashAtomCommandFailure(result);
-        toastManager.add({
-          type: "error",
-          title: "Could not keep this entrant",
-          description: error instanceof Error ? error.message : "The merge did not run.",
-        });
-        return;
-      }
-      const message = describeRaceKeepResult(result.value, checkoutBranch);
-      if (message.discardOthers) {
-        keptEntrantByRace.set(race.key, {
-          threadId: entrant.thread.id,
-          label: entrantLabel(entrant),
-        });
-        const failed = await discardEntrants(others);
-        toastManager.add({
-          type: failed > 0 ? "warning" : message.tone,
-          title: message.title,
-          description:
-            failed > 0
-              ? `${message.description} ${failed} of ${others.length} other entrants could not be fully discarded.`
-              : others.length > 0
-                ? `${message.description} The other entrants were discarded.`
-                : message.description,
-        });
-        return;
-      }
-      toastManager.add({
-        type: message.tone,
-        title: message.title,
-        description: message.description,
-      });
-    } finally {
-      setPendingThreadId(null);
-    }
-  };
 
   return (
     <section
@@ -243,21 +100,36 @@ export function RaceCard({ race, context }: { race: Race; context: RaceBoardCont
             · {formatRelativeTimeLabel(race.startedAt)}
           </p>
         </div>
-        {race.entrants.length < race.count ? (
-          <Badge variant="secondary">
-            <span className="tabular-nums">
-              {race.entrants.length} of {race.count}
-            </span>{" "}
-            left
-          </Badge>
-        ) : (
-          <Badge variant={finishedCount === race.entrants.length ? "secondary" : "info"}>
-            <span className="tabular-nums">
-              {finishedCount}/{race.count}
-            </span>{" "}
-            finished
-          </Badge>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {race.entrants.length < race.count ? (
+            <Badge variant="secondary">
+              <span className="tabular-nums">
+                {race.entrants.length} of {race.count}
+              </span>{" "}
+              left
+            </Badge>
+          ) : (
+            <Badge variant={finishedCount === race.entrants.length ? "secondary" : "info"}>
+              <span className="tabular-nums">
+                {finishedCount}/{race.count}
+              </span>{" "}
+              finished
+            </Badge>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            aria-label={`Compare entrants: ${race.titleSeed}`}
+            onClick={() =>
+              void navigate({
+                to: "/race",
+                search: { race: race.raceId, env: race.environmentId },
+              })
+            }
+          >
+            <ColumnsIcon /> Compare
+          </Button>
+        </div>
       </header>
       <div
         className={cn(
@@ -269,11 +141,7 @@ export function RaceCard({ race, context }: { race: Race; context: RaceBoardCont
           <EntrantCard
             key={entrant.thread.id}
             entrant={entrant}
-            provider={
-              context.providersByKey.get(
-                `${race.environmentId}\0${entrant.thread.modelSelection.instanceId}`,
-              ) ?? null
-            }
+            provider={raceEntrantProvider(race, entrant, context)}
             busy={pendingThreadId !== null}
             pending={pendingThreadId === entrant.thread.id}
             keepTarget={checkoutBranch}

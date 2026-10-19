@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=1m; seat=claude-code; date=2026-10-18 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-10 */
@@ -44,7 +45,7 @@ interface RaceSelectOption {
 }
 
 /** The app's own select (popup, keyboard, theming), in the shape the Race form needs. */
-function RaceSelect({
+export function RaceSelect({
   ariaLabel,
   value,
   options,
@@ -107,6 +108,18 @@ export function raceProviderLabel(
 export function raceModelLabel(provider: ServerProvider | undefined, slug: string): string {
   const model = provider?.models.find((item) => item.slug === slug);
   return model ? getTriggerDisplayModelLabel(model) : slug;
+}
+
+/** "Codex GPT-6.1-Sol", or just "Claude Haiku 5.5" when the model already names its provider. */
+export function formatRaceAgentLabel(
+  provider: ServerProvider | null | undefined,
+  selection: { readonly instanceId: string; readonly model: string },
+): string {
+  const providerLabel = provider ? raceProviderLabel(provider) : selection.instanceId;
+  const modelLabel = raceModelLabel(provider ?? undefined, selection.model);
+  return modelLabel.toLowerCase().startsWith(providerLabel.toLowerCase())
+    ? modelLabel
+    : `${providerLabel} ${modelLabel}`;
 }
 
 export function RaceComposer() {
@@ -237,7 +250,7 @@ export function RaceComposer() {
           };
           const title = buildRaceEntrantTitle(
             titleSeed,
-            `${raceProviderLabel(provider)} ${raceModelLabel(provider, entrant.model)}`,
+            formatRaceAgentLabel(provider, modelSelection),
           );
           return startTurn({
             environmentId: project.environmentId,

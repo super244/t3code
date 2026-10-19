@@ -1,21 +1,34 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-18 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=72m; seat=claude-code; date=2026-10-04 */
 import { FlagIcon } from "lucide-react";
 import { useMemo } from "react";
 
 import { isElectron } from "../../env";
-import { useProjects, useThreadShells } from "../../state/entities";
+import {
+  useAllEnvironmentShellsBootstrapped,
+  useProjects,
+  useThreadShells,
+} from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { ScrollArea } from "../ui/scroll-area";
 import { SidebarInset } from "../ui/sidebar";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { RaceArena } from "./RaceArena";
 import { RaceCard, type RaceBoardContext } from "./RaceBoard";
 import { RaceComposer } from "./RaceComposer";
 import { groupRaces } from "./race.logic";
 
-export function RacePage() {
+export function RacePage({
+  arenaRaceId = null,
+  arenaEnvironmentId = null,
+}: {
+  readonly arenaRaceId?: string | null;
+  readonly arenaEnvironmentId?: string | null;
+} = {}) {
   const threads = useThreadShells();
+  const shellsReady = useAllEnvironmentShellsBootstrapped();
   const projects = useProjects();
   const { environments } = useEnvironments();
   const races = useMemo(() => groupRaces(threads), [threads]);
@@ -38,6 +51,23 @@ export function RacePage() {
     }),
     [environments, projects],
   );
+
+  if (arenaRaceId !== null) {
+    const race =
+      races.find(
+        (item) =>
+          item.raceId === arenaRaceId &&
+          (arenaEnvironmentId === null || item.environmentId === arenaEnvironmentId),
+      ) ?? null;
+    return (
+      <RaceArena
+        race={race}
+        raceId={arenaRaceId}
+        loading={race === null && !shellsReady}
+        context={context}
+      />
+    );
+  }
 
   return (
     <SidebarInset className="isolate h-dvh min-h-0 overflow-hidden bg-background text-foreground">
