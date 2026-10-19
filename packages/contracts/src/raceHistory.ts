@@ -1,4 +1,4 @@
-/* agent-watermark: model=opus-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-19 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=32m; seat=claude-code; date=2026-10-19 */
 import * as Schema from "effect/Schema";
 
 import {
@@ -74,6 +74,22 @@ export const RaceHistoryJudge = Schema.Struct({
 });
 export type RaceHistoryJudge = typeof RaceHistoryJudge.Type;
 
+/**
+ * A rematch: new entrants that joined a finished race on the same prompt and
+ * the same base commit, decided on their own. Heat 1 is the original race and
+ * lives in the record's top-level outcome fields.
+ */
+export const RaceHistoryHeat = Schema.Struct({
+  heat: PositiveInt,
+  startedAt: IsoDateTime,
+  /** Slots that were in the arena when this heat was decided, champions included. */
+  participants: Schema.Array(PositiveInt),
+  outcome: RaceHistoryOutcome,
+  keptSlot: Schema.NullOr(PositiveInt),
+  judge: Schema.NullOr(RaceHistoryJudge),
+});
+export type RaceHistoryHeat = typeof RaceHistoryHeat.Type;
+
 const raceHistoryRecordFields = {
   raceId: TrimmedNonEmptyString,
   projectId: ProjectId,
@@ -89,12 +105,25 @@ const raceHistoryRecordFields = {
   entrants: Schema.Array(RaceHistoryEntrant),
 };
 
-export const RaceHistoryRecordInput = Schema.Struct(raceHistoryRecordFields);
+export const RaceHistoryRecordInput = Schema.Struct({
+  ...raceHistoryRecordFields,
+  /** The commit every entrant started from, when known. */
+  baseCommit: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  /** Which heat this report decides; 1 (the original race) when absent. */
+  heat: Schema.optional(PositiveInt),
+  heatStartedAt: Schema.optional(IsoDateTime),
+  /** Slots in the arena for this heat; every reported entrant when absent. */
+  participants: Schema.optional(Schema.Array(PositiveInt)),
+});
 export type RaceHistoryRecordInput = typeof RaceHistoryRecordInput.Type;
 
 export const RaceHistoryRecord = Schema.Struct({
   ...raceHistoryRecordFields,
   recordedAt: IsoDateTime,
+  baseCommit: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  /** Heat 1's participants; older records leave it out (every entrant took part). */
+  participants: Schema.optional(Schema.Array(PositiveInt)),
+  rematches: Schema.optional(Schema.Array(RaceHistoryHeat)),
 });
 export type RaceHistoryRecord = typeof RaceHistoryRecord.Type;
 
@@ -112,6 +141,20 @@ export const RaceHistoryForgetInput = Schema.Struct({
   raceId: TrimmedNonEmptyString,
 });
 export type RaceHistoryForgetInput = typeof RaceHistoryForgetInput.Type;
+
+export const RaceResolveBaseInput = Schema.Struct({
+  /** An entrant's worktree. */
+  cwd: TrimmedNonEmptyString,
+  /** That entrant's race branch. */
+  branch: TrimmedNonEmptyString,
+});
+export type RaceResolveBaseInput = typeof RaceResolveBaseInput.Type;
+
+export const RaceResolveBaseResult = Schema.Struct({
+  /** The commit the race branch was created at; null when git no longer knows. */
+  commit: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type RaceResolveBaseResult = typeof RaceResolveBaseResult.Type;
 
 export class RaceHistoryError extends Schema.TaggedError<RaceHistoryError>()("RaceHistoryError", {
   operation: Schema.String,

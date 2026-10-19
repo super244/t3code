@@ -8,11 +8,17 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildRaceKindLeaders,
+  buildRaceLadder,
   buildRaceLeaderboard,
+  buildRacePromptRuns,
   guessRaceTaskKind,
   median,
   mergeRaceHistoryRecord,
   RACE_HISTORY_MAX_RECORDS,
+  RACE_LADDER_START_RATING,
+  raceHeats,
+  racePromptKey,
+  recommendRaceEntrants,
   upsertRaceHistory,
 } from "./raceHistory.ts";
 
@@ -223,5 +229,167 @@ describe("buildRaceLeaderboard", () => {
     expect(buildRaceLeaderboard([])).toEqual([]);
     expect(median([])).toBeNull();
     expect(median([3, 1, 2, 10])).toBe(2.5);
+  });
+});
+
+const sonnet = (slot: number, overrides: Partial<RaceHistoryEntrant> = {}) =>
+  entrant(slot, {
+    instanceId: "claudeAgent",
+    driver: "claudeAgent",
+    model: "claude-sonnet-5",
+    label: "Claude Sonnet 5",
+    ...overrides,
+  });
+
+describe("rematch heats", () => {
+  it("appends a rematch's entrants and decides only its heat", () => {
+    const kept = mergeRaceHistoryRecord(null, input({ outcome: "kept", keptSlot: 2 }), "t1");
+    const rematch = mergeRaceHistoryRecord(
+      kept,
+      input({
+        heat: 2,
+        heatStartedAt: "2026-10-19T09:00:00.000Z",
+        participants: [2, 3],
+        outcome: "kept",
+        keptSlot: 3,
+        entrants: [entrant(2, { additions: 0 }), sonnet(3)],
+      }),
+      "t2",
+    );
+    expect([rematch.outcome, rematch.keptSlot]).toEqual(["kept", 2]);
+    expect(rematch.participants).toEqual([1, 2]);
+    expect(rematch.entrants.map((item) => item.slot)).toEqual([1, 2, 3]);
+    // The champion's heat-1 line is frozen; the challenger's is new.
+    expect(rematch.entrants[1]!.additions).toBe(10);
+    expect(raceHeats(rematch).map((heat) => [heat.heat, heat.participants, heat.keptSlot])).toEqual(
+      [
+        [1, [1, 2], 2],
+        [2, [2, 3], 3],
+      ],
+    );
+  });
+
+  it("keeps a rematch heat's decision when its judge reports later", () => {
+    let record = mergeRaceHistoryRecord(null, input({ outcome: "kept", keptSlot: 1 }), "t1");
+    record = mergeRaceHistoryRecord(
+      record,
+      input({ heat: 2, participants: [1, 3], outcome: "none", entrants: [sonnet(3)] }),
+      "t2",
+    );
+    record = mergeRaceHistoryRecord(
+      record,
+      input({ heat: 2, participants: [1, 3], outcome: "open", judge: judge(3), entrants: [] }),
+      "t3",
+    );
+    expect(record.rematches).toEqual([
+      expect.objectContaining({ heat: 2, outcome: "none", keptSlot: null, judge: judge(3) }),
+    ]);
+  });
+});
+
+describe("buildRaceLadder", () => {
+  it("rates winners above the entrants they beat, champions included, from every heat", () => {
+    let record = mergeRaceHistoryRecord(
+      null,
+      input({ raceId: "r1", outcome: "kept", keptSlot: 2 }),
+      "t",
+    );
+    record = mergeRaceHistoryRecord(
+      record,
+      input({
+        raceId: "r1",
+        heat: 2,
+        heatStartedAt: "2026-10-19T09:00:00.000Z",
+        participants: [2, 3],
+        outcome: "kept",
+        keptSlot: 3,
+        entrants: [sonnet(3)],
+      }),
+      "t",
+    );
+    const ladder = buildRaceLadder([record]);
+    expect(ladder.map((row) => [row.label, row.wins, row.losses])).toEqual([
+      ["Claude Sonnet 5", 1, 0],
+      ["Claude Haiku 5.5", 1, 1],
+      ["Codex GPT-6.1-Sol", 0, 1],
+    ]);
+    const byLabel = new Map(ladder.map((row) => [row.label, row]));
+    expect(byLabel.get("Claude Sonnet 5")!.rating).toBeGreaterThan(RACE_LADDER_START_RATING);
+    expect(byLabel.get("Codex GPT-6.1-Sol")!.rating).toBeLessThan(RACE_LADDER_START_RATING);
+    expect(byLabel.get("Claude Sonnet 5")!.provisional).toBe(true);
+    expect(byLabel.get("Claude Haiku 5.5")!.spread).toBeLessThan(
+      byLabel.get("Claude Sonnet 5")!.spread,
+    );
+  });
+
+  it("uses the judge's pick for an undecided heat and nothing for a heat with no winner", () => {
+    const judged = mergeRaceHistoryRecord(null, input({ raceId: "j", judge: judge(1) }), "t");
+    const none = mergeRaceHistoryRecord(null, input({ raceId: "n", outcome: "none" }), "t");
+    expect(buildRaceLadder([judged]).find((row) => row.driver === "codex")?.wins).toBe(1);
+    expect(buildRaceLadder([none])).toEqual([]);
+  });
+
+  it("recommends the best-rated runnable agents for the kind, falling back to overall", () => {
+    const records = [
+      mergeRaceHistoryRecord(null, input({ raceId: "a", outcome: "kept", keptSlot: 2 }), "t"),
+      mergeRaceHistoryRecord(null, input({ raceId: "b", outcome: "kept", keptSlot: 2 }), "t"),
+    ];
+    const both = [
+      { driver: "codex", model: "gpt-6.1-sol" },
+      { driver: "claudeAgent", model: "claude-haiku-5-5" },
+    ];
+    expect(
+      recommendRaceEntrants(records, "feature", both).map((r) => [r.row.label, r.scope]),
+    ).toEqual([
+      ["Claude Haiku 5.5", "kind"],
+      ["Codex GPT-6.1-Sol", "kind"],
+    ]);
+    expect(recommendRaceEntrants(records, "fix", both)[0]!.scope).toBe("overall");
+    expect(recommendRaceEntrants(records, "feature", [both[0]!]).map((r) => r.row.label)).toEqual([
+      "Codex GPT-6.1-Sol",
+    ]);
+    expect(recommendRaceEntrants([], "feature", both)).toEqual([]);
+  });
+});
+
+describe("prompt history", () => {
+  it("groups runs of the same prompt regardless of case and spacing, newest heat first", () => {
+    expect(racePromptKey("Add a  --json flag\n")).toBe(racePromptKey("add a --json FLAG"));
+    expect(racePromptKey("Add a --json flag")).not.toBe(racePromptKey("Add a --yaml flag"));
+    let first = mergeRaceHistoryRecord(
+      null,
+      input({ raceId: "p1", outcome: "kept", keptSlot: 1 }),
+      "t",
+    );
+    first = mergeRaceHistoryRecord(
+      first,
+      input({
+        raceId: "p1",
+        heat: 2,
+        heatStartedAt: "2026-10-19T10:00:00.000Z",
+        participants: [1, 3],
+        outcome: "kept",
+        keptSlot: 3,
+        entrants: [sonnet(3)],
+      }),
+      "t",
+    );
+    const other = mergeRaceHistoryRecord(
+      null,
+      input({
+        raceId: "p2",
+        prompt: "ADD a --json flag to the CLI",
+        startedAt: "2026-10-19T09:00:00.000Z",
+      }),
+      "t",
+    );
+    const unrelated = mergeRaceHistoryRecord(null, input({ raceId: "p3", prompt: "Fix it" }), "t");
+    const runs = buildRacePromptRuns([first, other, unrelated], racePromptKey(input().prompt));
+    expect(runs.map((run) => [run.record.raceId, run.heat.heat, run.winnerSlot])).toEqual([
+      ["p1", 2, 3],
+      ["p2", 1, null],
+      ["p1", 1, 1],
+    ]);
+    expect(runs[0]!.entrants.map((item) => item.slot)).toEqual([1, 3]);
   });
 });

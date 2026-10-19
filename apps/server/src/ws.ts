@@ -15,6 +15,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
@@ -139,6 +140,7 @@ import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import { makeRaceHistoryStore } from "./race/RaceHistoryStore.ts";
+import { resolveRaceBase } from "./race/raceBase.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import { importRecentAgentThreads } from "./project/AgentSessionImporter.ts";
@@ -559,6 +561,9 @@ const makeWsRpcLayer = (
       const serverUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
       const raceHistory = yield* makeRaceHistoryStore(config.stateDir);
+      const raceGit = yield* GitVcsDriver.GitVcsDriver;
+      const raceFileSystem = yield* FileSystem.FileSystem;
+      const racePath = yield* Path.Path;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
@@ -2698,6 +2703,18 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.raceForgetResult, raceHistory.forget(input.raceId), {
             "rpc.aggregate": "race",
           }),
+        [WS_METHODS.raceResolveBase]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.raceResolveBase,
+            resolveRaceBase(input, {
+              worktreesDir: config.worktreesDir,
+              execute: raceGit.execute,
+            }).pipe(
+              Effect.provideService(FileSystem.FileSystem, raceFileSystem),
+              Effect.provideService(Path.Path, racePath),
+            ),
+            { "rpc.aggregate": "race" },
+          ),
         [WS_METHODS.terminalOpen]: (input) =>
           observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
             "rpc.aggregate": "terminal",

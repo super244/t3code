@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=4m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-18 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=72m; seat=claude-code; date=2026-10-04 */
 import { WORKTREE_BRANCH_PREFIX } from "./git.ts";
@@ -8,6 +9,11 @@ import { WORKTREE_BRANCH_PREFIX } from "./git.ts";
  */
 export const RACE_MIN_ENTRANTS = 2;
 export const RACE_MAX_ENTRANTS = 4;
+/**
+ * Rematches append entrants to a finished race, so a race can grow past the
+ * four a new race starts with; the branch name's single-digit slot caps it.
+ */
+export const RACE_MAX_SLOTS = 9;
 const RACE_ID_LENGTH = 6;
 const RACE_ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
 
@@ -30,7 +36,7 @@ function isValidPosition(slot: number, count: number): boolean {
     Number.isInteger(slot) &&
     Number.isInteger(count) &&
     count >= RACE_MIN_ENTRANTS &&
-    count <= RACE_MAX_ENTRANTS &&
+    count <= RACE_MAX_SLOTS &&
     slot >= 1 &&
     slot <= count
   );

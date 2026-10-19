@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=2m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=8m; seat=claude-code; date=2026-10-18 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=72m; seat=claude-code; date=2026-10-04 */
 import { describe, expect, it } from "vite-plus/test";
@@ -14,15 +15,27 @@ import {
 } from "./race.ts";
 
 describe("race branch identity", () => {
+  it("parses rematch entrants that grew the race past four", () => {
+    expect(parseRaceBranchName("t3code/race-k3f9a2-5of6")).toEqual({
+      raceId: "k3f9a2",
+      slot: 5,
+      count: 6,
+    });
+  });
+
   it("round-trips through the branch name", () => {
     const branch = buildRaceBranchName({ raceId: "k3f9a2", slot: 2, count: 3 });
     expect(branch).toBe("t3code/race-k3f9a2-2of3");
     expect(parseRaceBranchName(branch)).toEqual({ raceId: "k3f9a2", slot: 2, count: 3 });
   });
 
-  it("rejects identities outside the 2-4 entrant range", () => {
+  it("rejects identities outside the 2-9 slot range", () => {
     expect(() => buildRaceBranchName({ raceId: "k3f9a2", slot: 1, count: 1 })).toThrow();
-    expect(() => buildRaceBranchName({ raceId: "k3f9a2", slot: 5, count: 5 })).toThrow();
+    expect(() => buildRaceBranchName({ raceId: "k3f9a2", slot: 10, count: 10 })).toThrow();
+    // Rematches grow a race past four entrants, up to the single-digit slot.
+    expect(buildRaceBranchName({ raceId: "k3f9a2", slot: 6, count: 6 })).toBe(
+      "t3code/race-k3f9a2-6of6",
+    );
     expect(() => buildRaceBranchName({ raceId: "k3f9a2", slot: 3, count: 2 })).toThrow();
     expect(() => buildRaceBranchName({ raceId: "K3F9A2", slot: 1, count: 2 })).toThrow();
   });
@@ -34,7 +47,7 @@ describe("race branch identity", () => {
       "main",
       "t3code/1a2b3c4d",
       "t3code/race-k3f9a2-3of2",
-      "t3code/race-k3f9a2-1of5",
+      "t3code/race-k3f9a2-6of5",
       "t3code/race-k3f9a-1of2",
       "feature/race-k3f9a2-1of2",
       "t3code/race-k3f9a2-1of2-extra",

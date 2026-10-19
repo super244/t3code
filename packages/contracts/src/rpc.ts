@@ -90,6 +90,8 @@ import {
   RaceHistoryListResult,
   RaceHistoryRecord,
   RaceHistoryRecordInput,
+  RaceResolveBaseInput,
+  RaceResolveBaseResult,
 } from "./raceHistory.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
@@ -309,6 +311,7 @@ export const WS_METHODS = {
   raceRecordResult: "race.recordResult",
   raceListHistory: "race.listHistory",
   raceForgetResult: "race.forgetResult",
+  raceResolveBase: "race.resolveBase",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -1009,6 +1012,12 @@ const WsRaceForgetResultRpc = Rpc.make(WS_METHODS.raceForgetResult, {
   error: Schema.Union([RaceHistoryError, EnvironmentAuthorizationError]),
 });
 
+const WsRaceResolveBaseRpc = Rpc.make(WS_METHODS.raceResolveBase, {
+  payload: RaceResolveBaseInput,
+  success: RaceResolveBaseResult,
+  error: Schema.Union([RaceHistoryError, EnvironmentAuthorizationError]),
+});
+
 const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -1333,6 +1342,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsRaceRecordResultRpc,
   WsRaceListHistoryRpc,
   WsRaceForgetResultRpc,
+  WsRaceResolveBaseRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalWriteRpc,

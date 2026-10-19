@@ -1,6 +1,7 @@
-/* agent-watermark: model=opus-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-19 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=75m; seat=claude-code; date=2026-10-19 */
 import type {
   RaceHistoryEntrant,
+  RaceHistoryHeat,
   RaceHistoryRecord,
   RaceHistoryRecordInput,
   RaceTaskKind,
@@ -15,28 +16,105 @@ import type {
 export const RACE_HISTORY_MAX_RECORDS = 500;
 const RACE_HISTORY_PROMPT_MAX_CHARS = 2_000;
 
+/** A heat as the ladder and history read it: heat 1 is the original race. */
+export interface RaceHeatView {
+  readonly heat: number;
+  readonly startedAt: string;
+  readonly participants: ReadonlyArray<number>;
+  readonly outcome: RaceHistoryRecord["outcome"];
+  readonly keptSlot: number | null;
+  readonly judge: RaceHistoryRecord["judge"];
+}
+
+export function raceHeats(record: RaceHistoryRecord): RaceHeatView[] {
+  const first: RaceHeatView = {
+    heat: 1,
+    startedAt: record.startedAt,
+    // Records from before rematches have no participant list: every entrant
+    // took part. A rematch pins heat 1's list before it appends anyone.
+    participants: record.participants ?? record.entrants.map((entrant) => entrant.slot),
+    outcome: record.outcome,
+    keptSlot: record.keptSlot,
+    judge: record.judge,
+  };
+  return [first, ...(record.rematches ?? [])].toSorted((left, right) => left.heat - right.heat);
+}
+
+/** Slots whose lines are fixed because a heat they were in has been decided. */
+function frozenSlots(record: RaceHistoryRecord): Set<number> {
+  const frozen = new Set<number>();
+  for (const heat of raceHeats(record)) {
+    if (heat.outcome === "open") continue;
+    for (const slot of heat.participants) frozen.add(slot);
+  }
+  return frozen;
+}
+
+function clipPrompt(prompt: string): string {
+  return prompt.length > RACE_HISTORY_PROMPT_MAX_CHARS
+    ? `${prompt.slice(0, RACE_HISTORY_PROMPT_MAX_CHARS)}…`
+    : prompt;
+}
+
 /**
  * Folds a report into the stored record. A later report fills in what an
  * earlier one lacked but never undoes a decision: a judge's verdict arriving
  * after Keep keeps the Keep and the entrant lines it was decided on, a Keep
  * keeps an earlier judge, and a kind the user picked by hand survives every
- * guess.
+ * guess. A report for heat 2+ (a rematch) decides only that heat, and its new
+ * entrants are appended to the race.
  */
 export function mergeRaceHistoryRecord(
   existing: RaceHistoryRecord | null,
   incoming: RaceHistoryRecordInput,
   recordedAt: string,
 ): RaceHistoryRecord {
-  const prompt =
-    incoming.prompt.length > RACE_HISTORY_PROMPT_MAX_CHARS
-      ? `${incoming.prompt.slice(0, RACE_HISTORY_PROMPT_MAX_CHARS)}…`
-      : incoming.prompt;
-  if (!existing) return { ...incoming, prompt, recordedAt };
+  const {
+    heat: incomingHeat,
+    heatStartedAt,
+    participants: incomingParticipantsInput,
+    baseCommit: incomingBase,
+    ...fields
+  } = incoming;
+  const heat = incomingHeat ?? 1;
+  const prompt = clipPrompt(incoming.prompt);
+  const incomingParticipants =
+    incomingParticipantsInput ?? incoming.entrants.map((entrant) => entrant.slot);
+  const heatEntry = (previous: RaceHistoryHeat | null): RaceHistoryHeat => {
+    const keep = previous !== null && previous.outcome !== "open" && incoming.outcome === "open";
+    return {
+      heat,
+      startedAt: previous?.startedAt ?? heatStartedAt ?? incoming.startedAt,
+      participants:
+        previous && previous.outcome !== "open" ? previous.participants : incomingParticipants,
+      outcome: keep ? previous.outcome : incoming.outcome,
+      keptSlot: keep ? previous.keptSlot : incoming.outcome === "kept" ? incoming.keptSlot : null,
+      judge: incoming.judge ?? previous?.judge ?? null,
+    };
+  };
 
-  const decided = existing.outcome !== "open";
-  const keepDecision = decided && incoming.outcome === "open";
+  if (!existing) {
+    const base: RaceHistoryRecord = {
+      ...fields,
+      prompt,
+      recordedAt,
+      baseCommit: incomingBase ?? null,
+    };
+    if (heat === 1) {
+      return incoming.outcome === "open" ? base : { ...base, participants: incomingParticipants };
+    }
+    return {
+      ...base,
+      outcome: "open",
+      keptSlot: null,
+      judge: null,
+      rematches: [heatEntry(null)],
+    };
+  }
+
   const keepKind = existing.taskKindSource === "user" && incoming.taskKindSource === "guessed";
-  return {
+  const frozen = frozenSlots(existing);
+  const shared = {
     ...existing,
     projectTitle: incoming.projectTitle || existing.projectTitle,
     titleSeed: incoming.titleSeed || existing.titleSeed,
@@ -44,14 +122,42 @@ export function mergeRaceHistoryRecord(
     taskKind: keepKind ? existing.taskKind : incoming.taskKind,
     taskKindSource: keepKind ? existing.taskKindSource : incoming.taskKindSource,
     startedAt: existing.startedAt < incoming.startedAt ? existing.startedAt : incoming.startedAt,
+    baseCommit: existing.baseCommit ?? incomingBase ?? null,
+    // A decided heat keeps the entrant lines it was decided on: after Keep the
+    // winner's worktree diff reads empty and the losers are gone, so a later
+    // report (a judge, a kind change, a rematch) must not rewrite them.
+    entrants: mergeEntrants(
+      existing.entrants,
+      incoming.entrants.filter((entrant) => !frozen.has(entrant.slot)),
+    ),
+    recordedAt,
+  };
+
+  if (heat > 1) {
+    const rematches = existing.rematches ?? [];
+    const previous = rematches.find((item) => item.heat === heat) ?? null;
+    return {
+      ...shared,
+      participants: existing.participants ?? existing.entrants.map((entrant) => entrant.slot),
+      rematches: [...rematches.filter((item) => item.heat !== heat), heatEntry(previous)].toSorted(
+        (left, right) => left.heat - right.heat,
+      ),
+    };
+  }
+
+  const decided = existing.outcome !== "open";
+  const keepDecision = decided && incoming.outcome === "open";
+  const participants = decided
+    ? existing.participants
+    : incoming.outcome !== "open"
+      ? incomingParticipants
+      : existing.participants;
+  return {
+    ...shared,
     outcome: keepDecision ? existing.outcome : incoming.outcome,
     keptSlot: keepDecision ? existing.keptSlot : incoming.keptSlot,
     judge: incoming.judge ?? existing.judge,
-    // A decided race keeps the entrant lines it was decided on: after Keep the
-    // winner's worktree diff reads empty and the losers are gone, so a later
-    // report (a judge, a kind change) must not rewrite them.
-    entrants: decided ? existing.entrants : mergeEntrants(existing.entrants, incoming.entrants),
-    recordedAt,
+    ...(participants ? { participants } : {}),
   };
 }
 
@@ -177,7 +283,8 @@ export function buildRaceLeaderboard(
   >();
   for (const record of records) {
     if (filter.taskKind && record.taskKind !== filter.taskKind) continue;
-    for (const entrant of record.entrants) {
+    const bySlot = new Map(record.entrants.map((entrant) => [entrant.slot, entrant] as const));
+    const rowFor = (entrant: RaceHistoryEntrant) => {
       const key = `${entrant.driver}\0${entrant.model}`;
       const row = rows.get(key) ?? {
         driver: entrant.driver,
@@ -192,10 +299,12 @@ export function buildRaceLeaderboard(
         costs: [],
         lastRaceAt: record.startedAt,
       };
-      row.races += 1;
-      if (record.outcome !== "open") row.decided += 1;
-      if (record.outcome === "kept" && record.keptSlot === entrant.slot) row.wins += 1;
-      if (record.judge?.pickSlot === entrant.slot) row.judgePicks += 1;
+      rows.set(key, row);
+      return row;
+    };
+    // Per entrant: its own run's time, cost and failure, counted once.
+    for (const entrant of record.entrants) {
+      const row = rowFor(entrant);
       if (entrant.phase === "failed") row.failures += 1;
       if (entrant.phase === "finished" && entrant.elapsedMs !== null) {
         row.times.push(entrant.elapsedMs);
@@ -205,7 +314,18 @@ export function buildRaceLeaderboard(
         row.lastRaceAt = record.startedAt;
         row.label = entrant.label;
       }
-      rows.set(key, row);
+    }
+    // Per heat: a champion that defends its win in a rematch races again.
+    for (const heat of raceHeats(record)) {
+      for (const slot of heat.participants) {
+        const entrant = bySlot.get(slot);
+        if (!entrant) continue;
+        const row = rowFor(entrant);
+        row.races += 1;
+        if (heat.outcome !== "open") row.decided += 1;
+        if (heat.outcome === "kept" && heat.keptSlot === slot) row.wins += 1;
+        if (heat.judge?.pickSlot === slot) row.judgePicks += 1;
+      }
     }
   }
   return [...rows.entries()]
@@ -260,4 +380,184 @@ export function buildRaceKindLeaders(records: ReadonlyArray<RaceHistoryRecord>):
     .toSorted(
       (left, right) => right.decided - left.decided || left.taskKind.localeCompare(right.taskKind),
     );
+}
+
+// ---------------------------------------------------------------------------
+// Ladder: Elo-style ratings from head-to-head results
+// ---------------------------------------------------------------------------
+
+export const RACE_LADDER_START_RATING = 1500;
+const RACE_LADDER_K = 32;
+/** Below this many head-to-heads a rating is provisional. */
+export const RACE_LADDER_PROVISIONAL_GAMES = 5;
+
+export interface RaceLadderRow {
+  readonly key: string;
+  readonly driver: string;
+  readonly model: string;
+  readonly label: string;
+  readonly rating: number;
+  /** A rough ± that shrinks as head-to-heads accumulate; not a statistical interval. */
+  readonly spread: number;
+  readonly games: number;
+  readonly wins: number;
+  readonly losses: number;
+  readonly provisional: boolean;
+}
+
+/**
+ * Who won a heat: what the user kept, else the judge's pick. A heat closed
+ * with no winner, or judged "none", has no head-to-heads.
+ */
+export function raceHeatWinner(heat: RaceHeatView): number | null {
+  if (heat.outcome === "kept" && heat.keptSlot !== null) return heat.keptSlot;
+  if (heat.outcome === "none") return null;
+  return heat.judge?.pickSlot ?? null;
+}
+
+/**
+ * Elo-style ratings per harness+model. Each decided heat counts its winner as
+ * beating every other entrant in it, failed entrants included; heats are
+ * replayed oldest first so the ratings move the way the races happened.
+ */
+export function buildRaceLadder(
+  records: ReadonlyArray<RaceHistoryRecord>,
+  filter: { readonly taskKind?: RaceTaskKind | null } = {},
+): RaceLadderRow[] {
+  const ratings = new Map<
+    string,
+    { driver: string; model: string; label: string; rating: number; wins: number; losses: number }
+  >();
+  const heats = records
+    .filter((record) => !filter.taskKind || record.taskKind === filter.taskKind)
+    .flatMap((record) => raceHeats(record).map((heat) => ({ record, heat })))
+    .toSorted((left, right) => left.heat.startedAt.localeCompare(right.heat.startedAt));
+  const entryFor = (entrant: RaceHistoryEntrant) => {
+    const key = `${entrant.driver}\0${entrant.model}`;
+    const entry = ratings.get(key) ?? {
+      driver: entrant.driver,
+      model: entrant.model,
+      label: entrant.label,
+      rating: RACE_LADDER_START_RATING,
+      wins: 0,
+      losses: 0,
+    };
+    entry.label = entrant.label;
+    ratings.set(key, entry);
+    return entry;
+  };
+  for (const { record, heat } of heats) {
+    const winnerSlot = raceHeatWinner(heat);
+    if (winnerSlot === null) continue;
+    const bySlot = new Map(record.entrants.map((entrant) => [entrant.slot, entrant] as const));
+    const winnerEntrant = bySlot.get(winnerSlot);
+    if (!winnerEntrant) continue;
+    const winner = entryFor(winnerEntrant);
+    for (const slot of heat.participants) {
+      if (slot === winnerSlot) continue;
+      const loserEntrant = bySlot.get(slot);
+      if (!loserEntrant) continue;
+      const loser = entryFor(loserEntrant);
+      // Two runs of the same harness+model in one heat say nothing about it.
+      if (loser === winner) continue;
+      const expected = 1 / (1 + 10 ** ((loser.rating - winner.rating) / 400));
+      const delta = RACE_LADDER_K * (1 - expected);
+      winner.rating += delta;
+      loser.rating -= delta;
+      winner.wins += 1;
+      loser.losses += 1;
+    }
+  }
+  return [...ratings.entries()]
+    .map(([key, entry]) => {
+      const games = entry.wins + entry.losses;
+      return {
+        key,
+        driver: entry.driver,
+        model: entry.model,
+        label: entry.label,
+        rating: Math.round(entry.rating),
+        spread: Math.round(350 / Math.sqrt(1 + games)),
+        games,
+        wins: entry.wins,
+        losses: entry.losses,
+        provisional: games < RACE_LADDER_PROVISIONAL_GAMES,
+      };
+    })
+    .toSorted(
+      (left, right) =>
+        right.rating - left.rating ||
+        right.games - left.games ||
+        left.label.localeCompare(right.label),
+    );
+}
+
+export interface RaceRecommendation {
+  readonly row: RaceLadderRow;
+  /** Whether the rating comes from this kind of task or, lacking that, from every race. */
+  readonly scope: "kind" | "overall";
+}
+
+/**
+ * The best-rated agents for a kind of task among those the user can run now.
+ * Kind-specific ratings win; with no head-to-heads in that kind yet, the
+ * overall ladder stands in, and says so. Unrated agents are never suggested.
+ */
+export function recommendRaceEntrants(
+  records: ReadonlyArray<RaceHistoryRecord>,
+  taskKind: RaceTaskKind,
+  available: ReadonlyArray<{ readonly driver: string; readonly model: string }>,
+  count = 2,
+): RaceRecommendation[] {
+  const runnable = (row: RaceLadderRow) =>
+    row.games > 0 &&
+    available.some((item) => item.driver === row.driver && item.model === row.model);
+  const byKind = buildRaceLadder(records, { taskKind }).filter(runnable);
+  if (byKind.length > 0) {
+    return byKind.slice(0, count).map((row) => ({ row, scope: "kind" as const }));
+  }
+  return buildRaceLadder(records)
+    .filter(runnable)
+    .slice(0, count)
+    .map((row) => ({ row, scope: "overall" as const }));
+}
+
+// ---------------------------------------------------------------------------
+// Prompt history: every run of the same prompt
+// ---------------------------------------------------------------------------
+
+/** Same words, same task: case and spacing don't make a different prompt. */
+export function racePromptKey(prompt: string): string {
+  const normalized = prompt.toLowerCase().replace(/\s+/g, " ").trim();
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash ^= normalized.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36).padStart(7, "0");
+}
+
+export interface RacePromptRun<R extends RaceHistoryRecord = RaceHistoryRecord> {
+  readonly record: R;
+  readonly heat: RaceHeatView;
+  readonly entrants: ReadonlyArray<RaceHistoryEntrant>;
+  readonly winnerSlot: number | null;
+}
+
+/** Every heat of every race on this prompt, newest first. */
+export function buildRacePromptRuns<R extends RaceHistoryRecord>(
+  records: ReadonlyArray<R>,
+  promptKey: string,
+): RacePromptRun<R>[] {
+  return records
+    .filter((record) => racePromptKey(record.prompt) === promptKey)
+    .flatMap((record) =>
+      raceHeats(record).map((heat) => ({
+        record,
+        heat,
+        entrants: record.entrants.filter((entrant) => heat.participants.includes(entrant.slot)),
+        winnerSlot: raceHeatWinner(heat),
+      })),
+    )
+    .toSorted((left, right) => right.heat.startedAt.localeCompare(left.heat.startedAt));
 }
