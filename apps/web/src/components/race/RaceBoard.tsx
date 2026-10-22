@@ -5,7 +5,8 @@ import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environ
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { ServerProvider } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowUpRightIcon, CheckIcon, ColumnsIcon, Trash2Icon } from "lucide-react";
+import { isRaceAutopilotActive } from "@t3tools/shared/raceHistory";
+import { ArrowUpRightIcon, BotIcon, CheckIcon, ColumnsIcon, Trash2Icon } from "lucide-react";
 import { useEffect } from "react";
 
 import { cn } from "../../lib/utils";
@@ -34,6 +35,7 @@ import { useEntrantReport, useEntrantReports, type EntrantReport } from "./useEn
 import { useRaceRecorder } from "./useRaceRecorder";
 import { useRaceBase } from "./useRaceBase";
 import { useRaceHistoryRecord } from "./useRaceHistoryRecord";
+import { describeRaceAutopilot, raceAutopilotStageLabel } from "./raceAutopilot.logic";
 
 type Race = RaceGroup<EnvironmentThreadShell>;
 type Entrant = RaceEntrant<EnvironmentThreadShell>;
@@ -86,7 +88,11 @@ export function RaceCard({ race, context }: { race: Race; context: RaceBoardCont
   );
   const [reports, report] = useEntrantReports();
   const base = useRaceBase(race);
-  const { currentHeat } = useRaceHistoryRecord(race);
+  const { currentHeat, history } = useRaceHistoryRecord(race);
+  const autopilot =
+    history.data?.autopilots?.find(
+      (item) => item.raceId === race.raceId && item.heat === currentHeat,
+    ) ?? null;
   const recordResult = useRaceRecorder(race, context, reports, {
     heat: currentHeat,
     baseCommit: base.commit,
@@ -119,6 +125,18 @@ export function RaceCard({ race, context }: { race: Race; context: RaceBoardCont
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {autopilot ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Badge variant={isRaceAutopilotActive(autopilot.stage) ? "info" : "secondary"} />
+                }
+              >
+                <BotIcon /> {raceAutopilotStageLabel(autopilot.stage)}
+              </TooltipTrigger>
+              <TooltipPopup side="top">Autopilot: {describeRaceAutopilot(autopilot)}</TooltipPopup>
+            </Tooltip>
+          ) : null}
           {race.entrants.length < race.count ? (
             <Badge variant="secondary">
               <span className="tabular-nums">

@@ -1,6 +1,7 @@
 /* agent-watermark: model=opus-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-04 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-10-01 */
 /* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
+import { RaceAutopilotHost } from "./race/RaceAutopilotHost";
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
@@ -256,6 +257,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         <MainAppLocationTracker />
         <ShortcutsOverlay />
         <AgentNotifications />
+        <RaceAutopilotHost />
         <Sidebar
           side="left"
           collapsible="offcanvas"

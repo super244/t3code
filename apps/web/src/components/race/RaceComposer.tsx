@@ -18,6 +18,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { vcsEnvironment } from "../../state/vcs";
 import { getTriggerDisplayModelLabel, PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
 import { raceProviderLabel } from "./raceLabels";
+import { RaceAutopilotFields, useRaceAutopilotDraft } from "./RaceAutopilotFields";
 import { buildRaceStartTurns } from "./startRace";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -201,6 +202,8 @@ export function RaceComposer() {
     setRequestedEntrants(entrants.map((entrant, i) => (i === index ? next : entrant)));
   }
 
+  const autopilot = useRaceAutopilotDraft(providers);
+
   async function startRace() {
     if (!project || !validation.ok || busyRef.current) return;
     busyRef.current = true;
@@ -230,6 +233,9 @@ export function RaceComposer() {
         }).map((turn) => startTurn(turn)),
       );
       const failures = results.filter((result) => result._tag === "Failure");
+      if (failures.length < count) {
+        await autopilot.arm({ environmentId: project.environmentId, raceId, heat: 1 });
+      }
       if (failures.length === 0) {
         rememberProject(projectKey(project.environmentId, project.id));
         setPrompt("");
@@ -458,6 +464,13 @@ export function RaceComposer() {
           </div>
         ) : null}
       </fieldset>
+
+      <RaceAutopilotFields
+        draft={autopilot.draft}
+        onChange={autopilot.setDraft}
+        providers={providers}
+        disabled={busy}
+      />
 
       <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t border-border/70 pt-4">
         {/* The reason sits beside the action it explains, so a disabled button

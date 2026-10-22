@@ -92,6 +92,10 @@ import {
   RaceHistoryRecordInput,
   RaceResolveBaseInput,
   RaceResolveBaseResult,
+  RaceAdvanceAutopilotInput,
+  RaceAdvanceAutopilotResult,
+  RaceAutopilot,
+  RaceAutopilotPlan,
 } from "./raceHistory.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
@@ -312,6 +316,8 @@ export const WS_METHODS = {
   raceListHistory: "race.listHistory",
   raceForgetResult: "race.forgetResult",
   raceResolveBase: "race.resolveBase",
+  raceSetAutopilot: "race.setAutopilot",
+  raceAdvanceAutopilot: "race.advanceAutopilot",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -1018,6 +1024,18 @@ const WsRaceResolveBaseRpc = Rpc.make(WS_METHODS.raceResolveBase, {
   error: Schema.Union([RaceHistoryError, EnvironmentAuthorizationError]),
 });
 
+const WsRaceSetAutopilotRpc = Rpc.make(WS_METHODS.raceSetAutopilot, {
+  payload: RaceAutopilotPlan,
+  success: RaceAutopilot,
+  error: Schema.Union([RaceHistoryError, EnvironmentAuthorizationError]),
+});
+
+const WsRaceAdvanceAutopilotRpc = Rpc.make(WS_METHODS.raceAdvanceAutopilot, {
+  payload: RaceAdvanceAutopilotInput,
+  success: RaceAdvanceAutopilotResult,
+  error: Schema.Union([RaceHistoryError, EnvironmentAuthorizationError]),
+});
+
 const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -1343,6 +1361,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsRaceListHistoryRpc,
   WsRaceForgetResultRpc,
   WsRaceResolveBaseRpc,
+  WsRaceSetAutopilotRpc,
+  WsRaceAdvanceAutopilotRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalWriteRpc,

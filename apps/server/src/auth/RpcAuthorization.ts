@@ -133,6 +133,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.raceListHistory]: AuthOrchestrationReadScope,
   [WS_METHODS.raceForgetResult]: AuthOrchestrationOperateScope,
   [WS_METHODS.raceResolveBase]: AuthOrchestrationReadScope,
+  [WS_METHODS.raceSetAutopilot]: AuthOrchestrationOperateScope,
+  [WS_METHODS.raceAdvanceAutopilot]: AuthOrchestrationOperateScope,
   [WS_METHODS.terminalOpen]: AuthTerminalOperateScope,
   [WS_METHODS.terminalAttach]: AuthTerminalOperateScope,
   [WS_METHODS.terminalWrite]: AuthTerminalOperateScope,

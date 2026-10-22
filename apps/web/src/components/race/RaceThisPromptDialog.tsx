@@ -58,6 +58,7 @@ import {
   type RaceEntrantDraft,
 } from "./race.logic";
 import { buildRaceStartTurns } from "./startRace";
+import { RaceAutopilotFields, useRaceAutopilotDraft } from "./RaceAutopilotFields";
 
 /** "Race this prompt" stays compact: two or three agents, picked in a few clicks. */
 const DIALOG_MAX_ENTRANTS = 3;
@@ -174,6 +175,7 @@ function RaceThisPromptForm({ seed }: { seed: RaceDialogSeed }) {
       }),
     );
   const recordRematch = useAtomCommand(raceHistoryEnvironment.record, { reportFailure: false });
+  const autopilot = useRaceAutopilotDraft(providers);
   const [starting, setStarting] = useState(false);
   const busyRef = useRef(false);
 
@@ -235,6 +237,13 @@ function RaceThisPromptForm({ seed }: { seed: RaceDialogSeed }) {
         });
       }
       const failures = results.filter((result) => result._tag === "Failure");
+      if (failures.length < results.length) {
+        await autopilot.arm({
+          environmentId: project.environmentId,
+          raceId,
+          heat: rematch?.heat ?? 1,
+        });
+      }
       if (failures.length === results.length) {
         const error = squashAtomCommandFailure(failures[0]!);
         toastManager.add({
@@ -431,6 +440,13 @@ function RaceThisPromptForm({ seed }: { seed: RaceDialogSeed }) {
             </p>
           ) : null}
         </div>
+
+        <RaceAutopilotFields
+          draft={autopilot.draft}
+          onChange={autopilot.setDraft}
+          providers={providers}
+          disabled={starting}
+        />
 
         <div className="flex min-w-0 flex-col gap-1.5 rounded-lg bg-muted/50 px-3 py-2.5 text-xs">
           <span className="flex min-w-0 items-center gap-1.5">

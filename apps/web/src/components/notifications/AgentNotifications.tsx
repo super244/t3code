@@ -105,6 +105,20 @@ export function AgentNotifications() {
 }
 
 /**
+ * A one-off system notification under the same switch and "only when away"
+ * rule as the agent ones, for events that are not a thread changing state
+ * (a race on autopilot finishing). Returns null when it was not shown.
+ */
+export function showAgentNotice(title: string, body: string): Notification | null {
+  const prefs = useAgentNotificationPrefs.getState();
+  if (!prefs.enabled || !supported() || Notification.permission !== "granted") return null;
+  if (prefs.onlyWhenAway && document.visibilityState === "visible" && document.hasFocus()) {
+    return null;
+  }
+  return showNotice(title, { body, tag: `t3-notice:${title}` });
+}
+
+/**
  * `new Notification` throws "Illegal constructor" on Chromium for Android; there the service worker
  * shows it instead (no click-through). Never lets the throw reach React.
  */

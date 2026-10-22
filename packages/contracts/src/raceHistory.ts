@@ -134,8 +134,66 @@ export const RaceHistoryListInput = Schema.Struct({
 });
 export type RaceHistoryListInput = typeof RaceHistoryListInput.Type;
 
+/**
+ * Autopilot: what a race does once every entrant has stopped, without anyone
+ * watching. Any open client carries it out; each step is claimed with
+ * `race.advanceAutopilot` first, so two clients never judge or keep twice.
+ *
+ * `waiting` → entrants still working. `judging` → a judge was started.
+ * `keeping` → the judge's pick is being merged. `done` → finished (see note).
+ * `stopped` → turned off by hand or something needed a person (see note).
+ */
+export const RaceAutopilotStage = Schema.Literals([
+  "waiting",
+  "judging",
+  "keeping",
+  "done",
+  "stopped",
+]);
+export type RaceAutopilotStage = typeof RaceAutopilotStage.Type;
+
+export const RaceAutopilotPlan = Schema.Struct({
+  raceId: TrimmedNonEmptyString,
+  /** The heat it drives: 1 for a new race, 2+ for a rematch. */
+  heat: PositiveInt,
+  judge: Schema.Struct({
+    instanceId: TrimmedNonEmptyString,
+    model: TrimmedNonEmptyString,
+  }),
+  /** Merge the judge's pick into the project checkout without asking. */
+  keep: Schema.Boolean,
+});
+export type RaceAutopilotPlan = typeof RaceAutopilotPlan.Type;
+
+export const RaceAutopilot = Schema.Struct({
+  ...RaceAutopilotPlan.fields,
+  stage: RaceAutopilotStage,
+  /** What happened last, in a sentence: shown in the arena and the notification. */
+  note: Schema.NullOr(Schema.String),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type RaceAutopilot = typeof RaceAutopilot.Type;
+
+export const RaceAdvanceAutopilotInput = Schema.Struct({
+  raceId: TrimmedNonEmptyString,
+  /** The stage the caller saw; nothing changes when the stored stage differs. */
+  from: RaceAutopilotStage,
+  to: RaceAutopilotStage,
+  note: Schema.optional(Schema.NullOr(Schema.String)),
+});
+export type RaceAdvanceAutopilotInput = typeof RaceAdvanceAutopilotInput.Type;
+
+export const RaceAdvanceAutopilotResult = Schema.Struct({
+  /** False when another client moved it first (or it no longer exists). */
+  applied: Schema.Boolean,
+  autopilot: Schema.NullOr(RaceAutopilot),
+});
+export type RaceAdvanceAutopilotResult = typeof RaceAdvanceAutopilotResult.Type;
+
 export const RaceHistoryListResult = Schema.Struct({
   records: Schema.Array(RaceHistoryRecord),
+  autopilots: Schema.optional(Schema.Array(RaceAutopilot)),
 });
 export type RaceHistoryListResult = typeof RaceHistoryListResult.Type;
 

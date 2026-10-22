@@ -44,6 +44,18 @@ export const raceHistoryEnvironment = {
     tag: WS_METHODS.raceResolveBase,
     staleTimeMs: 5 * 60_000,
   }),
+  /** Arms a race's autopilot (see RaceAutopilotHost). */
+  setAutopilot: createEnvironmentRpcCommand(connectionAtomRuntime, {
+    label: "environment-data:race:set-autopilot",
+    tag: WS_METHODS.raceSetAutopilot,
+    onSettled: bumpRevision,
+  }),
+  /** Claims an autopilot step; `applied: false` means another client took it. */
+  advanceAutopilot: createEnvironmentRpcCommand(connectionAtomRuntime, {
+    label: "environment-data:race:advance-autopilot",
+    tag: WS_METHODS.raceAdvanceAutopilot,
+    onSettled: bumpRevision,
+  }),
   forget: createEnvironmentRpcCommand(connectionAtomRuntime, {
     label: "environment-data:race:forget-result",
     tag: WS_METHODS.raceForgetResult,

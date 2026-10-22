@@ -1,5 +1,9 @@
 /* agent-watermark: model=opus-5.5; effort=high; duration=75m; seat=claude-code; date=2026-10-19 */
 import type {
+  RaceAdvanceAutopilotInput,
+  RaceAutopilot,
+  RaceAutopilotPlan,
+  RaceAutopilotStage,
   RaceHistoryEntrant,
   RaceHistoryHeat,
   RaceHistoryRecord,
@@ -200,6 +204,64 @@ export function upsertRaceHistory(
     .toSorted((left, right) => right.startedAt.localeCompare(left.startedAt))
     .slice(0, RACE_HISTORY_MAX_RECORDS);
   return { records: next, record };
+}
+
+export const RACE_AUTOPILOT_MAX = 200;
+
+/** Stages a client still has work to do in. */
+export function isRaceAutopilotActive(stage: RaceAutopilotStage): boolean {
+  return stage === "waiting" || stage === "judging" || stage === "keeping";
+}
+
+/** Arms a race's autopilot, replacing any earlier plan for it (a rematch re-arms). */
+export function setRaceAutopilot(
+  autopilots: ReadonlyArray<RaceAutopilot>,
+  plan: RaceAutopilotPlan,
+  now: string,
+): { readonly autopilots: RaceAutopilot[]; readonly autopilot: RaceAutopilot } {
+  const autopilot: RaceAutopilot = {
+    raceId: plan.raceId,
+    heat: plan.heat,
+    judge: plan.judge,
+    keep: plan.keep,
+    stage: "waiting",
+    note: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const rest = autopilots.filter((item) => item.raceId !== plan.raceId);
+  return { autopilots: [autopilot, ...rest].slice(0, RACE_AUTOPILOT_MAX), autopilot };
+}
+
+/**
+ * Compare-and-set: moves a race's autopilot from the stage the caller saw to
+ * the next one. Every open client may race to take the same step; only the
+ * first one's move applies, and it alone acts on it.
+ */
+export function advanceRaceAutopilot(
+  autopilots: ReadonlyArray<RaceAutopilot>,
+  input: RaceAdvanceAutopilotInput,
+  now: string,
+): {
+  readonly autopilots: RaceAutopilot[];
+  readonly applied: boolean;
+  readonly autopilot: RaceAutopilot | null;
+} {
+  const current = autopilots.find((item) => item.raceId === input.raceId) ?? null;
+  if (!current || current.stage !== input.from) {
+    return { autopilots: [...autopilots], applied: false, autopilot: current };
+  }
+  const autopilot: RaceAutopilot = {
+    ...current,
+    stage: input.to,
+    note: input.note === undefined ? current.note : input.note,
+    updatedAt: now,
+  };
+  return {
+    autopilots: autopilots.map((item) => (item.raceId === input.raceId ? autopilot : item)),
+    applied: true,
+    autopilot,
+  };
 }
 
 const TASK_KIND_RULES: ReadonlyArray<readonly [RaceTaskKind, RegExp]> = [

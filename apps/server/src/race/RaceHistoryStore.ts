@@ -1,11 +1,19 @@
 /* agent-watermark: model=opus-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-19 */
 import {
+  RaceAutopilot,
   RaceHistoryError,
   RaceHistoryRecord,
+  type RaceAdvanceAutopilotInput,
+  type RaceAdvanceAutopilotResult,
+  type RaceAutopilotPlan,
   type RaceHistoryListResult,
   type RaceHistoryRecordInput,
 } from "@t3tools/contracts";
-import { upsertRaceHistory } from "@t3tools/shared/raceHistory";
+import {
+  advanceRaceAutopilot,
+  setRaceAutopilot,
+  upsertRaceHistory,
+} from "@t3tools/shared/raceHistory";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -25,6 +33,8 @@ export const RACE_HISTORY_FILE_NAME = "race-history.json";
 const PersistedRaceHistory = Schema.Struct({
   version: Schema.Literal(1),
   records: Schema.Array(RaceHistoryRecord),
+  /** Races running on autopilot; absent in files written before autopilot. */
+  autopilots: Schema.optional(Schema.Array(RaceAutopilot)),
 });
 type PersistedRaceHistory = typeof PersistedRaceHistory.Type;
 
@@ -51,6 +61,12 @@ export interface RaceHistoryStore {
     input: RaceHistoryRecordInput,
   ) => Effect.Effect<RaceHistoryRecord, RaceHistoryError>;
   readonly forget: (raceId: string) => Effect.Effect<void, RaceHistoryError>;
+  readonly setAutopilot: (
+    plan: RaceAutopilotPlan,
+  ) => Effect.Effect<RaceAutopilot, RaceHistoryError>;
+  readonly advanceAutopilot: (
+    input: RaceAdvanceAutopilotInput,
+  ) => Effect.Effect<RaceAdvanceAutopilotResult, RaceHistoryError>;
 }
 
 export const makeRaceHistoryStore = (stateDir: string) =>
@@ -90,6 +106,7 @@ export const makeRaceHistoryStore = (stateDir: string) =>
         read.pipe(
           Effect.map((history) => ({
             records: limit === undefined ? history.records : history.records.slice(0, limit),
+            autopilots: history.autopilots ?? [],
           })),
         ),
       record: (input) =>
@@ -98,7 +115,7 @@ export const makeRaceHistoryStore = (stateDir: string) =>
             const history = yield* read;
             const now = DateTime.formatIso(yield* DateTime.now);
             const { records, record } = upsertRaceHistory(history.records, input, now);
-            yield* write({ version: 1, records });
+            yield* write({ ...history, records });
             return record;
           }),
         ),
@@ -107,8 +124,40 @@ export const makeRaceHistoryStore = (stateDir: string) =>
           Effect.gen(function* () {
             const history = yield* read;
             const records = history.records.filter((record) => record.raceId !== raceId);
-            if (records.length === history.records.length) return;
-            yield* write({ version: 1, records });
+            const autopilots = (history.autopilots ?? []).filter(
+              (autopilot) => autopilot.raceId !== raceId,
+            );
+            if (
+              records.length === history.records.length &&
+              autopilots.length === (history.autopilots ?? []).length
+            ) {
+              return;
+            }
+            yield* write({ version: 1, records, autopilots });
+          }),
+        ),
+      setAutopilot: (plan) =>
+        lock.withPermits(1)(
+          Effect.gen(function* () {
+            const history = yield* read;
+            const now = DateTime.formatIso(yield* DateTime.now);
+            const { autopilots, autopilot } = setRaceAutopilot(history.autopilots ?? [], plan, now);
+            yield* write({ ...history, autopilots });
+            return autopilot;
+          }),
+        ),
+      advanceAutopilot: (input) =>
+        lock.withPermits(1)(
+          Effect.gen(function* () {
+            const history = yield* read;
+            const now = DateTime.formatIso(yield* DateTime.now);
+            const { autopilots, applied, autopilot } = advanceRaceAutopilot(
+              history.autopilots ?? [],
+              input,
+              now,
+            );
+            if (applied) yield* write({ ...history, autopilots });
+            return { applied, autopilot };
           }),
         ),
     };

@@ -7,6 +7,9 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  advanceRaceAutopilot,
+  isRaceAutopilotActive,
+  setRaceAutopilot,
   buildRaceKindLeaders,
   buildRaceLadder,
   buildRaceLeaderboard,
@@ -391,5 +394,49 @@ describe("prompt history", () => {
       ["p1", 1, 1],
     ]);
     expect(runs[0]!.entrants.map((item) => item.slot)).toEqual([1, 3]);
+  });
+});
+
+describe("race autopilot", () => {
+  const plan = {
+    raceId: "k3f9a2",
+    heat: 1,
+    judge: { instanceId: "claudeAgent", model: "claude-sonnet-5-5" },
+    keep: true,
+  };
+
+  it("moves only from the stage the caller saw", () => {
+    const { autopilots } = setRaceAutopilot([], plan, "2026-10-22T10:00:00.000Z");
+    const first = advanceRaceAutopilot(
+      autopilots,
+      { raceId: "k3f9a2", from: "waiting", to: "judging" },
+      "2026-10-22T10:05:00.000Z",
+    );
+    expect(first.applied).toBe(true);
+    expect(first.autopilot?.stage).toBe("judging");
+    const late = advanceRaceAutopilot(
+      first.autopilots,
+      { raceId: "k3f9a2", from: "waiting", to: "judging" },
+      "2026-10-22T10:05:01.000Z",
+    );
+    expect(late.applied).toBe(false);
+    expect(late.autopilot?.updatedAt).toBe("2026-10-22T10:05:00.000Z");
+    expect(
+      advanceRaceAutopilot([], { raceId: "nope", from: "waiting", to: "stopped" }, "x").applied,
+    ).toBe(false);
+  });
+
+  it("re-arms a race for a rematch heat and keeps the note until a step replaces it", () => {
+    const armed = setRaceAutopilot([], plan, "2026-10-22T10:00:00.000Z").autopilots;
+    const done = advanceRaceAutopilot(
+      armed,
+      { raceId: "k3f9a2", from: "waiting", to: "done", note: "Kept Entrant 1." },
+      "t",
+    ).autopilots;
+    const rearmed = setRaceAutopilot(done, { ...plan, heat: 2 }, "t2");
+    expect(rearmed.autopilots).toHaveLength(1);
+    expect(rearmed.autopilot).toMatchObject({ heat: 2, stage: "waiting", note: null });
+    expect(isRaceAutopilotActive("waiting")).toBe(true);
+    expect(isRaceAutopilotActive("done")).toBe(false);
   });
 });

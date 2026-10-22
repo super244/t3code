@@ -2703,6 +2703,14 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.raceForgetResult, raceHistory.forget(input.raceId), {
             "rpc.aggregate": "race",
           }),
+        [WS_METHODS.raceSetAutopilot]: (input) =>
+          observeRpcEffect(WS_METHODS.raceSetAutopilot, raceHistory.setAutopilot(input), {
+            "rpc.aggregate": "race",
+          }),
+        [WS_METHODS.raceAdvanceAutopilot]: (input) =>
+          observeRpcEffect(WS_METHODS.raceAdvanceAutopilot, raceHistory.advanceAutopilot(input), {
+            "rpc.aggregate": "race",
+          }),
         [WS_METHODS.raceResolveBase]: (input) =>
           observeRpcEffect(
             WS_METHODS.raceResolveBase,

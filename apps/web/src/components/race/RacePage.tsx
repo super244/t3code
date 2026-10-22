@@ -6,11 +6,7 @@ import { FlagIcon, TrophyIcon } from "lucide-react";
 import { useMemo } from "react";
 
 import { isElectron } from "../../env";
-import {
-  useAllEnvironmentShellsBootstrapped,
-  useProjects,
-  useThreadShells,
-} from "../../state/entities";
+import { useAllEnvironmentShellsBootstrapped, useThreadShells } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { ScrollArea } from "../ui/scroll-area";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
@@ -19,10 +15,11 @@ import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadc
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { RaceArena } from "./RaceArena";
-import { RaceCard, type RaceBoardContext } from "./RaceBoard";
+import { RaceCard } from "./RaceBoard";
 import { RaceComposer } from "./RaceComposer";
 import { RaceScoreboard } from "./RaceScoreboard";
 import { groupRaces } from "./race.logic";
+import { useRaceBoardContext } from "./useRaceBoardContext";
 
 export function RacePage({
   arenaRaceId = null,
@@ -38,28 +35,9 @@ export function RacePage({
   const navigate = useNavigate();
   const threads = useThreadShells();
   const shellsReady = useAllEnvironmentShellsBootstrapped();
-  const projects = useProjects();
   const { environments } = useEnvironments();
   const races = useMemo(() => groupRaces(threads), [threads]);
-  const context = useMemo<RaceBoardContext>(
-    () => ({
-      projectsByKey: new Map(
-        projects.map((project) => [`${project.environmentId}\0${project.id}`, project] as const),
-      ),
-      providersByKey: new Map(
-        environments.flatMap((environment) =>
-          (environment.serverConfig?.providers ?? []).map(
-            (provider) =>
-              [`${environment.environmentId}\0${provider.instanceId}`, provider] as const,
-          ),
-        ),
-      ),
-      environmentLabels: new Map(
-        environments.map((environment) => [environment.environmentId, environment.label] as const),
-      ),
-    }),
-    [environments, projects],
-  );
+  const context = useRaceBoardContext();
 
   const scoreboardEnvironments = useMemo(
     () =>
