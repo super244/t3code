@@ -153,3 +153,34 @@ export function describeRaceAutopilot(autopilot: {
 export function raceAutopilotStageLabel(stage: RaceAutopilotStage): string {
   return STAGE_LABELS[stage];
 }
+
+/** What the autopilot block of a race form holds. */
+export interface RaceAutopilotDraft {
+  readonly enabled: boolean;
+  readonly instanceId: string | null;
+  readonly model: string | null;
+  readonly keep: boolean;
+}
+
+export const INITIAL_RACE_AUTOPILOT_DRAFT: RaceAutopilotDraft = {
+  enabled: false,
+  instanceId: null,
+  model: null,
+  keep: true,
+};
+
+/** The last autopilot choice on this browser, so the next race starts the same way. */
+export function readStoredRaceAutopilotDraft(raw: string | null): RaceAutopilotDraft {
+  if (!raw) return INITIAL_RACE_AUTOPILOT_DRAFT;
+  try {
+    const value = JSON.parse(raw) as Partial<Record<keyof RaceAutopilotDraft, unknown>>;
+    return {
+      enabled: value.enabled === true,
+      instanceId: typeof value.instanceId === "string" ? value.instanceId : null,
+      model: typeof value.model === "string" ? value.model : null,
+      keep: value.keep !== false,
+    };
+  } catch {
+    return INITIAL_RACE_AUTOPILOT_DRAFT;
+  }
+}

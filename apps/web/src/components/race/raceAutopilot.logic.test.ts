@@ -1,7 +1,12 @@
 /* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-22 */
 import { describe, expect, it } from "vite-plus/test";
 
-import { nextRaceAutopilotStep, type RaceAutopilotInput } from "./raceAutopilot.logic";
+import {
+  INITIAL_RACE_AUTOPILOT_DRAFT,
+  nextRaceAutopilotStep,
+  readStoredRaceAutopilotDraft,
+  type RaceAutopilotInput,
+} from "./raceAutopilot.logic";
 
 const finished = (slot: number, files = 2) =>
   ({ slot, phase: "finished", loaded: true, files }) as const;
@@ -123,5 +128,23 @@ describe("nextRaceAutopilotStep", () => {
     });
     // Its own Keep is recorded before it marks itself done; that is not "by hand".
     expect(nextRaceAutopilotStep(input({ stage: "keeping", decided: true })).kind).toBe("wait");
+  });
+});
+
+describe("readStoredRaceAutopilotDraft", () => {
+  it("restores the last choice and falls back to off for anything unreadable", () => {
+    expect(
+      readStoredRaceAutopilotDraft(
+        JSON.stringify({ enabled: true, instanceId: "claudeAgent", model: "haiku", keep: false }),
+      ),
+    ).toEqual({ enabled: true, instanceId: "claudeAgent", model: "haiku", keep: false });
+    expect(readStoredRaceAutopilotDraft(null)).toEqual(INITIAL_RACE_AUTOPILOT_DRAFT);
+    expect(readStoredRaceAutopilotDraft("{oops")).toEqual(INITIAL_RACE_AUTOPILOT_DRAFT);
+    expect(readStoredRaceAutopilotDraft(JSON.stringify({ enabled: "yes", model: 3 }))).toEqual({
+      enabled: false,
+      instanceId: null,
+      model: null,
+      keep: true,
+    });
   });
 });

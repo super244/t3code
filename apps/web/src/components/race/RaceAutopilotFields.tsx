@@ -7,7 +7,13 @@ import { useCallback, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
-import { describeRaceAutopilot, raceAutopilotStageLabel } from "./raceAutopilot.logic";
+import {
+  describeRaceAutopilot,
+  INITIAL_RACE_AUTOPILOT_DRAFT,
+  raceAutopilotStageLabel,
+  readStoredRaceAutopilotDraft,
+  type RaceAutopilotDraft,
+} from "./raceAutopilot.logic";
 import { formatRaceAgentLabel } from "./raceLabels";
 
 import { raceHistoryEnvironment } from "../../state/raceHistory";
@@ -18,19 +24,23 @@ import { toastManager } from "../ui/toast";
 import { RaceSelect } from "./RaceComposer";
 import { raceModelLabel, raceProviderLabel } from "./raceLabels";
 
-export interface RaceAutopilotDraft {
-  readonly enabled: boolean;
-  readonly instanceId: string | null;
-  readonly model: string | null;
-  readonly keep: boolean;
+const DRAFT_STORAGE_KEY = "t3code:race-autopilot:v1";
+
+function loadDraft(): RaceAutopilotDraft {
+  try {
+    return readStoredRaceAutopilotDraft(window.localStorage.getItem(DRAFT_STORAGE_KEY));
+  } catch {
+    return INITIAL_RACE_AUTOPILOT_DRAFT;
+  }
 }
 
-const INITIAL_DRAFT: RaceAutopilotDraft = {
-  enabled: false,
-  instanceId: null,
-  model: null,
-  keep: true,
-};
+function storeDraft(draft: RaceAutopilotDraft) {
+  try {
+    window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+  } catch {
+    // Blocked storage only means the next race starts with autopilot off.
+  }
+}
 
 /** The judge a draft resolves to among the ready providers: the picked one, else the first. */
 function resolveJudge(draft: RaceAutopilotDraft, providers: ReadonlyArray<ServerProvider>) {
@@ -50,7 +60,11 @@ function resolveJudge(draft: RaceAutopilotDraft, providers: ReadonlyArray<Server
  * save still runs; it just waits for the user like any other race.
  */
 export function useRaceAutopilotDraft(providers: ReadonlyArray<ServerProvider>) {
-  const [draft, setDraft] = useState<RaceAutopilotDraft>(INITIAL_DRAFT);
+  const [draft, setDraftState] = useState<RaceAutopilotDraft>(loadDraft);
+  const setDraft = useCallback((next: RaceAutopilotDraft) => {
+    setDraftState(next);
+    storeDraft(next);
+  }, []);
   const setAutopilot = useAtomCommand(raceHistoryEnvironment.setAutopilot, {
     reportFailure: false,
   });
