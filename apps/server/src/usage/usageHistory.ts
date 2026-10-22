@@ -8,7 +8,10 @@ import { totalTokens, type UsageRecord } from "./usageTranscripts.ts";
 export function decodeUsageHistory(document: unknown): ScanCache {
   if (typeof document !== "object" || document === null) return new Map();
   const root = document as Record<string, unknown>;
-  if (![1, 2].includes(Number(root.historyVersion)) && ![5, 8, 9, 10].includes(Number(root.version)))
+  if (
+    ![1, 2].includes(Number(root.historyVersion)) &&
+    ![5, 8, 9, 10].includes(Number(root.version))
+  )
     return new Map();
   const legacy = root.historyVersion !== 1 && root.version === 5;
   if (typeof root.files !== "object" || root.files === null) return new Map();

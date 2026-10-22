@@ -279,4 +279,3 @@ describe("normalizeModelSlug", () => {
     expect(normalizeModelSlug("", antigravity)).toBe(null);
   });
 });
-

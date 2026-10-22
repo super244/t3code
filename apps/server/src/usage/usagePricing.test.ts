@@ -287,4 +287,3 @@ describe("usage pricing", () => {
     expect(lookupRate(table, "haiku")?.inputCostPerToken).toBe(0.8 / 1e6);
   });
 });
-

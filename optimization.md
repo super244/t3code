@@ -1,4 +1,5 @@
 <!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-10 -->
+
 # t3code optimization audit
 
 Audit: 2026-10-10, America/Vancouver. Small resource-focused pass; source inspected in the canonical checkout. Runtime snapshots are instantaneous, not leak or battery-drain benchmarks. Proposed remedies below are not implemented unless explicitly stated.

@@ -68,11 +68,9 @@ docs/           # Project documentation
 
 Mobile typecheck and touched-file lint/format pass (existing warnings outside the added hunks remain). Four existing shared/settings/navigation/attachment suites pass 47 checks, and the iOS Expo export bundles successfully (19 MB Hermes). The React skill checklist was applied to state derivation, bounded rows, lazy export imports, abort lifetime and accessible controls. No tests or dependencies were added, and no live T3 userdata/provider call was used. Browser/mobile UI verification still awaits the explicit permission required by AGENTS.md; this is not enterprise-v1 completion.
 
-
 **2026-10-19 — Filtered Race evidence and quota connection repair (local, not committed).** Race Scoreboard now searches retained prompts/models/failures and filters by project+computer, outcome, task kind and last 30 days. It renders 20 history rows per page, with the leaderboard and JSON/CSV exports covering every matching loaded record. Offline computers, missing prices and the 500-record per-computer retention bound remain explicit. Exports refuse incomplete/error-loading views; CSV quotes cells and neutralizes formulas. `RaceHistoryListInput` adds typed filters/paging; the server and web share `queryRaceHistory`, with additive optional total/offset/retention metadata for older clients. The stale `makePromoCreditsWindow` import in ClaudeProvider was also removed: subscription quotas now use subscription responses only; relay dollar spend remains separate.
 
 Verification: web/server typechecks pass, focused Race history suites pass 14 tests and quota mapping passes 9 existing tests; touched-file lint/format pass. A temporary persisted Effect store exercised search, outcome/paging, reopen, unknown-cost blanks and formula escaping. No new tests, provider calls, live-userdata writes or commits. T3 browser QA requires explicit permission per AGENTS.md; permission was requested and is pending. Native/mobile interaction and enterprise-v1 readiness remain unverified.
-
 
 **2026-10-19 — Race from anywhere, and a scoreboard of who wins what (branch `goal/t3-w1-race-anywhere`, not pushed).** **Race this prompt** opens from every thread menu (sidebar and header), the command palette, and a flag button next to Send whenever the composer has text. It offers the thread's last request or the typed text, a compact 2–3 agent picker, and the thread's project and branch, and it warns when that checkout has uncommitted changes the entrants won't see. Then it opens the arena. Entrant and judge threads show a "Compare" pill linking back to their arena, and the palette offers "Compare this race". Board cards now count +/− from the same `review.getDiffPreview` the arena reads, so untracked files count; that is the shared `useEntrantReport`. **Race history:** new `race.recordResult` / `race.listHistory` / `race.forgetResult` RPCs (`packages/contracts/src/raceHistory.ts`) persist to `<userdata>/race-history.json` through `apps/server/src/race/RaceHistoryStore.ts`, with a per-file lock and merge rules in `packages/shared/src/raceHistory.ts`: a decision is never reopened, a decided race's entrant lines are frozen, and a kind the user picked beats a guess. Keep (arena or board), the judge's verdict and **No winner** all record. Claude's SDK `total_cost_usd` is now a `turn.cost` activity, hidden from both work logs. **Race → Scoreboard** shows wins, keep rate, judge picks, median time, median reported cost and failures per harness+model, leaders per kind of task, and an editable history. Verified live on an isolated dev server: three real races (Claude Haiku 5.5 / Sonnet 5, with Codex failing on "usage limit reached" at 09:18 and shown as failed), started from the composer, the thread menu and the Race page. One was judged by Haiku 5.5 and kept, one closed with no winner, and one kept by hand. Recorded costs were $0.0098 to $0.308 for Claude and none for Codex. Typecheck is clean in web, server, mobile, contracts and shared. Targeted suites pass (web 182, server 329, contracts 387, shared race 21, mobile threadActivity 101). `vp lint` shows no errors in touched files.
 
@@ -280,7 +278,6 @@ listens on :3774. Post-upgrade native UI inspection timed out; updated native sc
 share-sheet interaction remain unverified. This is one delivered capability; full enterprise-v1
 and upstream parity remain partial.
 
-
 ## 2026-10-14 — Review-bound routine batch controls
 
 Web/desktop and native mobile can pause or resume the schedules in the current routine filter after reviewing the captured names. The shared client builder excludes already-matching schedules and caps batches at 100. Optional expected configuration on the existing RoutineAction wire shape binds every selected routine; the server resolves all entries under the existing settings write lock, refusing changed or deleted configurations before persistence. Runtime history and starting/running task state remain server-owned. A capability flag keeps these controls disabled on older environments. No new execution queue or provider launch path.
@@ -289,7 +286,6 @@ Direct source runtime evidence: a two-schedule pause preserved the active task i
 
 Delivery follow-through: the scoped production web, server and desktop build completed successfully on 2026-10-14. Installed Alpha and live schedules remain unchanged; native UI permission remains pending under this project’s AGENTS.md. This is build evidence, not installed client verification.
 
-
 ## 2026-10-15 — Claude usage accounting after the promo-credit relay
 
 Claude content blocks and fork/resume copies repeat message usage; reconciled snapshots retain component maxima before day/project aggregation. One-hour cache writes and available thinking counts remain subsets of their token totals; pricing uses the recorded TTL, and the versioned scan cache cold-rebuilds older parse results. Unknown Claude generations remain unpriced. Subscription probes use a stored subscription token independently of the credit path when available, retain Opus/Sonnet weekly buckets, preserve endpoint percentage units, and reject nonfinite quota values.
@@ -297,13 +293,12 @@ Claude content blocks and fork/resume copies repeat message usage; reconciled sn
 The relay's first unseen resumed-session report was capped at its reservation. T3 now reads the SDK starting cost before publishing a resumed runtime ready and reports the increase under a separate accounting scope, preserving the relay's cumulative deduplication. If that optional baseline read fails, the prior estimated-report path remains; no historical promotional balance is reconstructed from ambiguous billing history. The Usage total is API-equivalent consumption, not an authoritative credit balance.
 
 ## Linear queue
-- [ ] create — Verify Claude usage accounting and installed Alpha delivery — snapshot reconciliation, one-hour pricing, quota windows and resumed relay spend; Linear tools unavailable in this session.
 
+- [ ] create — Verify Claude usage accounting and installed Alpha delivery — snapshot reconciliation, one-hour pricing, quota windows and resumed relay spend; Linear tools unavailable in this session.
 
 Accounting verification: an isolated checkout at `~/.cache/t3code-development/usage-20261015` contains only the 18 usage/provider source and test changes above HEAD; unrelated routine edits were excluded. All 240 focused tests in 12 files and the server typecheck passed. Scoped lint reports one existing warning in `usageProjects.ts`. The real client at `http://localhost:7004` rendered the verification-only message as 100 output tokens, one million cache writes and $6.80, across three repeated snapshots. No provider turn ran. The disposable test base remains in the current session's `/tmp/t3-usage-qa-path` locator.
 
 The arm64 `0.0.45-preview.20261015.custom21` ZIP is in `/Users/luca/Downloads`; production web/server/desktop packaging and extracted bundle signature verification passed. Installer dry-run targets installed custom20, preserves server data/profile, and retains a rollback bundle. Luca explicitly approved native verification and an idle update. Both native attempts were blocked by the locked Mac; custom20 remains installed and running, so installation and installed Usage verification are pending manual unlock. No live ledger, transcript, credential or installed app was changed. Historical promotional credit remaining is not established by these estimates.
-
 
 ### 2026-10-15 — Usage coverage audit and custom22
 
@@ -317,13 +312,11 @@ Verification: 361 tests across 21 focused files, server/web/mobile/shared/contra
 
 `/Users/luca/Downloads/T3-Code-0.0.45-preview.20261015.custom22-arm64.zip` is ready. The approved native idle inspection/update remains blocked by the locked Mac; custom20 is still installed. No live ledger, transcript or credential was changed. Native mobile interaction and provider-authoritative promotional balance remain unverified. The disposable client at :7004 is retained for follow-up.
 
-
 ### 2026-10-15 — Independent pricing recheck and custom23
 
 A second audit found unpublished cache prices could inherit cheaper base-tier rates, and exact variant prices could be discarded before lookup. Missing required cache/context-tier categories now remain unpriced; exact model keys take precedence, while unknown preview/latest/exp IDs no longer borrow base prices. Negative provider cost quotes cannot override token pricing. Explicit custom overrides retain their documented cache defaults.
 
 All 363 tests across the same 21 focused files passed; the server typecheck, focused pricing lint, production packaging and strict extracted-bundle signature check passed. Independent arithmetic reconfirmed the exported fixture at 1,000,150 tokens and $6.802 known cost with incomplete coverage explicit. Custom23 supersedes custom22: `/Users/luca/Downloads/T3-Code-0.0.45-preview.20261015.custom23-arm64.zip`. The Mac remains locked and custom20 remains installed; the approved idle update and provider-authoritative credit reconciliation are still pending. Evidence remains in the external usage-accounting.json artifact.
-
 
 ### 2026-10-15 — Installed custom28 and lifetime-history reconciliation
 
@@ -333,7 +326,6 @@ The approved idle update installed custom28 in `/Applications/T3 Code (Alpha).ap
 
 A raw Claude audit found repeated snapshots behind the older near-90B lifetime count. Separate missing transcript evidence was recovered from the legacy cache. After restart the installed Usage page displayed 42.2B tokens and $15,750.09 known API-equivalent cost; 11.9% of records remain unpriced. These are consumption estimates, not invoice totals or remaining promo credit. Claude subscription quota is unavailable for the current account. Focused history/service/calendar tests, scoped lint/typechecks and production packaging passed. Custom27 native JSON export arithmetic passed; custom28 reached the native save panel but Save stayed disabled, so its final export comparison remains unverified. Evidence and reconciliation: `/Users/luca/.cache/t3code-verification/2026-10-15/native-verification.json` and `history-reconciliation/report.md`. Prior installation notes above are historical and superseded by this installed-build record.
 
-
 ### 2026-10-17 — Original Claude accounting restored and verified
 
 <!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=1m; seat=codex; date=2026-10-17 -->
@@ -341,7 +333,6 @@ A raw Claude audit found repeated snapshots behind the older near-90B lifetime c
 Custom29 is installed. Luca supplied Claude-side counterevidence to message-ID collapsing; the original per-transcript-row accounting is restored. Version-9 parse caches rebuild collapsed records, and the version-2 history ledger retains original row multiplicity across repeated scans and restarts. Missing historical records, pricing-category handling, coverage, exports and account-limit changes remain. The earlier assertion that collapsed usage established the correct consumption total is superseded.
 
 Native Usage and JSON export now agree on 84,412,724,115 total tokens and $33,350.387295399974 known API-equivalent cost, including 77,555,107,436 Claude tokens and $31,895.319666149986 Claude cost. Claude has zero unpriced records; overall 6.893% of records remain unpriced, from Antigravity lacking a usable model/price. Independent token-category, provider, model, daily, session and cost-coverage arithmetic passed. Native export Save works. Provider invoice, subscription quota and promotional balance are separate and are not established by this transcript accounting. Previous focused tests/build validation passed; no further runtime source changes were needed in this verification. Evidence: `/Users/luca/.cache/t3code-verification/2026-10-17/verification.json`.
-
 
 ### 2026-10-17 — Antigravity accounting and provider quota (custom30)
 
@@ -354,7 +345,6 @@ The installed Usage screen showed $33,682.76 known API-equivalent cost, includin
 Antigravity now reads Google's real per-model quota with the existing instance OAuth grant; the installed runtime returned 25 model windows, exact provider fractions and reset times. Claude subscription quota remains unavailable because the local login contains API/proxy credentials without a subscription OAuth token. The UI surfaces that reason and the subscription-login requirement. Promotional balance, invoice spend and API-equivalent usage remain separate.
 
 Validation: 117 focused tests, server/web/shared typechecks, scoped lint, two additional all-home/live-quota checks, production packaging and native Usage observation passed. Native Limits interaction and a new custom30 JSON export remain unverified: native automation input fails with noWindowsAvailable or leaves selectors unchanged. Custom29 export evidence is retained. Evidence: `/Users/luca/.cache/t3code-verification/2026-10-17/provider-fixes-verification.json`.
-
 
 ### 2026-10-17 — Inspectable pricing gaps and quota freshness
 
@@ -408,11 +398,9 @@ Race full-history and per-race exports now retain their Blob URLs until replacem
 
 Custom34 delivery follow-through: production build/arm64 packaging, extraction, strict deep signature and packaged retained-link marker checks pass. Review ZIP: `/Users/luca/Downloads/T3-Code-0.0.45-preview.20261020.custom34-arm64.zip`; SHA256 `187e3dc2d4d7dc30dab3bfcb09636aac7f5def585da7309cbb726115fdd4fe20`. The first renamed QA copy flattened framework symlinks and failed helper/signature checks; it was discarded and rebuilt with symlinks/original helper names intact. The resulting QA copy has a separate bundle identifier, passed strict signature verification and reused the isolated home after custom33 quit cleanly. Its bundled backend/main window started on :3775; native observation still times out. The packaged custom34 frontend loaded 25 controlled records in the browser, matched one literal search and saved a fresh two-row formula-neutralized CSV through the retained link. Browser warnings/errors and QA provider sessions were zero. External delivery evidence is `/tmp/t3-custom34-delivery.json`; authenticated dev/production browser tabs and the QA process are retained for follow-up. Installed application was not replaced.
 
-
 ### 2026-10-21 — Matched race comparisons
 
 Race Scoreboard now compares harness/model pairs only over races both entered, on web/desktop and mobile Settings → Race history. It separates each side's keeps, no-winner decisions, open races, keeps of a third entrant and unknown kept slots. Time deltas use pairs that both finished with recorded durations; cost deltas use pairs with both prices reported, including actual zero. Sample counts accompany each median, and ambiguous repeated entries of the same harness/model in one race are excluded. All filtered pairs are retained in JSON and Markdown exports. The 30 focused shared/race tests, touched-file lint, and shared/web/mobile TypeScript checks pass. Native/browser QA, packaging and enterprise-v1 acceptance remain open; no live install or userdata was modified.
-
 
 ### 2026-10-21 — Inspect the races behind a model comparison
 

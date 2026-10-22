@@ -1,6 +1,7 @@
 <!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-01 -->
 <!-- agent-watermark: model=grok-4.7; effort=default; duration=18m; seat=cursor; date=2026-09-30 -->
 <!-- agent-watermark: model=gemini-3.8-flash; effort=high; duration=7m; seat=antigravity; date=2026-10-01 -->
+
 # Command Center
 
 Command Center is the cross-environment operating view for T3 Code. Open it from the dashboard icon

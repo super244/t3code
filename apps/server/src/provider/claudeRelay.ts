@@ -172,11 +172,19 @@ export interface ClaudeRelayLedgerSummary {
   readonly subscriptionUsdEstimate?: number;
   readonly turns?: number;
   readonly estimatedUsd?: number;
-  readonly exhausted?: { readonly reason: string; readonly at: string; readonly until?: string } | null;
+  readonly exhausted?: {
+    readonly reason: string;
+    readonly at: string;
+    readonly until?: string;
+  } | null;
 }
 
 export interface ClaudeRelayStatus {
-  readonly creditKey?: { readonly present: boolean; readonly source?: string; readonly reason?: string };
+  readonly creditKey?: {
+    readonly present: boolean;
+    readonly source?: string;
+    readonly reason?: string;
+  };
   readonly subscriptionToken?: { readonly present: boolean; readonly source?: string };
   readonly nextTurnMode?: string;
   readonly nextTurnReason?: string | null;

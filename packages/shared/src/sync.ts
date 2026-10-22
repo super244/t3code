@@ -14,7 +14,9 @@ function isLoopbackUrl(httpBaseUrl: string | undefined): boolean {
   if (!httpBaseUrl) return false;
   try {
     const host = new URL(httpBaseUrl).hostname.toLowerCase();
-    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost");
+    return (
+      host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost")
+    );
   } catch {
     return false;
   }
@@ -81,7 +83,9 @@ export interface MultiEnvSyncSummary {
 }
 
 /** Merge per-env shells without cross-env sequence comparison (sequences are per-env). */
-export function summarizeMultiEnvSync(shells: ReadonlyArray<MultiEnvShellInput>): MultiEnvSyncSummary {
+export function summarizeMultiEnvSync(
+  shells: ReadonlyArray<MultiEnvShellInput>,
+): MultiEnvSyncSummary {
   const watermarks: Record<string, number> = {};
   let totalThreads = 0;
   let latestUpdatedAt: string | null = null;
@@ -117,14 +121,19 @@ export interface MultiEnvStatusSummary {
 }
 
 /** Multi-env sync health: live vs synchronizing vs stale (cached/empty). */
-export function summarizeMultiEnvStatus(states: ReadonlyArray<MultiEnvStatusInput>): MultiEnvStatusSummary {
+export function summarizeMultiEnvStatus(
+  states: ReadonlyArray<MultiEnvStatusInput>,
+): MultiEnvStatusSummary {
   let live = 0;
   let synchronizing = 0;
   let latestUpdatedAt: string | null = null;
   for (const state of states) {
     if (state.status === "live") live += 1;
     if (state.status === "synchronizing") synchronizing += 1;
-    if (state.updatedAt !== null && (latestUpdatedAt === null || state.updatedAt > latestUpdatedAt)) {
+    if (
+      state.updatedAt !== null &&
+      (latestUpdatedAt === null || state.updatedAt > latestUpdatedAt)
+    ) {
       latestUpdatedAt = state.updatedAt;
     }
   }

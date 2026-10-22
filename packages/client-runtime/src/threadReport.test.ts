@@ -1,3 +1,4 @@
+// @effect-diagnostics globalDate:off -- Tests pin generatedAt with fixed Date values.
 /* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=gemini-4-argon; effort=medium; duration=8m; seat=antigravity; date=2026-10-16 */
 import { describe, expect, it } from "vite-plus/test";

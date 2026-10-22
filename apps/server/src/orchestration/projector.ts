@@ -549,12 +549,7 @@ export function projectEvent(
       );
 
     case "thread.auto-settle-set":
-      return decodeForEvent(
-        ThreadAutoSettleSetPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
+      return decodeForEvent(ThreadAutoSettleSetPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {

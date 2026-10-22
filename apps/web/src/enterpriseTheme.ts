@@ -1,5 +1,12 @@
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-09 */
-import React, { createContext, useContext, useEffect, useState, useMemo, type ReactNode } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useMemo,
+  type ReactNode,
+} from "react";
 import type { ThemeDefinition, ThemeColors } from "@t3tools/shared/themePalettes";
 
 export const ENTERPRISE_THEME_ID = "enterprise-obsidian-neon" as const;
@@ -39,7 +46,8 @@ export const ENTERPRISE_THEME_TOKENS = {
   },
   typography: {
     fontSans: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-    fontMono: "'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
+    fontMono:
+      "'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
     letterSpacing: {
       ultraTight: "-0.035em",
       tight: "-0.02em",
@@ -61,7 +69,8 @@ export const ENTERPRISE_THEME_TOKENS = {
     lspHealthy: "0 0 12px rgba(16, 185, 129, 0.4)",
     tokenWarning: "0 0 14px rgba(245, 158, 11, 0.45)",
     neonBorder: "0 0 8px rgba(0, 240, 255, 0.4), inset 0 0 4px rgba(0, 240, 255, 0.2)",
-    ambientSheen: "radial-gradient(ellipse 60% 40% at 50% 0%, rgba(0, 240, 255, 0.08), transparent 75%)",
+    ambientSheen:
+      "radial-gradient(ellipse 60% 40% at 50% 0%, rgba(0, 240, 255, 0.08), transparent 75%)",
   },
   glassmorphism: {
     backdropFilter: "blur(18px) saturate(190%)",
@@ -69,8 +78,10 @@ export const ENTERPRISE_THEME_TOKENS = {
     surfaceRaised: "rgba(18, 21, 32, 0.90)",
     border: "1px solid rgba(255, 255, 255, 0.08)",
     highlight: "inset 0 1px 0 rgba(255, 255, 255, 0.12)",
-    specularLine: "linear-gradient(90deg, transparent 0%, rgba(0, 240, 255, 0.6) 50%, transparent 100%)",
-    gradientBorder: "linear-gradient(135deg, rgba(0, 240, 255, 0.35) 0%, rgba(255, 255, 255, 0.07) 50%, rgba(0, 112, 243, 0.25) 100%)",
+    specularLine:
+      "linear-gradient(90deg, transparent 0%, rgba(0, 240, 255, 0.6) 50%, transparent 100%)",
+    gradientBorder:
+      "linear-gradient(135deg, rgba(0, 240, 255, 0.35) 0%, rgba(255, 255, 255, 0.07) 50%, rgba(0, 112, 243, 0.25) 100%)",
   },
 } as const;
 
@@ -307,13 +318,16 @@ export function EnterpriseThemeProvider({
     }
   }, [isEnterpriseMode]);
 
-  const value = useMemo<EnterpriseThemeContextValue>(() => ({
-    isEnterpriseMode,
-    setEnterpriseMode: setIsEnterpriseMode,
-    toggleEnterpriseMode: () => setIsEnterpriseMode((prev) => !prev),
-    tokens: ENTERPRISE_THEME_TOKENS,
-    palette: ENTERPRISE_OBSIDIAN_THEME,
-  }), [isEnterpriseMode]);
+  const value = useMemo<EnterpriseThemeContextValue>(
+    () => ({
+      isEnterpriseMode,
+      setEnterpriseMode: setIsEnterpriseMode,
+      toggleEnterpriseMode: () => setIsEnterpriseMode((prev) => !prev),
+      tokens: ENTERPRISE_THEME_TOKENS,
+      palette: ENTERPRISE_OBSIDIAN_THEME,
+    }),
+    [isEnterpriseMode],
+  );
 
   return React.createElement(EnterpriseThemeContext.Provider, { value }, children);
 }

@@ -213,10 +213,7 @@ function stripVariantSuffix(key: string): string {
  *
  * `<synthetic>` marks locally generated messages that were never billed.
  */
-const UNPRICEABLE_MODELS = new Set([
-  "<synthetic>",
-  "synthetic",
-]);
+const UNPRICEABLE_MODELS = new Set(["<synthetic>", "synthetic"]);
 
 /**
  * Common bare family names used by CLI transcripts and proxies map to the

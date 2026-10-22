@@ -58,12 +58,7 @@ export type SyncStreamResume = typeof SyncStreamResume.Type;
 
 /** Forward command that hides/moves a thread, and the command that undoes it. */
 export const SyncReversePair = Schema.Struct({
-  forward: Schema.Literals([
-    "thread.snooze",
-    "thread.archive",
-    "thread.settle",
-    "thread.pin",
-  ]),
+  forward: Schema.Literals(["thread.snooze", "thread.archive", "thread.settle", "thread.pin"]),
   reverse: Schema.Literals([
     "thread.unsnooze",
     "thread.unarchive",
@@ -166,7 +161,10 @@ export const WS_SYNC_METHOD_META: Record<SyncWsMethod, WsSyncMethodMeta> = {
 };
 
 export function isStreamingSyncMethod(method: string): boolean {
-  return (WS_SYNC_METHOD_META as Record<string, WsSyncMethodMeta | undefined>)[method]?.streaming === true;
+  return (
+    (WS_SYNC_METHOD_META as Record<string, WsSyncMethodMeta | undefined>)[method]?.streaming ===
+    true
+  );
 }
 
 export function syncMethodSupportsMode(method: string, mode: SyncConnectionMode): boolean {

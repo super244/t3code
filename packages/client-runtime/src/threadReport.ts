@@ -1,3 +1,4 @@
+// @effect-diagnostics globalDate:off -- A plain export stamps generatedAt; callers pass `now` when it must be fixed.
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=gemini-4-argon; effort=medium; duration=8m; seat=antigravity; date=2026-10-16 */
 import type { OrchestrationThread } from "@t3tools/contracts";
@@ -492,9 +493,7 @@ export function buildThreadHandoffBundle(
       lastCleanTurnIndex = idx;
     }
   });
-  const unresolvedTurnKeys = new Set(
-    turns.slice(lastCleanTurnIndex + 1).map((t) => t.key),
-  );
+  const unresolvedTurnKeys = new Set(turns.slice(lastCleanTurnIndex + 1).map((t) => t.key));
 
   const unresolvedErrors: Array<{
     readonly turnId: string | null;
@@ -517,8 +516,7 @@ export function buildThreadHandoffBundle(
   ) {
     unresolvedErrors.push({
       turnId: thread.latestTurn?.turnId ?? null,
-      summary:
-        thread.session?.lastError?.trim() || "Latest turn or session is in error state",
+      summary: thread.session?.lastError?.trim() || "Latest turn or session is in error state",
       createdAt: thread.updatedAt,
     });
   }
@@ -717,9 +715,7 @@ export function formatThreadHandoffMarkdown(bundle: ThreadHandoffBundle): string
     lines.push(`- ${reason}`);
   }
   for (const err of bundle.blockers.unresolvedErrors) {
-    lines.push(
-      `- **Unresolved Error${err.turnId ? ` (${err.turnId})` : ""}:** ${err.summary}`,
-    );
+    lines.push(`- **Unresolved Error${err.turnId ? ` (${err.turnId})` : ""}:** ${err.summary}`);
   }
   for (const approval of bundle.blockers.pendingApprovals) {
     lines.push(`- **Pending Approval:** ${approval}`);
@@ -773,4 +769,3 @@ export function threadHandoffFilename(title: string, format: "json" | "md" = "js
       .slice(0, 60) || "thread";
   return `${slug}-handoff.${format}`;
 }
-

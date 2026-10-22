@@ -17,7 +17,10 @@ const NOW = "2026-10-10T12:00:00.000Z";
 describe("resolveSyncConnectionMode", () => {
   it("keeps loopback local", () => {
     expect(
-      resolveSyncConnectionMode({ reachability: "loopback", httpBaseUrl: "http://localhost:3930/" }),
+      resolveSyncConnectionMode({
+        reachability: "loopback",
+        httpBaseUrl: "http://localhost:3930/",
+      }),
     ).toBe("local");
     expect(resolveSyncConnectionMode({ httpBaseUrl: "http://127.0.0.1:3930/" })).toBe("local");
   });
@@ -58,8 +61,18 @@ describe("sync event sequencing", () => {
 describe("multi-env sync", () => {
   it("merges per-env shells with per-env watermarks", () => {
     const summary = summarizeMultiEnvSync([
-      { environmentId: "env-a", snapshotSequence: 10, updatedAt: "2026-10-10T10:00:00.000Z", threadIds: ["t1", "t2"] },
-      { environmentId: "env-b", snapshotSequence: 4, updatedAt: "2026-10-10T11:00:00.000Z", threadIds: ["t3"] },
+      {
+        environmentId: "env-a",
+        snapshotSequence: 10,
+        updatedAt: "2026-10-10T10:00:00.000Z",
+        threadIds: ["t1", "t2"],
+      },
+      {
+        environmentId: "env-b",
+        snapshotSequence: 4,
+        updatedAt: "2026-10-10T11:00:00.000Z",
+        threadIds: ["t3"],
+      },
     ]);
     expect(summary.totalEnvironments).toBe(2);
     expect(summary.totalThreads).toBe(3);
@@ -85,12 +98,12 @@ describe("multi-env sync", () => {
 
 describe("reverse states stay visible", () => {
   it("keeps snooze/unsnooze in the snoozed shelf until the wake passes", () => {
-    expect(
-      reverseShelfForThread({ snoozedUntil: "2026-10-11T09:00:00.000Z" }, { now: NOW }),
-    ).toBe("snoozed");
-    expect(
-      reverseShelfForThread({ snoozedUntil: "2026-10-09T09:00:00.000Z" }, { now: NOW }),
-    ).toBe("inbox");
+    expect(reverseShelfForThread({ snoozedUntil: "2026-10-11T09:00:00.000Z" }, { now: NOW })).toBe(
+      "snoozed",
+    );
+    expect(reverseShelfForThread({ snoozedUntil: "2026-10-09T09:00:00.000Z" }, { now: NOW })).toBe(
+      "inbox",
+    );
   });
 
   it("keeps close/reopen in the archived shelf with a queryable reopen", () => {

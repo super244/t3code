@@ -1,5 +1,9 @@
 /* agent-watermark: model=muse-spark; effort=high; duration=35m; seat=opencode; date=2026-10-10 */
-import type { EnvironmentId, OrchestrationThreadShell, SyncConnectionMode } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  OrchestrationThreadShell,
+  SyncConnectionMode,
+} from "@t3tools/contracts";
 import {
   resolveSyncConnectionMode,
   reverseShelfForThread,

@@ -1,8 +1,17 @@
 /* agent-watermark: model=muse-spark; effort=high; duration=35m; seat=opencode; date=2026-10-10 */
-import { EnvironmentId, ProjectId, ThreadId, type OrchestrationThreadShell } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  ThreadId,
+  type OrchestrationThreadShell,
+} from "@t3tools/contracts";
 import { ProviderInstanceId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { BearerConnectionTarget, PrimaryConnectionTarget, RelayConnectionTarget } from "../connection/model.ts";
+import {
+  BearerConnectionTarget,
+  PrimaryConnectionTarget,
+  RelayConnectionTarget,
+} from "../connection/model.ts";
 import {
   describeConnectionModeForTarget,
   partitionThreadsByShelf,
@@ -47,9 +56,18 @@ describe("partitionThreadsByShelf", () => {
     const partitioned = partitionThreadsByShelf(
       [
         ref("env-a", makeThread({ id: ThreadId.make("inbox") })),
-        ref("env-a", makeThread({ id: ThreadId.make("snoozed"), snoozedUntil: "2026-10-11T09:00:00.000Z" })),
-        ref("env-b", makeThread({ id: ThreadId.make("closed"), archivedAt: "2026-10-10T09:00:00.000Z" })),
-        ref("env-b", makeThread({ id: ThreadId.make("settled"), settledAt: "2026-10-10T08:00:00.000Z" })),
+        ref(
+          "env-a",
+          makeThread({ id: ThreadId.make("snoozed"), snoozedUntil: "2026-10-11T09:00:00.000Z" }),
+        ),
+        ref(
+          "env-b",
+          makeThread({ id: ThreadId.make("closed"), archivedAt: "2026-10-10T09:00:00.000Z" }),
+        ),
+        ref(
+          "env-b",
+          makeThread({ id: ThreadId.make("settled"), settledAt: "2026-10-10T08:00:00.000Z" }),
+        ),
       ],
       { now: NOW },
     );
@@ -63,7 +81,12 @@ describe("partitionThreadsByShelf", () => {
 
   it("wakes timers back into the inbox with no event", () => {
     const partitioned = partitionThreadsByShelf(
-      [ref("env-a", makeThread({ id: ThreadId.make("woke"), snoozedUntil: "2026-10-09T09:00:00.000Z" }))],
+      [
+        ref(
+          "env-a",
+          makeThread({ id: ThreadId.make("woke"), snoozedUntil: "2026-10-09T09:00:00.000Z" }),
+        ),
+      ],
       { now: NOW },
     );
     expect(partitioned.inbox.map((entry) => entry.thread.id)).toEqual(["woke"]);
