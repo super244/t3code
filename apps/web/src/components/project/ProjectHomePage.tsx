@@ -1,4 +1,5 @@
 /* agent-watermark: model=haiku-5.5; effort=high; duration=42m; seat=claude-code; date=2026-10-13 */
+import { MemoryPanel } from "../memory/MemoryPanel";
 import {
   scopeProjectRef,
   scopeThreadRef,
@@ -291,6 +292,7 @@ function LoadedProjectHome({
           empty="No archived threads."
           hint="Archived threads stay here until you restore them."
         />
+        <MemorySection members={group.memberProjects} />
         <WorkspaceSection workspaces={workspaces} />
         <PullRequestSection pullRequests={pullRequests} threads={projectThreads} />
         <RecapSection recaps={recaps} />
@@ -606,6 +608,36 @@ function PullRequestSection({
           ))}
         </ul>
       )}
+    </SectionCard>
+  );
+}
+
+function MemorySection({
+  members,
+}: {
+  readonly members: SidebarProjectSnapshot["memberProjects"];
+}) {
+  return (
+    <SectionCard
+      id="project-memory"
+      title="Memory"
+      hint="What every new agent session in this project starts with, whatever the provider. Agents add to it with their remember tool."
+      className="lg:col-span-2"
+    >
+      <div className="flex min-w-0 flex-col gap-6">
+        {members.map((member) => (
+          <div key={`${member.environmentId}:${member.id}`} className="min-w-0">
+            {members.length > 1 ? (
+              <p className="mb-2 text-xs text-muted-foreground">{member.environmentId}</p>
+            ) : null}
+            <MemoryPanel
+              environmentId={member.environmentId}
+              projectId={member.id}
+              projects={[{ id: member.id, title: member.title }]}
+            />
+          </div>
+        ))}
+      </div>
     </SectionCard>
   );
 }

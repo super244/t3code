@@ -648,6 +648,12 @@ export const GO_ANYWHERE_DESTINATIONS: ReadonlyArray<GoAnywhereDestination> = [
     description: "Settings · Skills",
   },
   {
+    value: "go:settings:memory",
+    title: "Go to Settings — Memory",
+    searchTerms: ["go to", "settings", "memory", "remember", "forget"],
+    description: "Settings · Memory",
+  },
+  {
     value: "go:settings:source-control",
     title: "Go to Settings — Source Control",
     searchTerms: ["go to", "settings", "source control", "git"],

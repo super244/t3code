@@ -97,6 +97,14 @@ import {
   RaceAutopilot,
   RaceAutopilotPlan,
 } from "./raceHistory.ts";
+import {
+  MemoryDeleteInput,
+  MemoryEntry,
+  MemoryError,
+  MemoryListInput,
+  MemoryListResult,
+  MemorySaveInput,
+} from "./memory.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
   ClientOrchestrationCommand,
@@ -318,6 +326,11 @@ export const WS_METHODS = {
   raceResolveBase: "race.resolveBase",
   raceSetAutopilot: "race.setAutopilot",
   raceAdvanceAutopilot: "race.advanceAutopilot",
+
+  // Persistent memory
+  memoryList: "memory.list",
+  memorySave: "memory.save",
+  memoryDelete: "memory.delete",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -1036,6 +1049,23 @@ const WsRaceAdvanceAutopilotRpc = Rpc.make(WS_METHODS.raceAdvanceAutopilot, {
   error: Schema.Union([RaceHistoryError, EnvironmentAuthorizationError]),
 });
 
+const WsMemoryListRpc = Rpc.make(WS_METHODS.memoryList, {
+  payload: MemoryListInput,
+  success: MemoryListResult,
+  error: Schema.Union([MemoryError, EnvironmentAuthorizationError]),
+});
+
+const WsMemorySaveRpc = Rpc.make(WS_METHODS.memorySave, {
+  payload: MemorySaveInput,
+  success: MemoryEntry,
+  error: Schema.Union([MemoryError, EnvironmentAuthorizationError]),
+});
+
+const WsMemoryDeleteRpc = Rpc.make(WS_METHODS.memoryDelete, {
+  payload: MemoryDeleteInput,
+  error: Schema.Union([MemoryError, EnvironmentAuthorizationError]),
+});
+
 const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -1363,6 +1393,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsRaceResolveBaseRpc,
   WsRaceSetAutopilotRpc,
   WsRaceAdvanceAutopilotRpc,
+  WsMemoryListRpc,
+  WsMemorySaveRpc,
+  WsMemoryDeleteRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalWriteRpc,
