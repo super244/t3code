@@ -30,6 +30,8 @@ import {
 } from "./toolkits/preview/tools.ts";
 import { PullRequestsToolkitHandlersLive } from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
+import { MemoryToolkitHandlersLive } from "./toolkits/memory/handlers.ts";
+import { MemoryToolkit } from "./toolkits/memory/tools.ts";
 
 const unauthorized = HttpServerResponse.jsonUnsafe(
   {
@@ -443,6 +445,10 @@ export const PullRequestsToolkitRegistrationLive = McpServer.toolkit(PullRequest
   Layer.provide(PullRequestsToolkitHandlersLive),
 );
 
+export const MemoryToolkitRegistrationLive = McpServer.toolkit(MemoryToolkit).pipe(
+  Layer.provide(MemoryToolkitHandlersLive),
+);
+
 const McpTransportLive = McpServer.layerHttp({
   name: "T3 Code",
   version: packageJson.version,
@@ -453,4 +459,5 @@ const McpTransportLive = McpServer.layerHttp({
 export const layer = Layer.mergeAll(
   PreviewToolkitRegistrationLive,
   PullRequestsToolkitRegistrationLive,
+  MemoryToolkitRegistrationLive,
 ).pipe(Layer.provideMerge(McpTransportLive));

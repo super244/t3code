@@ -8,15 +8,24 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  advanceRaceAutopilot,
+  isRaceAutopilotActive,
+  setRaceAutopilot,
   buildRaceKindLeaders,
   buildRaceMatchups,
   raceContainsPair,
   raceEvidenceMarkdown,
+  buildRaceLadder,
   buildRaceLeaderboard,
+  buildRacePromptRuns,
   guessRaceTaskKind,
   median,
   mergeRaceHistoryRecord,
   RACE_HISTORY_MAX_RECORDS,
+  RACE_LADDER_START_RATING,
+  raceHeats,
+  racePromptKey,
+  recommendRaceEntrants,
   upsertRaceHistory,
 } from "./raceHistory.ts";
 
@@ -342,4 +351,210 @@ it("pair drilldown contains the exact supporting races, including third-party wi
   expect(buildRaceMatchups(selected).find((row) => row.key === pair.key)?.races).toBe(2);
   expect(raceContainsPair(shared, { left: pair.left, right: pair.left })).toBe(false);
   expect(raceContainsPair(shared, { left: pair.right, right: pair.left })).toBe(true);
+});
+
+const sonnet = (slot: number, overrides: Partial<RaceHistoryEntrant> = {}) =>
+  entrant(slot, {
+    instanceId: "claudeAgent",
+    driver: "claudeAgent",
+    model: "claude-sonnet-5",
+    label: "Claude Sonnet 5",
+    ...overrides,
+  });
+
+describe("rematch heats", () => {
+  it("appends a rematch's entrants and decides only its heat", () => {
+    const kept = mergeRaceHistoryRecord(null, input({ outcome: "kept", keptSlot: 2 }), "t1");
+    const rematch = mergeRaceHistoryRecord(
+      kept,
+      input({
+        heat: 2,
+        heatStartedAt: "2026-10-19T09:00:00.000Z",
+        participants: [2, 3],
+        outcome: "kept",
+        keptSlot: 3,
+        entrants: [entrant(2, { additions: 0 }), sonnet(3)],
+      }),
+      "t2",
+    );
+    expect([rematch.outcome, rematch.keptSlot]).toEqual(["kept", 2]);
+    expect(rematch.participants).toEqual([1, 2]);
+    expect(rematch.entrants.map((item) => item.slot)).toEqual([1, 2, 3]);
+    // The champion's heat-1 line is frozen; the challenger's is new.
+    expect(rematch.entrants[1]!.additions).toBe(10);
+    expect(raceHeats(rematch).map((heat) => [heat.heat, heat.participants, heat.keptSlot])).toEqual(
+      [
+        [1, [1, 2], 2],
+        [2, [2, 3], 3],
+      ],
+    );
+  });
+
+  it("keeps a rematch heat's decision when its judge reports later", () => {
+    let record = mergeRaceHistoryRecord(null, input({ outcome: "kept", keptSlot: 1 }), "t1");
+    record = mergeRaceHistoryRecord(
+      record,
+      input({ heat: 2, participants: [1, 3], outcome: "none", entrants: [sonnet(3)] }),
+      "t2",
+    );
+    record = mergeRaceHistoryRecord(
+      record,
+      input({ heat: 2, participants: [1, 3], outcome: "open", judge: judge(3), entrants: [] }),
+      "t3",
+    );
+    expect(record.rematches).toEqual([
+      expect.objectContaining({ heat: 2, outcome: "none", keptSlot: null, judge: judge(3) }),
+    ]);
+  });
+});
+
+describe("buildRaceLadder", () => {
+  it("rates winners above the entrants they beat, champions included, from every heat", () => {
+    let record = mergeRaceHistoryRecord(
+      null,
+      input({ raceId: "r1", outcome: "kept", keptSlot: 2 }),
+      "t",
+    );
+    record = mergeRaceHistoryRecord(
+      record,
+      input({
+        raceId: "r1",
+        heat: 2,
+        heatStartedAt: "2026-10-19T09:00:00.000Z",
+        participants: [2, 3],
+        outcome: "kept",
+        keptSlot: 3,
+        entrants: [sonnet(3)],
+      }),
+      "t",
+    );
+    const ladder = buildRaceLadder([record]);
+    expect(ladder.map((row) => [row.label, row.wins, row.losses])).toEqual([
+      ["Claude Sonnet 5", 1, 0],
+      ["Claude Haiku 5.5", 1, 1],
+      ["Codex GPT-6.1-Sol", 0, 1],
+    ]);
+    const byLabel = new Map(ladder.map((row) => [row.label, row]));
+    expect(byLabel.get("Claude Sonnet 5")!.rating).toBeGreaterThan(RACE_LADDER_START_RATING);
+    expect(byLabel.get("Codex GPT-6.1-Sol")!.rating).toBeLessThan(RACE_LADDER_START_RATING);
+    expect(byLabel.get("Claude Sonnet 5")!.provisional).toBe(true);
+    expect(byLabel.get("Claude Haiku 5.5")!.spread).toBeLessThan(
+      byLabel.get("Claude Sonnet 5")!.spread,
+    );
+  });
+
+  it("uses the judge's pick for an undecided heat and nothing for a heat with no winner", () => {
+    const judged = mergeRaceHistoryRecord(null, input({ raceId: "j", judge: judge(1) }), "t");
+    const none = mergeRaceHistoryRecord(null, input({ raceId: "n", outcome: "none" }), "t");
+    expect(buildRaceLadder([judged]).find((row) => row.driver === "codex")?.wins).toBe(1);
+    expect(buildRaceLadder([none])).toEqual([]);
+  });
+
+  it("recommends the best-rated runnable agents for the kind, falling back to overall", () => {
+    const records = [
+      mergeRaceHistoryRecord(null, input({ raceId: "a", outcome: "kept", keptSlot: 2 }), "t"),
+      mergeRaceHistoryRecord(null, input({ raceId: "b", outcome: "kept", keptSlot: 2 }), "t"),
+    ];
+    const both = [
+      { driver: "codex", model: "gpt-6.1-sol" },
+      { driver: "claudeAgent", model: "claude-haiku-5-5" },
+    ];
+    expect(
+      recommendRaceEntrants(records, "feature", both).map((r) => [r.row.label, r.scope]),
+    ).toEqual([
+      ["Claude Haiku 5.5", "kind"],
+      ["Codex GPT-6.1-Sol", "kind"],
+    ]);
+    expect(recommendRaceEntrants(records, "fix", both)[0]!.scope).toBe("overall");
+    expect(recommendRaceEntrants(records, "feature", [both[0]!]).map((r) => r.row.label)).toEqual([
+      "Codex GPT-6.1-Sol",
+    ]);
+    expect(recommendRaceEntrants([], "feature", both)).toEqual([]);
+  });
+});
+
+describe("prompt history", () => {
+  it("groups runs of the same prompt regardless of case and spacing, newest heat first", () => {
+    expect(racePromptKey("Add a  --json flag\n")).toBe(racePromptKey("add a --json FLAG"));
+    expect(racePromptKey("Add a --json flag")).not.toBe(racePromptKey("Add a --yaml flag"));
+    let first = mergeRaceHistoryRecord(
+      null,
+      input({ raceId: "p1", outcome: "kept", keptSlot: 1 }),
+      "t",
+    );
+    first = mergeRaceHistoryRecord(
+      first,
+      input({
+        raceId: "p1",
+        heat: 2,
+        heatStartedAt: "2026-10-19T10:00:00.000Z",
+        participants: [1, 3],
+        outcome: "kept",
+        keptSlot: 3,
+        entrants: [sonnet(3)],
+      }),
+      "t",
+    );
+    const other = mergeRaceHistoryRecord(
+      null,
+      input({
+        raceId: "p2",
+        prompt: "ADD a --json flag to the CLI",
+        startedAt: "2026-10-19T09:00:00.000Z",
+      }),
+      "t",
+    );
+    const unrelated = mergeRaceHistoryRecord(null, input({ raceId: "p3", prompt: "Fix it" }), "t");
+    const runs = buildRacePromptRuns([first, other, unrelated], racePromptKey(input().prompt));
+    expect(runs.map((run) => [run.record.raceId, run.heat.heat, run.winnerSlot])).toEqual([
+      ["p1", 2, 3],
+      ["p2", 1, null],
+      ["p1", 1, 1],
+    ]);
+    expect(runs[0]!.entrants.map((item) => item.slot)).toEqual([1, 3]);
+  });
+});
+
+describe("race autopilot", () => {
+  const plan = {
+    raceId: "k3f9a2",
+    heat: 1,
+    judge: { instanceId: "claudeAgent", model: "claude-sonnet-5-5" },
+    keep: true,
+  };
+
+  it("moves only from the stage the caller saw", () => {
+    const { autopilots } = setRaceAutopilot([], plan, "2026-10-22T10:00:00.000Z");
+    const first = advanceRaceAutopilot(
+      autopilots,
+      { raceId: "k3f9a2", from: "waiting", to: "judging" },
+      "2026-10-22T10:05:00.000Z",
+    );
+    expect(first.applied).toBe(true);
+    expect(first.autopilot?.stage).toBe("judging");
+    const late = advanceRaceAutopilot(
+      first.autopilots,
+      { raceId: "k3f9a2", from: "waiting", to: "judging" },
+      "2026-10-22T10:05:01.000Z",
+    );
+    expect(late.applied).toBe(false);
+    expect(late.autopilot?.updatedAt).toBe("2026-10-22T10:05:00.000Z");
+    expect(
+      advanceRaceAutopilot([], { raceId: "nope", from: "waiting", to: "stopped" }, "x").applied,
+    ).toBe(false);
+  });
+
+  it("re-arms a race for a rematch heat and keeps the note until a step replaces it", () => {
+    const armed = setRaceAutopilot([], plan, "2026-10-22T10:00:00.000Z").autopilots;
+    const done = advanceRaceAutopilot(
+      armed,
+      { raceId: "k3f9a2", from: "waiting", to: "done", note: "Kept Entrant 1." },
+      "t",
+    ).autopilots;
+    const rearmed = setRaceAutopilot(done, { ...plan, heat: 2 }, "t2");
+    expect(rearmed.autopilots).toHaveLength(1);
+    expect(rearmed.autopilot).toMatchObject({ heat: 2, stage: "waiting", note: null });
+    expect(isRaceAutopilotActive("waiting")).toBe(true);
+    expect(isRaceAutopilotActive("done")).toBe(false);
+  });
 });

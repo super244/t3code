@@ -77,6 +77,8 @@ import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
+import * as MemoryStore from "../../memory/MemoryStore.ts";
+import { buildMemoryBrief, memoryForProject } from "@t3tools/shared/memory";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 const isModelSelection = Schema.is(ModelSelection);
@@ -477,6 +479,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   );
   const issueMcpCredential =
     options?.issueMcpCredential ?? McpSessionRegistry.issueActiveMcpCredential;
+  const memoryStore = yield* Effect.serviceOption(MemoryStore.MemoryStore);
+  // Threads whose current provider session already got the memory brief.
+  const memoryBriefedThreads = new Set<ThreadId>();
   const fileSystem = yield* FileSystem.FileSystem;
   const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
   const pendingCompactions = new Map<ThreadId, PendingCompaction>();
@@ -891,6 +896,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
    */
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
     Effect.gen(function* () {
+      // A new provider session has not seen the project's memory yet.
+      memoryBriefedThreads.delete(threadId);
       const preview = yield* agentBrowserAccessEnabled(threadId);
       const credential = yield* issueMcpCredential({ threadId, providerInstanceId, preview });
       if (credential) {
@@ -1478,6 +1485,35 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
+  /**
+   * Prepends the project's persistent memory to the first prompt a provider
+   * session receives, so every harness starts knowing it. Memory is a nicety:
+   * any failure sends the prompt as it was.
+   */
+  const withMemoryBrief = (input: ProviderSendTurnInput): Effect.Effect<ProviderSendTurnInput> =>
+    Effect.gen(function* () {
+      if (input.input === undefined || memoryBriefedThreads.has(input.threadId)) return input;
+      if (Option.isNone(memoryStore) || Option.isNone(projectionQuery)) return input;
+      memoryBriefedThreads.add(input.threadId);
+      const thread = yield* projectionQuery.value.getThreadShellById(input.threadId);
+      if (Option.isNone(thread)) return input;
+      const project = yield* projectionQuery.value.getProjectShellById(thread.value.projectId);
+      const entries = yield* memoryStore.value.list();
+      const brief = buildMemoryBrief(
+        memoryForProject(entries, thread.value.projectId),
+        Option.isSome(project) ? project.value.title : null,
+      );
+      if (brief === null) return input;
+      const text = `${brief}\n\n${input.input}`;
+      return text.length <= PROVIDER_SEND_TURN_MAX_INPUT_CHARS ? { ...input, input: text } : input;
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Could not attach persistent memory; sending the prompt without it.", {
+          cause,
+        }).pipe(Effect.as(input)),
+      ),
+    );
+
   const sendTurn: ProviderServiceMethod<"sendTurn"> = Effect.fn("sendTurn")(function* (rawInput) {
     const parsed = yield* decodeInputOrValidationError({
       operation: "ProviderService.sendTurn",
@@ -1566,12 +1602,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
     }
 
-    const input = {
+    const input = yield* withMemoryBrief({
       ...parsed,
       ...(inputTextWithAttachmentContext !== undefined
         ? { input: inputTextWithAttachmentContext }
         : {}),
-    };
+    });
     yield* Effect.annotateCurrentSpan({
       "provider.operation": "send-turn",
       "provider.thread_id": input.threadId,

@@ -113,4 +113,49 @@ describe("RaceHistoryStore", () => {
       assert.strictEqual(yield* fileSystem.readFileString(file), "{not json");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
+
+  it.effect("lets exactly one of two clients claim each autopilot step", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-race-history-test-" });
+      const desktop = yield* makeRaceHistoryStore(root);
+      const browser = yield* makeRaceHistoryStore(root);
+
+      yield* desktop.record(input());
+      const armed = yield* desktop.setAutopilot({
+        raceId: "k3f9a2",
+        heat: 1,
+        judge: { instanceId: "claudeAgent", model: "claude-sonnet-5-5" },
+        keep: true,
+      });
+      assert.strictEqual(armed.stage, "waiting");
+
+      // Both clients see every entrant stop and try to start the judge at once.
+      const claims = yield* Effect.all(
+        [desktop, browser].map((store) =>
+          store.advanceAutopilot({ raceId: "k3f9a2", from: "waiting", to: "judging" }),
+        ),
+        { concurrency: "unbounded" },
+      );
+      assert.deepStrictEqual(claims.map((claim) => claim.applied).toSorted(), [false, true]);
+
+      const stopped = yield* browser.advanceAutopilot({
+        raceId: "k3f9a2",
+        from: "judging",
+        to: "stopped",
+        note: "Stopped by hand.",
+      });
+      assert.strictEqual(stopped.applied, true);
+      const listed = yield* desktop.list({});
+      assert.strictEqual(listed.records.length, 1);
+      assert.deepStrictEqual(
+        listed.autopilots?.map((item) => [item.stage, item.note]),
+        [["stopped", "Stopped by hand."]],
+      );
+
+      // Forgetting a race drops its autopilot too.
+      yield* desktop.forget("k3f9a2");
+      assert.deepStrictEqual((yield* browser.list({})).autopilots, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
 });

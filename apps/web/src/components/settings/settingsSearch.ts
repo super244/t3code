@@ -10,6 +10,7 @@ export type SettingsPath =
   | "/settings/providers"
   | "/settings/integrations"
   | "/settings/skills"
+  | "/settings/memory"
   | "/settings/source-control"
   | "/settings/connections"
   | "/settings/archived";
@@ -58,6 +59,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/providers": "Providers",
   "/settings/integrations": "Integrations",
   "/settings/skills": "Skills",
+  "/settings/memory": "Memory",
   "/settings/source-control": "Source Control",
   "/settings/connections": "Connections",
   "/settings/archived": "Archive",
@@ -449,6 +451,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "skills",
     title: "Skills",
     to: "/settings/skills",
+  },
+  {
+    id: "memory",
+    title: "Memory",
+    to: "/settings/memory",
+    searchTerms: ["persistent memory remember recall forget agents facts preferences context"],
   },
   {
     id: "source-control",

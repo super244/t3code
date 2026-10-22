@@ -1,5 +1,6 @@
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-19 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=8m; seat=claude-code; date=2026-10-19 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=14m; seat=claude-code; date=2026-10-19 */
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -12,6 +13,7 @@ import { raceHistoryEnvironment } from "../../state/raceHistory";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { toastManager } from "../ui/toast";
 import { raceEntrantElapsedMs } from "./raceArena.logic";
+import { raceSelectionEffort } from "./raceLabels";
 import { buildRaceRecordInput } from "./raceRecord.logic";
 import { raceEntrantPhase, type RaceEntrant, type RaceGroup } from "./race.logic";
 import type { EntrantReport } from "./useEntrantReport";
@@ -28,6 +30,8 @@ export interface RaceRecordRequest {
   readonly keptSlot?: number | null;
   readonly judge?: RaceHistoryJudge | null;
   readonly taskKind?: RaceTaskKind | null;
+  /** The heat this decides; the race's current heat when absent. */
+  readonly heat?: number;
 }
 
 /**
@@ -39,7 +43,10 @@ export function useRaceRecorder(
   race: Race,
   context: RaceBoardContext,
   reports: ReadonlyMap<string, EntrantReport>,
+  options: { readonly heat?: number; readonly baseCommit?: string | null } = {},
 ) {
+  const currentHeat = options.heat ?? 1;
+  const baseCommit = options.baseCommit ?? null;
   const record = useAtomCommand(raceHistoryEnvironment.record, { reportFailure: false });
   const project = context.projectsByKey.get(`${race.environmentId}\0${race.projectId}`) ?? null;
 
@@ -65,6 +72,10 @@ export function useRaceRecorder(
         keptSlot: request.keptSlot ?? null,
         judge: request.judge ?? null,
         taskKind: request.taskKind ?? null,
+        heat: request.heat ?? currentHeat,
+        // Whoever is in the arena now is in this heat, a defending champion included.
+        participants: entrants.map((entrant) => entrant.slot),
+        baseCommit,
         entrants: entrants.map((entrant) => {
           const provider = raceEntrantProvider(race, entrant, context);
           const report = reports.get(entrant.thread.id);
@@ -74,6 +85,7 @@ export function useRaceRecorder(
             instanceId: entrant.thread.modelSelection.instanceId,
             driver: provider?.driver ?? entrant.thread.modelSelection.instanceId,
             model: entrant.thread.modelSelection.model,
+            effort: raceSelectionEffort(provider, entrant.thread.modelSelection),
             label: raceEntrantLabel(race, entrant, context),
             phase: raceEntrantPhase(entrant.thread),
             elapsedMs: raceEntrantElapsedMs(entrant.thread.latestTurn, now),
@@ -97,6 +109,6 @@ export function useRaceRecorder(
       }
       return true;
     },
-    [context, project?.title, race, record, reports],
+    [context, project?.title, race, record, reports, currentHeat, baseCommit],
   );
 }

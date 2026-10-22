@@ -55,6 +55,23 @@ Keep and Discard work the same in the arena as on the board. An entrant that cha
 cannot be kept. Board and arena count lines from the same worktree diff, so new untracked files are
 included in both.
 
+## Autopilot
+
+Turn on **Autopilot** when you start a race, from the Race page or **Race this prompt**, and you
+don't have to watch it. Once every entrant has stopped, the judge you picked is asked on its own. If
+**Keep the judge's pick** is on, that entrant is squash-merged into the project checkout and the
+others are discarded, all without asking. The result goes into the scoreboard and you get a
+notification saying what happened. With keeping off, autopilot stops at the judge's verdict and you
+keep the winner yourself.
+
+Autopilot runs while the desktop app or a T3 Code browser tab connected to that computer is open,
+on this or another computer. The mobile app doesn't run it. When several are open, only one of them acts on each step. It
+waits while an entrant needs an approval or an answer. It stops and says why when no entrant
+changed anything, when the judge fails or names no winner, or when Keep refuses (for example, the
+checkout has uncommitted changes). The arena shows each step with a **Stop** button. A race started
+without autopilot can turn it on from its arena. Keeping a winner or closing the race yourself also
+ends autopilot.
+
 ## The scoreboard
 
 Every finished race is recorded on the computer that ran it, in `race-history.json` in T3 Code's

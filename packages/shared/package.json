@@ -39,6 +39,10 @@
       "types": "./src/raceHistory.ts",
       "import": "./src/raceHistory.ts"
     },
+    "./memory": {
+      "types": "./src/memory.ts",
+      "import": "./src/memory.ts"
+    },
     "./handoff": {
       "types": "./src/handoff.ts",
       "import": "./src/handoff.ts"

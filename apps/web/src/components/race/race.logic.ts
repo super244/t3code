@@ -135,6 +135,8 @@ export function canKeepRaceEntrant(thread: RaceThreadInput): boolean {
 export interface RaceEntrantDraft {
   readonly instanceId: string;
   readonly model: string;
+  /** Reasoning-effort choice; the model's default when absent. */
+  readonly effort?: string | null;
 }
 
 function defaultModelSlug(provider: ServerProvider): string {

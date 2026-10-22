@@ -9,20 +9,23 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
-  DEFAULT_RUNTIME_MODE,
-  type ModelSelection,
   type OrchestrationMessage,
   type RaceHistoryJudge,
   type RaceHistoryRecord,
   type RaceTaskKind,
   type ServerProvider,
 } from "@t3tools/contracts";
-import { guessRaceTaskKind, RACE_TASK_KIND_LABELS } from "@t3tools/shared/raceHistory";
 import {
-  buildRaceJudgeBrief,
+  guessRaceTaskKind,
+  RACE_TASK_KIND_LABELS,
+  type RaceHeatView,
+} from "@t3tools/shared/raceHistory";
+import {
   buildRaceJudgeTitle,
+  parseRaceJudgeHeat,
   parseRaceJudgeMarker,
   parseRaceJudgeVerdict,
+  RACE_MAX_SLOTS,
   type RaceJudgeVerdict,
 } from "@t3tools/shared/race";
 import { useNavigate } from "@tanstack/react-router";
@@ -38,6 +41,7 @@ import {
   GavelIcon,
   Trash2Icon,
   TriangleAlertIcon,
+  SwordsIcon,
   TrophyIcon,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -46,11 +50,9 @@ import { isElectron } from "../../env";
 import { useTheme } from "../../hooks/useTheme";
 import { resolveDiffThemeName, getRenderablePatch } from "../../lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
-import { cn, newMessageId, newThreadId } from "../../lib/utils";
+import { cn } from "../../lib/utils";
 import { deriveWorkLogEntries } from "../../session-logic";
 import { useThread, useThreadShells, waitForThreadShell } from "../../state/entities";
-import { useEnvironmentQuery } from "../../state/query";
-import { raceHistoryEnvironment } from "../../state/raceHistory";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
@@ -73,6 +75,11 @@ import { RaceSelect } from "./RaceComposer";
 import { formatRaceAgentLabel, raceModelLabel, raceProviderLabel } from "./raceLabels";
 import { useEntrantReport, useEntrantReports, type EntrantReport } from "./useEntrantReport";
 import { useRaceRecorder } from "./useRaceRecorder";
+import { buildRaceJudgeTurn, raceJudgeAnswer } from "./raceJudgeRun";
+import { RaceAutopilotBar } from "./RaceAutopilotFields";
+import { useRaceBase } from "./useRaceBase";
+import { useRaceHistoryRecord } from "./useRaceHistoryRecord";
+import { openRematchDialog } from "../../raceDialog";
 import {
   buildRaceEntrantFeed,
   buildRaceFileMatrix,
@@ -212,7 +219,13 @@ export function RaceArena({
 function RaceArenaBody({ race, context }: { race: Race; context: RaceBoardContext }) {
   const actions = useRaceEntrantActions(race, context);
   const [reports, report] = useEntrantReports();
-  const recordResult = useRaceRecorder(race, context, reports);
+  const base = useRaceBase(race);
+  const { history, historyLoaded, recorded, currentHeat, currentHeatView } =
+    useRaceHistoryRecord(race);
+  const recordResult = useRaceRecorder(race, context, reports, {
+    heat: currentHeat,
+    baseCommit: base.commit,
+  });
   const [expandedPath, setExpandedPath] = useState<string | null>(null);
   const [kept, setKept] = useState<{ readonly slot: number; readonly label: string } | null>(null);
   const judgeForKeep = useRef<RaceHistoryJudge | null>(null);
@@ -247,7 +260,16 @@ function RaceArenaBody({ race, context }: { race: Race; context: RaceBoardContex
     [race.entrants, reports],
   );
 
-  const judge = useRaceJudge(race);
+  const judge = useRaceJudge(race, currentHeat);
+  const judgeProviders = useMemo(
+    () =>
+      raceProviders(
+        [...context.providersByKey.entries()]
+          .filter(([key]) => key.startsWith(`${race.environmentId}\0`))
+          .map(([, provider]) => provider),
+      ),
+    [context.providersByKey, race.environmentId],
+  );
   const judgeOfRecord = judge.report?.judge ?? null;
   useEffect(() => {
     judgeForKeep.current = judgeOfRecord;
@@ -258,13 +280,8 @@ function RaceArenaBody({ race, context }: { race: Race; context: RaceBoardContex
   const recordedJudge = useRef<string | null>(null);
   const judgeReport = judge.report;
   const allLoaded = race.entrants.every((entrant) => reports.get(entrant.thread.id)?.changes);
-  const history = useEnvironmentQuery(
-    raceHistoryEnvironment.list({ environmentId: race.environmentId, input: {} }),
-  );
-  const historyLoaded = history.data !== null;
-  const recorded = history.data?.records.find((item) => item.raceId === race.raceId) ?? null;
-  const recordedJudgeKey = recorded?.judge
-    ? `${recorded.judge.label}:${recorded.judge.pickSlot ?? "none"}`
+  const recordedJudgeKey = currentHeatView?.judge
+    ? `${currentHeatView.judge.label}:${currentHeatView.judge.pickSlot ?? "none"}`
     : null;
   useEffect(() => {
     if (!judgeReport?.done || judgeReport.verdict === null || !allLoaded || !historyLoaded) return;
@@ -301,6 +318,8 @@ function RaceArenaBody({ race, context }: { race: Race; context: RaceBoardContex
         <RacePrompt race={race} />
         <RaceRecordBar
           record={recorded}
+          heat={currentHeatView}
+          heatNumber={currentHeat}
           historyError={history.error}
           guessedKind={guessRaceTaskKind(
             reports.get(race.entrants[0]?.thread.id ?? "")?.prompt ?? race.titleSeed,
@@ -308,17 +327,60 @@ function RaceArenaBody({ race, context }: { race: Race; context: RaceBoardContex
           canClose={
             phases.every((phase) => phase === "finished" || phase === "failed") && allLoaded
           }
-          onKindChange={(taskKind) =>
-            void recordResult({
-              outcome: recorded?.outcome ?? "open",
-              keptSlot: recorded?.keptSlot ?? null,
-              judge: judge.report?.judge ?? null,
-              taskKind,
-            })
-          }
+          // "open" never undoes a decision, so a kind change can't reopen a heat.
+          onKindChange={(taskKind) => void recordResult({ outcome: "open", taskKind })}
           onCloseWithoutWinner={() =>
             void recordResult({ outcome: "none", judge: judge.report?.judge ?? null })
           }
+          rematch={{
+            available:
+              base.commit !== null &&
+              race.entrants.length > 0 &&
+              Math.max(race.count, ...race.entrants.map((entrant) => entrant.slot)) <
+                RACE_MAX_SLOTS,
+            reason:
+              base.commit === null
+                ? base.loading
+                  ? "Finding the commit this race started from…"
+                  : "The commit this race started from is no longer known, so a fair rematch can't start."
+                : `This race has used all ${RACE_MAX_SLOTS} entrant slots.`,
+            onStart: () => {
+              const project = actions.project;
+              if (!project || !base.commit) return;
+              const firstShell = race.entrants[0]!.thread;
+              openRematchDialog({
+                environmentId: race.environmentId,
+                projectId: race.projectId,
+                baseBranch: base.commit,
+                checkoutCwd: null,
+                sourceThreadId: firstShell.id,
+                sourceModel: null,
+                prompt: reports.get(firstShell.id)?.prompt ?? race.titleSeed,
+                rematch: {
+                  raceId: race.raceId,
+                  titleSeed: race.titleSeed,
+                  startedAt: race.startedAt,
+                  existingCount: Math.max(
+                    race.count,
+                    ...race.entrants.map((entrant) => entrant.slot),
+                    ...(recorded?.entrants.map((entrant) => entrant.slot) ?? []),
+                  ),
+                  liveSlots: race.entrants.map((entrant) => entrant.slot),
+                  baseCommit: base.commit,
+                  heat: currentHeat + 1,
+                  projectTitle: project.title,
+                },
+              });
+            },
+          }}
+        />
+        <RaceAutopilotBar
+          environmentId={race.environmentId}
+          raceId={race.raceId}
+          heat={currentHeat}
+          autopilot={history.data?.autopilots?.find((item) => item.raceId === race.raceId) ?? null}
+          providers={judgeProviders}
+          decided={currentHeatView !== null && currentHeatView.outcome !== "open"}
         />
         {kept ? (
           <div
@@ -353,6 +415,7 @@ function RaceArenaBody({ race, context }: { race: Race; context: RaceBoardContex
             pending={actions.pendingThreadId === entrant.thread.id}
             keepTarget={actions.checkoutBranch}
             judgePick={judge.verdict?.kind === "winner" && judge.verdict.slot === entrant.slot}
+            baseRef={base.commit}
             onReport={report}
             onKeep={() => void keepEntrant(entrant)}
             onDiscard={() => void actions.discard(entrant)}
@@ -399,26 +462,33 @@ const TASK_KIND_OPTIONS = (Object.keys(RACE_TASK_KIND_LABELS) as RaceTaskKind[])
  */
 function RaceRecordBar({
   record,
+  heat,
+  heatNumber,
   historyError,
   guessedKind,
   canClose,
   onKindChange,
   onCloseWithoutWinner,
+  rematch,
 }: {
   record: RaceHistoryRecord | null;
+  heat: RaceHeatView | null;
+  heatNumber: number;
   historyError: string | null;
   guessedKind: RaceTaskKind;
   canClose: boolean;
   onKindChange: (kind: RaceTaskKind) => void;
   onCloseWithoutWinner: () => void;
+  rematch: { available: boolean; reason: string; onStart: () => void };
 }) {
   const kind = record?.taskKind ?? guessedKind;
   const guessed = !record || record.taskKindSource === "guessed";
   const keptEntrant =
-    record?.outcome === "kept"
-      ? (record.entrants.find((entrant) => entrant.slot === record.keptSlot) ?? null)
+    heat?.outcome === "kept"
+      ? (record?.entrants.find((entrant) => entrant.slot === heat.keptSlot) ?? null)
       : null;
-  const decided = record?.outcome === "kept" || record?.outcome === "none";
+  const decided = heat?.outcome === "kept" || heat?.outcome === "none";
+  const heatLabel = heatNumber > 1 ? `Rematch ${heatNumber - 1} · ` : "";
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-xs">
       <div className="flex items-center gap-2">
@@ -440,21 +510,43 @@ function RaceRecordBar({
         <TrophyIcon className="size-3.5 shrink-0 text-muted-foreground" />
         {historyError ? (
           <span className="truncate text-destructive">History unavailable: {historyError}</span>
-        ) : record?.outcome === "kept" ? (
+        ) : heat?.outcome === "kept" ? (
           <span className="truncate">
-            On the scoreboard · kept <span className="font-medium">#{record.keptSlot}</span>
+            {heatLabel}On the scoreboard · kept{" "}
+            <span className="font-medium">#{heat.keptSlot}</span>
             {keptEntrant ? ` ${keptEntrant.label}` : ""}
           </span>
-        ) : record?.outcome === "none" ? (
-          <span>On the scoreboard · no winner</span>
-        ) : record ? (
-          <span>Judged · not decided yet</span>
+        ) : heat?.outcome === "none" ? (
+          <span>{heatLabel}On the scoreboard · no winner</span>
+        ) : heat?.judge ? (
+          <span>{heatLabel}Judged · not decided yet</span>
+        ) : heatNumber > 1 ? (
+          <span>{heatLabel}racing — keep a winner or close it without one</span>
         ) : (
           <span className="text-muted-foreground">
             Not on the scoreboard yet — keep a winner or close it without one
           </span>
         )}
       </span>
+      {decided ? (
+        <Tooltip>
+          <TooltipTrigger render={<span className="sm:ml-auto" />}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!rematch.available}
+              onClick={rematch.onStart}
+            >
+              <SwordsIcon /> Rematch
+            </Button>
+          </TooltipTrigger>
+          <TooltipPopup side="top">
+            {rematch.available
+              ? "New entrants race on the same prompt from the same commit; whoever is still here defends"
+              : rematch.reason}
+          </TooltipPopup>
+        </Tooltip>
+      ) : null}
       {!decided ? (
         <Tooltip>
           <TooltipTrigger render={<span className="sm:ml-auto" />}>
@@ -521,6 +613,7 @@ function EntrantLane({
   pending,
   keepTarget,
   judgePick,
+  baseRef,
   onReport,
   onKeep,
   onDiscard,
@@ -533,6 +626,7 @@ function EntrantLane({
   pending: boolean;
   keepTarget: string | null;
   judgePick: boolean;
+  baseRef: string | null;
   onReport: (threadId: string, report: EntrantReport) => void;
   onKeep: () => void;
   onDiscard: () => void;
@@ -540,7 +634,7 @@ function EntrantLane({
   const navigate = useNavigate();
   const shell = entrant.thread;
   const threadRef = scopeThreadRef(shell.environmentId, shell.id);
-  const { thread, report, phase, working } = useEntrantReport(shell);
+  const { thread, report, phase, working } = useEntrantReport(shell, baseRef);
   const { changes } = report;
   const messages = thread?.messages ?? EMPTY_MESSAGES;
   const lastVisitedAt = useUiStateStore(
@@ -880,6 +974,8 @@ interface RaceJudgeReport {
 
 interface RaceJudgeState {
   readonly candidates: ReadonlyArray<EnvironmentThreadShell>;
+  /** The heat being judged; a judge of an earlier heat is not shown. */
+  readonly heat: number;
   readonly verdict: RaceJudgeVerdict | null;
   readonly report: RaceJudgeReport | null;
   readonly setReport: (report: RaceJudgeReport | null) => void;
@@ -897,7 +993,7 @@ function sameJudgeReport(left: RaceJudgeReport | null, right: RaceJudgeReport | 
 }
 
 /** Judge threads are found by title, then confirmed by their brief's marker. */
-function useRaceJudge(race: Race): RaceJudgeState {
+function useRaceJudge(race: Race, heat: number): RaceJudgeState {
   const threads = useThreadShells();
   const judgeTitle = buildRaceJudgeTitle(race.titleSeed);
   const candidates = useMemo(
@@ -917,7 +1013,7 @@ function useRaceJudge(race: Race): RaceJudgeState {
   const setReport = useCallback((next: RaceJudgeReport | null) => {
     setReportState((current) => (sameJudgeReport(current, next) ? current : next));
   }, []);
-  return { candidates, verdict: report?.verdict ?? null, report, setReport };
+  return { candidates, heat, verdict: report?.verdict ?? null, report, setReport };
 }
 
 function RaceJudgePanel({
@@ -987,7 +1083,10 @@ function JudgeCandidate(props: {
     return <p className="text-xs text-muted-foreground">Looking for this race's judge…</p>;
   }
   const firstUser = thread.messages.find((message) => message.role === "user");
-  if (parseRaceJudgeMarker(firstUser?.text) !== props.race.raceId) {
+  if (
+    parseRaceJudgeMarker(firstUser?.text) !== props.race.raceId ||
+    parseRaceJudgeHeat(firstUser?.text) !== props.judge.heat
+  ) {
     return <JudgeCandidate {...props} index={props.index + 1} />;
   }
   return <VerifiedJudge {...props} judgeShell={candidate} judgeThread={thread} />;
@@ -1038,6 +1137,7 @@ function JudgeHeading({ subtitle }: { subtitle: string }) {
 function JudgeStarter({
   race,
   context,
+  judge,
   reports,
   checkoutBranch,
   projectWorkspaceRoot,
@@ -1045,6 +1145,7 @@ function JudgeStarter({
 }: {
   race: Race;
   context: RaceBoardContext;
+  judge: RaceJudgeState;
   reports: ReadonlyMap<string, EntrantReport>;
   checkoutBranch: string | null;
   projectWorkspaceRoot: string | null;
@@ -1093,61 +1194,16 @@ function JudgeStarter({
     if (blocker || busyRef.current || !provider || !modelSlug) return;
     busyRef.current = true;
     setStarting(true);
-    const createdAt = new Date().toISOString();
-    const threadId = newThreadId();
-    const modelSelection: ModelSelection = { instanceId: provider.instanceId, model: modelSlug };
-    const brief = buildRaceJudgeBrief({
-      raceId: race.raceId,
-      prompt:
-        race.entrants
-          .map((entrant) => reports.get(entrant.thread.id)?.prompt)
-          .find((text): text is string => typeof text === "string" && text.trim().length > 0) ??
-        race.titleSeed,
-      entrants: race.entrants.map((entrant) => {
-        const report = reports.get(entrant.thread.id);
-        return {
-          slot: entrant.slot,
-          label: raceEntrantLabel(race, entrant, context),
-          branch: entrant.thread.branch,
-          worktreePath: entrant.thread.worktreePath,
-          phase: PHASE_PRESENTATION[raceEntrantPhase(entrant.thread)].label.toLowerCase(),
-          files: (report?.changes?.files ?? []).map((file) => ({
-            path: file.path,
-            additions: file.additions,
-            deletions: file.deletions,
-          })),
-          diff: report?.diffText ?? "",
-          finalMessage: report?.finalMessage ?? null,
-        };
-      }),
+    const turn = buildRaceJudgeTurn({
+      race,
+      context,
+      reports,
+      heat: judge.heat,
+      checkoutBranch,
+      modelSelection: { instanceId: provider.instanceId, model: modelSlug },
     });
     try {
-      // A judge plans instead of editing: plan mode keeps it read-only on
-      // providers that honor it, and the brief says so for the rest.
-      const result = await startTurn({
-        environmentId: race.environmentId,
-        input: {
-          threadId,
-          message: { messageId: newMessageId(), role: "user", text: brief, attachments: [] },
-          modelSelection,
-          titleSeed: race.titleSeed,
-          runtimeMode: DEFAULT_RUNTIME_MODE,
-          interactionMode: "plan",
-          bootstrap: {
-            createThread: {
-              projectId: race.projectId,
-              title: buildRaceJudgeTitle(race.titleSeed),
-              modelSelection,
-              runtimeMode: DEFAULT_RUNTIME_MODE,
-              interactionMode: "plan",
-              branch: checkoutBranch,
-              worktreePath: null,
-              createdAt,
-            },
-          },
-          createdAt,
-        },
-      });
+      const result = await startTurn(turn.command);
       if (result._tag === "Failure") {
         if (!isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
@@ -1160,7 +1216,7 @@ function JudgeStarter({
         }
         return;
       }
-      await waitForThreadShell(scopeThreadRef(race.environmentId, threadId)).catch(() => null);
+      await waitForThreadShell(scopeThreadRef(race.environmentId, turn.threadId)).catch(() => null);
     } finally {
       busyRef.current = false;
       setStarting(false);
@@ -1270,14 +1326,8 @@ function JudgeVerdictView({
   const phase = raceJudgePhase(judgeShell);
   const working = phase === "judging" || phase === "starting";
   const phaseView = JUDGE_PHASE_PRESENTATION[phase];
-  const assistant = judgeThread.messages.filter((message) => message.role === "assistant");
-  const plan = judgeThread.proposedPlans.at(-1)?.planMarkdown ?? null;
-  const latest = assistant.at(-1) ?? null;
-  // Plan mode on some providers answers with a proposed plan instead of a message.
-  const answer =
-    plan && (!latest || (judgeThread.proposedPlans.at(-1)?.updatedAt ?? "") > latest.updatedAt)
-      ? plan
-      : (latest?.text ?? null);
+  const answer = raceJudgeAnswer(judgeThread);
+  const latest = judgeThread.messages.findLast((message) => message.role === "assistant") ?? null;
   const verdict = useMemo(
     () => parseRaceJudgeVerdict(answer, entrantSlots),
     [answer, entrantSlots],

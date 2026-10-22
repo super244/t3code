@@ -55,7 +55,7 @@ it.effect("stores only a token hash, resolves the bearer token, and revokes by t
   }),
 );
 
-it.effect("always grants pull-requests and gates preview on the request", () =>
+it.effect("always grants pull-requests and memory, and gates preview on the request", () =>
   Effect.gen(function* () {
     const registry = yield* makeRegistry(() => 1_000);
     const withPreview = yield* registry.issue({
@@ -73,8 +73,8 @@ it.effect("always grants pull-requests and gates preview on the request", () =>
         .resolve(issued.config.authorizationHeader.replace(/^Bearer\s+/, ""))
         .pipe(Effect.map((scope) => [...(scope?.capabilities ?? [])].sort()));
 
-    expect(yield* capabilitiesOf(withPreview)).toEqual(["preview", "pull-requests"]);
-    expect(yield* capabilitiesOf(withoutPreview)).toEqual(["pull-requests"]);
+    expect(yield* capabilitiesOf(withPreview)).toEqual(["memory", "preview", "pull-requests"]);
+    expect(yield* capabilitiesOf(withoutPreview)).toEqual(["memory", "pull-requests"]);
   }),
 );
 

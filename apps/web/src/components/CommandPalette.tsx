@@ -1909,6 +1909,17 @@ function OpenCommandPaletteDialog(props: {
 
   actionItems.push({
     kind: "action",
+    value: "action:race-scoreboard",
+    searchTerms: ["race scoreboard", "leaderboard", "race history", "which agent wins", "wins"],
+    title: "Open Race scoreboard",
+    icon: <TrophyIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/race", search: { view: "scoreboard" } });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
     value: "action:race",
     searchTerms: ["race", "best of", "compare", "parallel", "agents", "models", "worktrees"],
     title: "Open Race",
@@ -2265,6 +2276,9 @@ function OpenCommandPaletteDialog(props: {
         case "go:settings:skills":
           await navigate({ to: "/settings/skills" });
           return;
+        case "go:settings:memory":
+          await navigate({ to: "/settings/memory" });
+          return;
         case "go:settings:source-control":
           await navigate({ to: "/settings/source-control" });
           return;
@@ -2304,6 +2318,7 @@ function OpenCommandPaletteDialog(props: {
       "go:settings:providers",
       "go:settings:integrations",
       "go:settings:skills",
+      "go:settings:memory",
       "go:settings:source-control",
       "go:settings:connections",
       "go:settings:diagnostics",

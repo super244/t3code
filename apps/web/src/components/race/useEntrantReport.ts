@@ -47,7 +47,11 @@ function sameEntrantReport(left: EntrantReport | undefined, right: EntrantReport
  * stops) plus what its thread says. The board and the arena both read entrants
  * through this, so their numbers always agree.
  */
-export function useEntrantReport(shell: EnvironmentThreadShell) {
+export function useEntrantReport(
+  shell: EnvironmentThreadShell,
+  /** The race's base commit: diffs read against it stay whole after Keep moves the base branch. */
+  baseRef: string | null = null,
+) {
   const thread = useThread(scopeThreadRef(shell.environmentId, shell.id));
   const phase = raceEntrantPhase(shell);
   const working = phase === "working" || phase === "preparing";
@@ -56,7 +60,7 @@ export function useEntrantReport(shell: EnvironmentThreadShell) {
     shell.worktreePath
       ? reviewEnvironment.diffPreview({
           environmentId: shell.environmentId,
-          input: { cwd: shell.worktreePath },
+          input: { cwd: shell.worktreePath, ...(baseRef ? { baseRef } : {}) },
         })
       : null,
   );

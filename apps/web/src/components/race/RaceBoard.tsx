@@ -1,11 +1,12 @@
-/* agent-watermark: model=opus-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-19 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=14m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-18 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=110m; seat=claude-code; date=2026-10-04 */
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { ServerProvider } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowUpRightIcon, CheckIcon, ColumnsIcon, Trash2Icon } from "lucide-react";
+import { isRaceAutopilotActive } from "@t3tools/shared/raceHistory";
+import { ArrowUpRightIcon, BotIcon, CheckIcon, ColumnsIcon, Trash2Icon } from "lucide-react";
 import { useEffect } from "react";
 
 import { cn } from "../../lib/utils";
@@ -32,6 +33,9 @@ import {
 } from "./useRaceEntrantActions";
 import { useEntrantReport, useEntrantReports, type EntrantReport } from "./useEntrantReport";
 import { useRaceRecorder } from "./useRaceRecorder";
+import { useRaceBase } from "./useRaceBase";
+import { useRaceHistoryRecord } from "./useRaceHistoryRecord";
+import { describeRaceAutopilot, raceAutopilotStageLabel } from "./raceAutopilot.logic";
 
 type Race = RaceGroup<EnvironmentThreadShell>;
 type Entrant = RaceEntrant<EnvironmentThreadShell>;
@@ -83,7 +87,16 @@ export function RaceCard({ race, context }: { race: Race; context: RaceBoardCont
     context,
   );
   const [reports, report] = useEntrantReports();
-  const recordResult = useRaceRecorder(race, context, reports);
+  const base = useRaceBase(race);
+  const { currentHeat, history } = useRaceHistoryRecord(race);
+  const autopilot =
+    history.data?.autopilots?.find(
+      (item) => item.raceId === race.raceId && item.heat === currentHeat,
+    ) ?? null;
+  const recordResult = useRaceRecorder(race, context, reports, {
+    heat: currentHeat,
+    baseCommit: base.commit,
+  });
   const keepAndRecord = async (entrant: Entrant) => {
     // Snapshot before Keep discards the losers, so their lines are recorded too.
     const entrants = race.entrants;
@@ -112,6 +125,18 @@ export function RaceCard({ race, context }: { race: Race; context: RaceBoardCont
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {autopilot ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Badge variant={isRaceAutopilotActive(autopilot.stage) ? "info" : "secondary"} />
+                }
+              >
+                <BotIcon /> {raceAutopilotStageLabel(autopilot.stage)}
+              </TooltipTrigger>
+              <TooltipPopup side="top">Autopilot: {describeRaceAutopilot(autopilot)}</TooltipPopup>
+            </Tooltip>
+          ) : null}
           {race.entrants.length < race.count ? (
             <Badge variant="secondary">
               <span className="tabular-nums">
@@ -156,6 +181,7 @@ export function RaceCard({ race, context }: { race: Race; context: RaceBoardCont
             busy={pendingThreadId !== null}
             pending={pendingThreadId === entrant.thread.id}
             keepTarget={checkoutBranch}
+            baseRef={base.commit}
             onReport={report}
             onKeep={() => void keepAndRecord(entrant)}
             onDiscard={() => void discard(entrant)}
@@ -175,6 +201,7 @@ function EntrantCard({
   onKeep,
   onDiscard,
   onReport,
+  baseRef,
 }: {
   entrant: Entrant;
   provider: ServerProvider | null;
@@ -184,10 +211,11 @@ function EntrantCard({
   onKeep: () => void;
   onDiscard: () => void;
   onReport: (threadId: string, report: EntrantReport) => void;
+  baseRef: string | null;
 }) {
   const { thread } = entrant;
   // The same diff the arena reads, so new untracked files count here too.
-  const { report } = useEntrantReport(thread);
+  const { report } = useEntrantReport(thread, baseRef);
   useEffect(() => {
     onReport(thread.id, report);
   }, [onReport, thread.id, report]);

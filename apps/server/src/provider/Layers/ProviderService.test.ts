@@ -43,6 +43,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Metric from "effect/Metric";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
@@ -78,6 +79,7 @@ import * as ServerSettings from "../../serverSettings.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import { makeAdapterRegistryMock } from "../testUtils/providerAdapterRegistryMock.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as MemoryStore from "../../memory/MemoryStore.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const defaultServerSettingsLayer = ServerSettings.ServerSettingsService.layerTest();
@@ -4938,5 +4940,130 @@ describe("agent browser access", () => {
       const issued = yield* startSessionWith(false, threadId, true);
       assert.deepEqual(issued, [{ threadId, preview: true }]);
     }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+describe("persistent memory", () => {
+  const projectId = ProjectId.make("project-memory");
+  const threadId = asThreadId("thread-memory");
+
+  it.effect("prepends the project's memory to a session's first prompt only", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const stateDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-memory-brief-" });
+      const memory = yield* MemoryStore.makeMemoryStore(stateDir);
+      yield* memory.save({
+        scope: "project",
+        projectId,
+        text: "Tests run with npm test.",
+        source: "user",
+        threadId: null,
+        author: null,
+      });
+      yield* memory.save({
+        scope: "project",
+        projectId: ProjectId.make("project-elsewhere"),
+        text: "Another project's fact.",
+        source: "user",
+        threadId: null,
+        author: null,
+      });
+
+      const codex = makeFakeCodexAdapter();
+      const projectionLayer = Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+        getTurnStartMessage: () => Effect.die("unused"),
+        getImportedAgentSessionSources: () => Effect.die("unused"),
+        getUserInputActivity: () => Effect.die("unused"),
+        getCommandReadModel: () => Effect.die("unused"),
+        getSnapshot: () => Effect.die("unused"),
+        getShellSnapshot: () => Effect.die("unused"),
+        getArchivedShellSnapshot: () => Effect.die("unused"),
+        getSnapshotSequence: () => Effect.die("unused"),
+        getCounts: () => Effect.die("unused"),
+        getEventReplayStats: () => Effect.die("unused"),
+        getActiveProjectByWorkspaceRoot: () => Effect.die("unused"),
+        getProjectShellById: () => Effect.succeed(Option.none()),
+        getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
+        getThreadCheckpointContext: () => Effect.die("unused"),
+        getFullThreadDiffContext: () => Effect.die("unused"),
+        getThreadRuntimeContext: () => Effect.die("unused"),
+        getThreadShellById: () =>
+          decodeBrowserAccessThreadShell({
+            id: threadId,
+            projectId,
+            title: "Memory test",
+            modelSelection: createModelSelection(codexInstanceId, "gpt-5.4"),
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            latestTurn: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            session: null,
+            latestUserMessageAt: null,
+            hasPendingApprovals: false,
+            hasPendingUserInput: false,
+            hasActionableProposedPlan: false,
+          }).pipe(Effect.map(Option.some), Effect.orDie),
+        getThreadDetailById: () => Effect.die("unused"),
+        getThreadDetailSnapshot: () => Effect.die("unused"),
+        searchThreads: () => Effect.die("unused"),
+      });
+      const providerLayer = makeProviderServiceLive({
+        issueMcpCredential: () => Effect.succeed(undefined),
+      }).pipe(
+        Layer.provide(
+          Layer.succeed(
+            ProviderAdapterRegistry.ProviderAdapterRegistry,
+            makeAdapterRegistryMock({ [CODEX_DRIVER]: codex.adapter }),
+          ),
+        ),
+        Layer.provide(
+          ProviderSessionDirectoryLive.pipe(
+            Layer.provide(
+              ProviderSessionRuntime.layer.pipe(Layer.provide(SqlitePersistenceMemory)),
+            ),
+          ),
+        ),
+        Layer.provide(projectionLayer),
+        Layer.provide(Layer.succeed(MemoryStore.MemoryStore, memory)),
+        Layer.provide(ServerSettings.ServerSettingsService.layerTest({})),
+        Layer.provide(serverConfigTestLayer),
+        Layer.provide(AnalyticsService.layerTest),
+        Layer.provide(
+          Layer.succeed(
+            ProviderEventLoggers.ProviderEventLoggers,
+            ProviderEventLoggers.NoOpProviderEventLoggers,
+          ),
+        ),
+      );
+
+      yield* Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        const start = provider.startSession(threadId, {
+          provider: CODEX_DRIVER,
+          providerInstanceId: codexInstanceId,
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const sentInputs = () => codex.sendTurn.mock.calls.map((call) => call[0].input);
+
+        yield* start;
+        yield* provider.sendTurn({ threadId, input: "Add a flag." });
+        yield* provider.sendTurn({ threadId, input: "Now document it." });
+        const [first, second] = sentInputs();
+        assert.match(first ?? "", /^<t3_memory>/);
+        assert.include(first, "Tests run with npm test.");
+        assert.notInclude(first, "Another project's fact.");
+        assert.isTrue((first ?? "").endsWith("\n\nAdd a flag."));
+        assert.equal(second, "Now document it.");
+
+        // A new provider session starts without the brief, so it gets it again.
+        yield* provider.stopSession({ threadId });
+        yield* start;
+        yield* provider.sendTurn({ threadId, input: "Continue." });
+        assert.match(sentInputs().at(-1) ?? "", /^<t3_memory>[\s\S]*\n\nContinue\.$/);
+      }).pipe(Effect.provide(providerLayer));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 });

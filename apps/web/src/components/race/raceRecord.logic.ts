@@ -20,6 +20,7 @@ export interface RaceRecordEntrant {
   readonly instanceId: string;
   readonly driver: string;
   readonly model: string;
+  readonly effort?: string | null;
   readonly label: string;
   readonly phase: RaceEntrantOutcomePhase;
   readonly elapsedMs: number | null;
@@ -45,6 +46,9 @@ export function buildRaceRecordInput(input: {
   readonly judge: RaceHistoryJudge | null;
   readonly entrants: ReadonlyArray<RaceRecordEntrant>;
   readonly taskKind?: RaceTaskKind | null;
+  readonly heat?: number;
+  readonly participants?: ReadonlyArray<number>;
+  readonly baseCommit?: string | null;
 }): RaceHistoryRecordInput {
   const taskKindSource: RaceTaskKindSource = input.taskKind ? "user" : "guessed";
   return {
@@ -59,12 +63,18 @@ export function buildRaceRecordInput(input: {
     outcome: input.outcome,
     keptSlot: input.outcome === "kept" ? input.keptSlot : null,
     judge: input.judge,
+    ...(input.heat && input.heat > 1
+      ? { heat: input.heat, heatStartedAt: new Date().toISOString() }
+      : {}),
+    ...(input.participants ? { participants: [...input.participants] } : {}),
+    ...(input.baseCommit ? { baseCommit: input.baseCommit } : {}),
     entrants: input.entrants.map((entrant) => ({
       ...(entrant.threadId ? { threadId: entrant.threadId } : {}),
       slot: entrant.slot,
       instanceId: entrant.instanceId,
       driver: entrant.driver,
       model: entrant.model,
+      ...(entrant.effort ? { effort: entrant.effort } : {}),
       label: entrant.label,
       phase: entrant.phase,
       elapsedMs: entrant.elapsedMs === null ? null : Math.round(entrant.elapsedMs),

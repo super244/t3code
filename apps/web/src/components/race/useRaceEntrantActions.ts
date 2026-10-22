@@ -125,27 +125,41 @@ export function useRaceEntrantActions(race: Race, context: RaceBoardContext) {
     }
   };
 
-  /** Resolves true when the entrant was merged into the checkout. */
-  const keep = async (entrant: Entrant): Promise<boolean> => {
+  /**
+   * Resolves true when the entrant was merged into the checkout. Autopilot
+   * passes `confirm: false`: the user agreed to keep the judge's pick when
+   * they started the race.
+   */
+  const keep = async (
+    entrant: Entrant,
+    options: {
+      readonly confirm?: boolean;
+      /** Why nothing was merged, for callers that report it somewhere other than a toast. */
+      readonly onRefused?: (reason: string) => void;
+    } = {},
+  ): Promise<boolean> => {
     if (pendingThreadId !== null || !project) return false;
     const { worktreePath, branch } = entrant.thread;
     if (!worktreePath || !branch) return false;
     const label = raceEntrantLabel(race, entrant, context);
     const others = race.entrants.filter((other) => other.thread.id !== entrant.thread.id);
     const previouslyKept = keptEntrantByRace.get(race.key);
-    const confirmed = await settlePromise(() =>
-      confirmAction(
-        raceKeepConfirmation({
-          entrantLabel: label,
-          target: checkoutBranch ?? "the project checkout",
-          otherCount: others.length,
-          previouslyKeptLabel:
-            previouslyKept && previouslyKept.threadId !== entrant.thread.id
-              ? previouslyKept.label
-              : null,
-        }),
-      ),
-    );
+    const confirmed =
+      options.confirm === false
+        ? ({ _tag: "Success", value: true } as const)
+        : await settlePromise(() =>
+            confirmAction(
+              raceKeepConfirmation({
+                entrantLabel: label,
+                target: checkoutBranch ?? "the project checkout",
+                otherCount: others.length,
+                previouslyKeptLabel:
+                  previouslyKept && previouslyKept.threadId !== entrant.thread.id
+                    ? previouslyKept.label
+                    : null,
+              }),
+            ),
+          );
     if (confirmed._tag === "Failure" || !confirmed.value) return false;
     setPendingThreadId(entrant.thread.id);
     try {
@@ -161,11 +175,9 @@ export function useRaceEntrantActions(race: Race, context: RaceBoardContext) {
       if (result._tag === "Failure") {
         if (isAtomCommandInterrupted(result)) return false;
         const error = squashAtomCommandFailure(result);
-        toastManager.add({
-          type: "error",
-          title: "Could not keep this entrant",
-          description: error instanceof Error ? error.message : "The merge did not run.",
-        });
+        const description = error instanceof Error ? error.message : "The merge did not run.";
+        options.onRefused?.(description);
+        toastManager.add({ type: "error", title: "Could not keep this entrant", description });
         return false;
       }
       const message = describeRaceKeepResult(result.value, checkoutBranch);
@@ -184,6 +196,7 @@ export function useRaceEntrantActions(race: Race, context: RaceBoardContext) {
         });
         return true;
       }
+      options.onRefused?.(`${message.title} ${message.description}`);
       toastManager.add({
         type: message.tone,
         title: message.title,

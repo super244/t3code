@@ -61,3 +61,57 @@ describe("buildRaceStartTurns", () => {
     expect(new Set(turns.map((turn) => turn.input.threadId)).size).toBe(2);
   });
 });
+
+describe("buildRaceStartTurns for a rematch", () => {
+  it("appends challengers after the race's slots, from the base commit, with their effort", () => {
+    const withEffort = {
+      ...provider("claudeAgent", "Claude", "claude-sonnet-5"),
+      models: [
+        {
+          slug: "claude-sonnet-5",
+          name: "Claude Sonnet 5",
+          isDefault: true,
+          capabilities: {
+            optionDescriptors: [
+              {
+                id: "effort",
+                label: "Reasoning effort",
+                type: "select",
+                options: [
+                  { id: "low", label: "Low" },
+                  { id: "high", label: "High", isDefault: true },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    } as unknown as ServerProvider;
+    let n = 0;
+    const turns = buildRaceStartTurns({
+      environmentId: EnvironmentId.make("env-1"),
+      projectId: ProjectId.make("project-1"),
+      projectCwd: "/repo",
+      baseBranch: "0123456789abcdef0123456789abcdef01234567",
+      prompt: "Add a --json flag",
+      raceId: "k3f9a2",
+      entrants: [{ provider: withEffort, model: "claude-sonnet-5", effort: "low" }],
+      createdAt: "2026-10-19T08:00:00.000Z",
+      newThreadId: () => ThreadId.make(`t-${++n}`),
+      newMessageId: () => MessageId.make(`m-${n}`),
+      append: { existingCount: 3 },
+    });
+    expect(parseRaceBranchName(turns[0]!.input.bootstrap.prepareWorktree.branch)).toEqual({
+      raceId: "k3f9a2",
+      slot: 4,
+      count: 4,
+    });
+    expect(turns[0]!.input.bootstrap.prepareWorktree.baseBranch).toBe(
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+    expect(turns[0]!.input.modelSelection.options).toEqual([{ id: "effort", value: "low" }]);
+    expect(turns[0]!.input.bootstrap.createThread.title).toBe(
+      "Add a --json flag · Claude Sonnet 5 · Low",
+    );
+  });
+});
