@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=8m; seat=codex; date=2026-10-17 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 */
 /**
  * Merges per-environment usage summaries into the single view the page renders.
@@ -9,10 +11,10 @@
  */
 import {
   USAGE_MERGE_COMPATIBLE_SINCE,
+  usageSourceFingerprintKey,
   type EnvironmentId,
   type UsageBucket,
   type UsageProviderKind,
-  type UsageSourceFingerprint,
   type UsageSummary,
 } from "@t3tools/contracts";
 
@@ -23,6 +25,7 @@ export interface EnvironmentUsage {
 }
 
 export interface ProviderTotals {
+  readonly unpricedRecords?: number;
   readonly provider: UsageProviderKind;
   readonly costUsd: number;
   readonly totalTokens: number;
@@ -33,6 +36,7 @@ export interface ProviderTotals {
 }
 
 export interface ModelTotals {
+  readonly unpricedRecords?: number;
   readonly model: string;
   readonly provider: UsageProviderKind;
   readonly costUsd: number;
@@ -48,6 +52,7 @@ export function selectUsageModels(
     readonly metric: "cost" | "tokens";
     readonly query?: string;
     readonly provider?: string | null;
+    readonly needsPricing?: boolean;
   },
 ): ModelTotals[] {
   const query = options.query?.trim().toLowerCase() ?? "";
@@ -55,6 +60,7 @@ export function selectUsageModels(
     .filter(
       (model) =>
         (!options.provider || model.provider === options.provider) &&
+        (!options.needsPricing || (model.unpricedRecords ?? 0) > 0) &&
         (!query || model.model.toLowerCase().includes(query) || model.provider.includes(query)),
     )
     .sort(
@@ -119,14 +125,7 @@ export interface MergedUsage {
  * home path, which is every Mac in a fleet, from collapsing into one source and
  * having one of them silently dropped.
  */
-function fingerprintKey(fingerprint: UsageSourceFingerprint): string {
-  return [
-    fingerprint.hostId,
-    fingerprint.provider,
-    fingerprint.resolvedHomePath,
-    fingerprint.volumeId,
-  ].join(" ");
-}
+const fingerprintKey = usageSourceFingerprintKey;
 
 /**
  * Decides which environment owns each physical transcript directory.
@@ -137,12 +136,13 @@ function fingerprintKey(fingerprint: UsageSourceFingerprint): string {
  * provider's buckets dropped. Environments are sorted by id so the winner does
  * not change between renders.
  */
-function claimSources(environments: readonly EnvironmentUsage[]): {
+export function claimUsageSources(environments: readonly EnvironmentUsage[]): {
   readonly ownerByFingerprint: ReadonlyMap<string, EnvironmentId>;
   readonly duplicates: readonly string[];
 } {
   const ownerByFingerprint = new Map<string, EnvironmentId>();
   const duplicates: string[] = [];
+  const qualityByFingerprint = new Map<string, { rank: number; readAt: string }>();
 
   const ordered = [...environments].sort((a, b) => a.environmentId.localeCompare(b.environmentId));
 
@@ -150,14 +150,28 @@ function claimSources(environments: readonly EnvironmentUsage[]): {
     for (const source of environment.summary.sources) {
       if (source.status === "missing") continue;
       const key = fingerprintKey(source.fingerprint);
-      if (ownerByFingerprint.has(key)) {
-        duplicates.push(`${environment.label}: ${source.fingerprint.resolvedHomePath}`);
-        continue;
+      const rank = source.status === "ok" ? 0 : source.status === "partial" ? 1 : 2;
+      const previous = qualityByFingerprint.get(key);
+      if (
+        !previous ||
+        rank < previous.rank ||
+        (rank === previous.rank && environment.summary.readAt > previous.readAt)
+      ) {
+        ownerByFingerprint.set(key, environment.environmentId);
+        qualityByFingerprint.set(key, { rank, readAt: environment.summary.readAt });
       }
-      ownerByFingerprint.set(key, environment.environmentId);
     }
   }
 
+  for (const environment of ordered) {
+    for (const source of environment.summary.sources) {
+      if (
+        source.status !== "missing" &&
+        ownerByFingerprint.get(fingerprintKey(source.fingerprint)) !== environment.environmentId
+      )
+        duplicates.push(`${environment.label}: ${source.fingerprint.resolvedHomePath}`);
+    }
+  }
   return { ownerByFingerprint, duplicates };
 }
 
@@ -170,11 +184,13 @@ function ownedContribution(
   readonly sessionsByProvider: ReadonlyMap<UsageProviderKind, number>;
 } {
   const ownedProviders = new Set<UsageProviderKind>();
+  const ownedSources = new Set<string>();
   const sessionsByProvider = new Map<UsageProviderKind, number>();
   for (const source of environment.summary.sources) {
     if (source.status === "missing") continue;
     const key = fingerprintKey(source.fingerprint);
     if (ownerByFingerprint.get(key) === environment.environmentId) {
+      ownedSources.add(key);
       const provider = source.fingerprint.provider;
       ownedProviders.add(provider);
       // Distinct within a directory. Summing per-bucket session counts instead
@@ -185,8 +201,25 @@ function ownedContribution(
       );
     }
   }
+  // Legacy summaries do not split provider totals by root. If ownership is
+  // mixed, their unique portion cannot be separated from the shared portion.
+  for (const provider of ownedProviders) {
+    if (
+      environment.summary.sources.some(
+        (source) =>
+          source.status !== "missing" &&
+          source.fingerprint.provider === provider &&
+          !ownedSources.has(fingerprintKey(source.fingerprint)),
+      )
+    )
+      ownedProviders.delete(provider);
+  }
   return {
-    buckets: environment.summary.buckets.filter((bucket) => ownedProviders.has(bucket.provider)),
+    buckets: environment.summary.buckets.filter((bucket) =>
+      bucket.sourceId === undefined
+        ? ownedProviders.has(bucket.provider)
+        : ownedSources.has(bucket.sourceId),
+    ),
     sessionsByProvider,
   };
 }
@@ -275,7 +308,7 @@ export function mergeUsage(
     }
   }
 
-  const { ownerByFingerprint, duplicates } = claimSources(current);
+  const { ownerByFingerprint, duplicates } = claimUsageSources(current);
 
   let costUsd = 0;
   let uncachedInputTokens = 0;
@@ -291,11 +324,23 @@ export function mergeUsage(
 
   const providerAccumulator = new Map<
     UsageProviderKind,
-    { costUsd: number; totalTokens: number; records: number; sessions: number }
+    {
+      costUsd: number;
+      totalTokens: number;
+      records: number;
+      sessions: number;
+      unpricedRecords: number;
+    }
   >();
   const modelAccumulator = new Map<
     string,
-    { provider: UsageProviderKind; costUsd: number; totalTokens: number; records: number }
+    {
+      provider: UsageProviderKind;
+      costUsd: number;
+      totalTokens: number;
+      records: number;
+      unpricedRecords: number;
+    }
   >();
   const dailyAccumulator = new Map<
     string,
@@ -329,6 +374,7 @@ export function mergeUsage(
         totalTokens: 0,
         records: 0,
         sessions: 0,
+        unpricedRecords: 0,
       };
       provider.sessions += providerSessions;
       providerAccumulator.set(providerKind, provider);
@@ -353,15 +399,18 @@ export function mergeUsage(
         totalTokens: 0,
         records: 0,
         sessions: 0,
+        unpricedRecords: 0,
       };
       provider.costUsd += bucket.costUsd;
       provider.totalTokens += tokens;
       provider.records += bucket.records;
+      provider.unpricedRecords += bucket.unpricedRecords;
       providerAccumulator.set(bucket.provider, provider);
 
       const modelKey = `${bucket.provider} ${bucket.model}`;
       const model = modelAccumulator.get(modelKey) ?? {
         provider: bucket.provider,
+        unpricedRecords: 0,
         costUsd: 0,
         totalTokens: 0,
         records: 0,
@@ -369,6 +418,7 @@ export function mergeUsage(
       model.costUsd += bucket.costUsd;
       model.totalTokens += tokens;
       model.records += bucket.records;
+      model.unpricedRecords += bucket.unpricedRecords;
       modelAccumulator.set(modelKey, model);
 
       const day = dailyAccumulator.get(bucket.day) ?? {
@@ -414,6 +464,7 @@ export function mergeUsage(
       costUsd: totals.costUsd,
       totalTokens: totals.totalTokens,
       records: totals.records,
+      ...(totals.unpricedRecords > 0 ? { unpricedRecords: totals.unpricedRecords } : {}),
       sessions: totals.sessions,
       costShare: costUsd === 0 ? 0 : totals.costUsd / costUsd,
       tokenShare: totalTokens === 0 ? 0 : totals.totalTokens / totalTokens,
@@ -427,6 +478,7 @@ export function mergeUsage(
       costUsd: totals.costUsd,
       totalTokens: totals.totalTokens,
       records: totals.records,
+      ...(totals.unpricedRecords > 0 ? { unpricedRecords: totals.unpricedRecords } : {}),
       costShare: costUsd === 0 ? 0 : totals.costUsd / costUsd,
     }))
     .sort((a, b) => b.costUsd - a.costUsd || b.totalTokens - a.totalTokens);

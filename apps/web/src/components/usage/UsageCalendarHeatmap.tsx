@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=3m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-10 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-11 */
@@ -20,6 +21,7 @@ interface HeatCell {
   readonly value: number;
   readonly level: number;
   readonly inRange: boolean;
+  readonly hasActivity: boolean;
 }
 
 /** Parses a `YYYY-MM-DD` usage day as a UTC calendar date, so weekday math never drifts with the viewer's zone. */
@@ -42,11 +44,18 @@ export function buildHeatmap(
   daily: readonly DailyTotals[],
   metric: "cost" | "tokens",
 ) {
-  const sorted = [...days].sort();
-  const first = sorted[0];
-  const last = sorted.at(-1);
+  const observed = [...days].sort();
+  const first = observed[0];
+  const last = observed.at(-1);
   if (!first || !last) return undefined;
 
+  const sorted: string[] = [];
+  for (let time = dayToUtc(first).getTime(); time <= dayToUtc(last).getTime(); time += 86_400_000) {
+    sorted.push(utcToDay(new Date(time)));
+  }
+  const active = new Set(
+    daily.filter((entry) => entry.totalTokens > 0 || entry.costUsd > 0).map((entry) => entry.day),
+  );
   const valueOf = new Map(
     daily.map((entry) => [entry.day, metric === "tokens" ? entry.totalTokens : entry.costUsd]),
   );
@@ -74,18 +83,18 @@ export function buildHeatmap(
           ? Math.min(4, Math.max(1, Math.ceil(Math.sqrt(value / peak) * 4)))
           : 0;
       if (inRange) byWeekday[i] = (byWeekday[i] ?? 0) + value;
-      week.push({ day, value, level, inRange });
+      week.push({ day, value, level, inRange, hasActivity: inRange && active.has(day) });
     }
     weeks.push(week);
   }
 
   let streak = 0;
   for (let i = sorted.length - 1; i >= 0; i -= 1) {
-    if ((valueOf.get(sorted[i] ?? "") ?? 0) > 0) streak += 1;
+    if (active.has(sorted[i] ?? "")) streak += 1;
     else break;
   }
   const busiestIndex = byWeekday.reduce((best, v, i, all) => (v > (all[best] ?? 0) ? i : best), 0);
-  const activeDays = values.length;
+  const activeDays = sorted.filter((day) => active.has(day)).length;
   const peakDay = sorted.find((day) => (valueOf.get(day) ?? 0) === peak && peak > 0);
 
   // A month's name sits above the first week that holds its 1st (and above the first week shown).
@@ -129,14 +138,20 @@ export function UsageCalendarHeatmap({
   days,
   daily,
   metric,
+  costIncomplete = false,
 }: {
   readonly days: readonly string[];
   readonly daily: readonly DailyTotals[];
   readonly metric: "cost" | "tokens";
+  readonly costIncomplete?: boolean;
 }) {
   const heat = useMemo(() => buildHeatmap(days, daily, metric), [days, daily, metric]);
   const [hovered, setHovered] = useState<HeatCell | undefined>(undefined);
   if (!heat || heat.totalDays < 7) return null;
+  const cellValue = (cell: HeatCell) =>
+    cell.hasActivity
+      ? `${formatValue(cell.value, metric)}${metric === "cost" && costIncomplete ? " known cost" : ""}`
+      : "no usage";
 
   return (
     <section className="flex flex-col gap-3" aria-label="Daily usage calendar">
@@ -186,7 +201,7 @@ export function UsageCalendarHeatmap({
                         onMouseEnter={cell.inRange ? () => setHovered(cell) : undefined}
                         aria-label={
                           cell.inRange
-                            ? `${formatCellDay(cell.day)}, ${cell.value > 0 ? formatValue(cell.value, metric) : "no usage"}`
+                            ? `${formatCellDay(cell.day)}, ${cellValue(cell)}`
                             : undefined
                         }
                         className={cn(
@@ -209,9 +224,7 @@ export function UsageCalendarHeatmap({
             ))}
             <span>More</span>
             <span className="ml-3 text-foreground/80 tabular-nums" aria-live="polite">
-              {hovered
-                ? `${formatCellDay(hovered.day)} · ${hovered.value > 0 ? formatValue(hovered.value, metric) : "no usage"}`
-                : ""}
+              {hovered ? `${formatCellDay(hovered.day)} · ${cellValue(hovered)}` : ""}
             </span>
           </div>
         </div>
@@ -221,9 +234,16 @@ export function UsageCalendarHeatmap({
             label="Current streak"
             value={heat.streak > 0 ? `${heat.streak} ${heat.streak === 1 ? "day" : "days"}` : "—"}
           />
-          <CalendarFigure label="Busiest weekday" value={heat.busiestWeekday ?? "—"} />
           <CalendarFigure
-            label="Peak day"
+            label={
+              metric === "cost" && costIncomplete
+                ? "Busiest weekday (known cost)"
+                : "Busiest weekday"
+            }
+            value={heat.busiestWeekday ?? "—"}
+          />
+          <CalendarFigure
+            label={metric === "cost" && costIncomplete ? "Peak day (known cost)" : "Peak day"}
             value={heat.peakDay ? formatValue(heat.peak, metric) : "—"}
             detail={heat.peakDay ? formatCellDay(heat.peakDay) : undefined}
           />

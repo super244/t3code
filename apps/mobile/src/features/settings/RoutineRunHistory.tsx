@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=1m; seat=codex; date=2026-10-18 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-10 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 import { useRef, useState } from "react";
@@ -13,7 +14,7 @@ import {
   type RoutineHistoryFilter,
   type RoutineOutcomeFilter,
 } from "@t3tools/client-runtime/routines";
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { cn } from "../../lib/cn";
 
 function time(value: string) {
@@ -33,10 +34,11 @@ export function RoutineRunHistory({
 }) {
   const [filter, setFilter] = useState<RoutineHistoryFilter>("all");
   const [outcome, setOutcome] = useState<RoutineOutcomeFilter>("all");
+  const [query, setQuery] = useState("");
   const [sharing, setSharing] = useState(false);
   const shareInFlight = useRef(false);
   const total = routine.runHistory?.length ?? 0;
-  const receipts = selectRoutineRuns(routine, filter, outcome);
+  const receipts = selectRoutineRuns(routine, filter, outcome, query);
   async function shareHistory() {
     if (shareInFlight.current) return;
     const report = makeRoutineHistoryReport({
@@ -44,6 +46,9 @@ export function RoutineRunHistory({
       routineId,
       environmentId,
       exportedAt: new Date().toISOString(),
+      filter,
+      outcome,
+      query,
     });
     shareInFlight.current = true;
     setSharing(true);
@@ -68,12 +73,22 @@ export function RoutineRunHistory({
         Execution history
       </Text>
       <Text className="text-xs text-foreground-muted">
-        {total} retained occurrences · latest 50
+        {receipts.length} shown · {total} retained occurrences · latest 50
       </Text>
       <Text className="text-xs leading-normal text-foreground-muted">
         Launch and first-turn outcome are recorded separately. A completed turn does not verify the
         task’s correctness. Open the thread to review the work.
       </Text>
+      <TextInput
+        accessibilityLabel="Search retained receipts"
+        value={query}
+        onChangeText={setQuery}
+        maxLength={160}
+        placeholder="Search error, model, date, task…"
+        className="min-h-11 rounded-md border border-border px-3 text-sm"
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
       <View className="flex-row flex-wrap gap-2">
         {(
           [["all", "All"], ...Object.entries(ROUTINE_HISTORY_LABELS)] as [
@@ -133,15 +148,15 @@ export function RoutineRunHistory({
       </View>
       <Pressable
         accessibilityRole="button"
-        accessibilityState={{ disabled: total === 0 || sharing }}
-        disabled={total === 0 || sharing}
+        accessibilityState={{ disabled: receipts.length === 0 || sharing }}
+        disabled={receipts.length === 0 || sharing}
         className={cn(
           "min-h-11 justify-center border-b border-border",
-          (total === 0 || sharing) && "opacity-50",
+          (receipts.length === 0 || sharing) && "opacity-50",
         )}
         onPress={() => void shareHistory()}
       >
-        <Text className="text-sm">{sharing ? "Sharing…" : "Share history JSON"}</Text>
+        <Text className="text-sm">{sharing ? "Sharing…" : "Share shown receipts JSON"}</Text>
       </Pressable>
       {receipts.map((receipt) => (
         <View key={receipt.id} className="gap-1 border-b border-border py-3">

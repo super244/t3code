@@ -1,3 +1,7 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-17 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=25m; seat=antigravity; date=2026-10-14 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-14 */
 /**
  * Claude Code subscription usage. Both sources produce windows with the same
  * ids so a turn-driven `rate_limit_event` lands on the row the SDK's
@@ -41,6 +45,8 @@ const WINDOWS: Readonly<
 > = {
   five_hour: { kind: "session", label: "Session", windowDurationMins: SESSION_MINS },
   seven_day: { kind: "weekly", label: "Weekly", windowDurationMins: WEEK_MINS },
+  seven_day_opus: { kind: "weekly", label: "Weekly · Opus", windowDurationMins: WEEK_MINS },
+  seven_day_sonnet: { kind: "weekly", label: "Weekly · Sonnet", windowDurationMins: WEEK_MINS },
 };
 
 /**
@@ -136,7 +142,7 @@ export function claudeRateLimitEventToUpdate(
   names: ClaudeScopedLimitNames,
 ): ProviderUsageLimitsUpdate | undefined {
   const type: string | undefined = info.rateLimitType;
-  if (!type || typeof info.utilization !== "number") {
+  if (!type || typeof info.utilization !== "number" || !Number.isFinite(info.utilization)) {
     return undefined;
   }
   const usedPercent = info.utilization * 100;
@@ -161,30 +167,47 @@ export function claudeUsageResponseToLimits(input: {
   const { response, checkedAt } = input;
   if (!response.rate_limits_available || !response.rate_limits) {
     return {
-      limits: makeUnavailableUsageLimits({ checkedAt, reason: "unsupported" }),
+      limits: makeUnavailableUsageLimits({
+        checkedAt,
+        reason: "unsupported",
+        message:
+          "Claude subscription quota is unavailable with this API/proxy login. Sign in with a Claude subscription OAuth account to read its limits; promo-credit spend is separate.",
+      }),
       names: { overageIncluded: undefined },
     };
   }
   const windows: ServerProviderUsageWindow[] = [];
   for (const id of Object.keys(WINDOWS)) {
     const window = response.rate_limits[id as "five_hour" | "seven_day"];
-    if (!window || typeof window.utilization !== "number") continue;
+    if (!window || typeof window.utilization !== "number" || !Number.isFinite(window.utilization))
+      continue;
     windows.push(makeWindow(id, window.utilization, isoFromString(window.resets_at)));
   }
   // The CLI filters `model_scoped` to the overage-included allowlist, which
   // today holds one model; the first entry is the one the event refers to.
   let overageIncluded: string | undefined;
   for (const entry of readModelScoped(response.rate_limits)) {
-    if (typeof entry.utilization !== "number") continue;
-    windows.push(
-      scopedWindow(entry.display_name, entry.utilization, isoFromString(entry.resets_at)),
+    if (typeof entry.utilization !== "number" || !Number.isFinite(entry.utilization)) continue;
+    const scoped = scopedWindow(
+      entry.display_name,
+      entry.utilization,
+      isoFromString(entry.resets_at),
     );
+    if (!windows.some((window) => window.id === scoped.id)) windows.push(scoped);
     // Only a bucket that drew a row may receive events; naming one that was
     // skipped would let a mid-turn event open a row the probe never showed.
     overageIncluded ??= entry.display_name;
   }
   return {
-    limits: makeUsageLimits({ checkedAt, windows }),
+    limits:
+      windows.length > 0
+        ? makeUsageLimits({ checkedAt, windows })
+        : makeUnavailableUsageLimits({
+            checkedAt,
+            reason: "unsupported",
+            message:
+              "This account did not report subscription usage windows. API credit balances are separate.",
+          }),
     names: { overageIncluded },
   };
 }

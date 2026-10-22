@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=125m; seat=codex; date=2026-10-14 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-10 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 import * as Effect from "effect/Effect";
@@ -572,6 +573,7 @@ export const ServerConfig = Schema.Struct({
   routineOverlapProtection: Schema.optionalKey(Schema.Boolean),
   /** Whether all routine launches honor the persisted daily attempt limit. */
   routineDailyLaunchLimit: Schema.optionalKey(Schema.Boolean),
+  routineBulkActions: Schema.optionalKey(Schema.Boolean),
   /** Whether shell.openInEditor honors `LaunchEditorInput.reveal` for the
       file-manager editor. */
   shellRevealInFileManager: Schema.optionalKey(Schema.Boolean),

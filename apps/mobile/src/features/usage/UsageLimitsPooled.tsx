@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=8m; seat=codex; date=2026-10-17 */
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { EnvironmentId } from "@t3tools/contracts";
@@ -8,6 +9,7 @@ import {
   formatDuration,
   formatResetsIn,
   remainingPercent,
+  quotaSnapshotAge,
   type LimitAccount,
   type LimitPoolWindow,
 } from "@t3tools/shared/usageLimits";
@@ -25,7 +27,11 @@ import { environmentPresentations } from "../../state/presentation";
 import { ResetCredits } from "./UsageLimitsSection";
 import { useProviderColors } from "./usageProviders";
 
-const DRIVER_LABEL: Partial<Record<string, string>> = { codex: "Codex", claudeAgent: "Claude" };
+const DRIVER_LABEL: Partial<Record<string, string>> = {
+  codex: "Codex",
+  claudeAgent: "Claude",
+  antigravity: "Antigravity",
+};
 const PACE_LABEL = { ahead: "Ahead of pace", on: "On pace", under: "Under pace" } as const;
 
 function accountName(account: LimitAccount) {
@@ -217,6 +223,11 @@ export function UsageLimitsSection({
           {failedLabels.join(", ")} could not refresh limits. Showing the last known values.
         </Text>
       ) : null}
+      {notices.map((notice) => (
+        <Text key={notice} className="text-sm text-foreground-muted">
+          {notice}
+        </Text>
+      ))}
       {pools.length === 0 ? (
         <Text className="py-12 text-center text-base text-foreground-muted">
           {selected.size === 0
@@ -232,21 +243,37 @@ export function UsageLimitsSection({
               {DRIVER_LABEL[pool.driver] ?? pool.driver}
             </Text>
           </View>
+          {pool.accounts.map((account) => {
+            const age = quotaSnapshotAge(account.limits.checkedAt, now);
+            return (
+              <Text key={account.key} className="text-xs text-foreground-muted">
+                {accountName(account)} · {age.label}
+                {age.stale ? " · refresh limits" : ""}
+              </Text>
+            );
+          })}
+          {pool.accounts.length > 1 ? (
+            <Text className="text-xs text-foreground-muted">
+              Percentages average the reporting accounts equally; plans may have different
+              capacities.
+            </Text>
+          ) : null}
           {pool.windows.map((window) => (
             <PoolWindowCard
               key={`${window.kind}:${window.id}`}
               pool={window}
-              color={pool.driver === "claudeAgent" ? colors.claude : colors.codex}
+              color={
+                pool.driver === "claudeAgent"
+                  ? colors.claude
+                  : pool.driver === "antigravity"
+                    ? colors.antigravity
+                    : colors.codex
+              }
               now={now}
               environmentIds={selectedEnvironmentIds === null ? null : [...selectedEnvironmentIds]}
             />
           ))}
         </View>
-      ))}
-      {notices.map((notice) => (
-        <Text key={notice} className="text-sm text-foreground-muted">
-          {notice}
-        </Text>
       ))}
     </View>
   );

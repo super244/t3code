@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=3m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=65m; seat=claude-code; date=2026-10-13 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=40m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=15m; seat=claude-code; date=2026-10-12 */
@@ -11,6 +12,7 @@
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=20m; seat=antigravity; date=2026-10-03 */
 
 import { projectSettingsTarget, projectHomeTarget } from "./project/projectRoutes";
+import { raceArenaTarget } from "./race/race.logic";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -51,6 +53,8 @@ import {
 } from "@t3tools/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { openHandoffDialog, openReviewDialog } from "../handoffDialog";
+import { openRaceDialogForThread } from "../raceDialog";
+import { parseRaceBranchName } from "@t3tools/shared/race";
 import { copyThreadReport, exportThreadReport } from "../threadReportActions";
 import * as Option from "effect/Option";
 import {
@@ -76,6 +80,8 @@ import {
   ArrowRightLeftIcon,
   FileDownIcon,
   ScanSearchIcon,
+  ColumnsIcon,
+  TrophyIcon,
 } from "lucide-react";
 import {
   useCallback,
@@ -1676,6 +1682,39 @@ function OpenCommandPaletteDialog(props: {
   }
 
   if (activeThread !== null) {
+    const raceSource = activeThread;
+    actionItems.push({
+      kind: "action",
+      value: "action:race-this-prompt",
+      searchTerms: ["race", "race this prompt", "best of", "compare agents", "parallel", "rerun"],
+      title: "Race this prompt…",
+      description: activeThread.title,
+      icon: <FlagIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        openRaceDialogForThread(raceSource);
+      },
+    });
+    const raceIdentity = parseRaceBranchName(activeThread.branch);
+    if (raceIdentity) {
+      const environmentId = activeThread.environmentId;
+      actionItems.push({
+        kind: "action",
+        value: "action:compare-race",
+        searchTerms: ["compare race", "arena", "race", "entrants", "judge", "keep"],
+        title: "Compare this race",
+        description: `Entrant ${raceIdentity.slot} of ${raceIdentity.count}`,
+        icon: <ColumnsIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          await navigate({
+            to: "/race",
+            search: { race: raceIdentity.raceId, env: environmentId },
+          });
+        },
+      });
+    }
+  }
+
+  if (activeThread !== null) {
     const handoffRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
     actionItems.push({
       kind: "action",
@@ -1833,6 +1872,17 @@ function OpenCommandPaletteDialog(props: {
 
   actionItems.push({
     kind: "action",
+    value: "action:race-scoreboard",
+    searchTerms: ["race scoreboard", "leaderboard", "race history", "which agent wins", "wins"],
+    title: "Open Race scoreboard",
+    icon: <TrophyIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/race", search: { view: "scoreboard" } });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
     value: "action:routines",
     searchTerms: ["routines", "automation", "scheduled", "cron", "jobs", "tasks", "background"],
     title: "Open Automated Routines",
@@ -1841,6 +1891,21 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/routines" });
     },
   });
+
+  const activeRaceTarget = raceArenaTarget(activeThread);
+  if (activeRaceTarget) {
+    actionItems.push({
+      kind: "action",
+      value: "action:compare-current-race",
+      searchTerms: ["compare", "race", "entrants", "arena", "current", "this"],
+      title: "Compare this race",
+      description: activeThread?.title,
+      icon: <FlagIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate(activeRaceTarget);
+      },
+    });
+  }
 
   actionItems.push({
     kind: "action",

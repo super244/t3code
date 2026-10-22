@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-19 */
 import {
   ApprovalRequestId,
   type AssistantDeliveryMode,
@@ -761,6 +762,27 @@ export function runtimeEventToActivities(
             ...(event.requestId !== undefined ? { requestId: event.requestId } : {}),
             ...(event.payload.detail !== undefined ? { detail: event.payload.detail } : {}),
           },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "turn.completed": {
+      // Only providers that price their own turns (Claude's SDK does) report a
+      // cost; the race scoreboard reads it. Absent means unknown, never zero.
+      const totalCostUsd = event.payload.totalCostUsd;
+      if (typeof totalCostUsd !== "number" || !Number.isFinite(totalCostUsd) || totalCostUsd < 0) {
+        return [];
+      }
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "turn.cost",
+          summary: "Turn cost reported",
+          payload: { totalCostUsd },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
         },

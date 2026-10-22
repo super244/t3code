@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=7m; seat=codex; date=2026-10-15 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-14 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=2m; seat=antigravity; date=2026-10-02 */
@@ -11,7 +13,12 @@ import * as NodeSqlite from "node:sqlite";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
-import { UsageDay, type UsageSummaryInput } from "@t3tools/contracts";
+import {
+  UsageDay,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type UsageSummaryInput,
+} from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -20,12 +27,15 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Scheduler from "effect/Scheduler";
+import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as UsageService from "./UsageService.ts";
+import { encodeScanCache } from "./usageScanCache.ts";
+import { parseClaudeLine } from "./usageTranscripts.ts";
 
 function claudeLine(id: number, outputTokens: number, model = "claude-fable-5"): string {
   return `${JSON.stringify({
@@ -40,6 +50,13 @@ function claudeLine(id: number, outputTokens: number, model = "claude-fable-5"):
     },
   })}\n`;
 }
+
+const encodeLegacyFixture = Schema.encodeEffect(
+  Schema.fromJsonString(Schema.Unknown as unknown as Schema.Codec<unknown>),
+);
+const decodeHistoryFixture = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Struct({ historyVersion: Schema.Number })),
+);
 
 const WINDOW: UsageSummaryInput = {
   timeZone: "UTC",
@@ -76,7 +93,7 @@ const serviceLayers = (input: {
   /** Defaults to an unparsable document so every scan retries the fetch. */
   readonly ratesDocument?: unknown;
 }) =>
-  ServerConfig.layerTest(process.cwd(), { prefix: input.prefix }).pipe(
+  ServerConfig.layerTest(process.cwd(), NodePath.join(input.home, input.prefix)).pipe(
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(ServerSettings.layerTest(input.settings)),
     Layer.provideMerge(
@@ -105,6 +122,261 @@ function totalOutputTokens(summary: { buckets: readonly { totals: { outputTokens
 }
 
 describe("UsageService", () => {
+  it.live(
+    "recovers removed transcripts from the legacy usage cache without requiring the old parse cache",
+    () =>
+      Effect.gen(function* () {
+        const { transcript, settings, home } = yield* setup;
+        const layers = serviceLayers({ prefix: "legacy-history", home, settings });
+        const config = yield* ServerConfig.ServerConfig.pipe(Effect.provide(layers));
+        const row = parseClaudeLine(claudeLine(1, 29))!;
+        const encoded = encodeScanCache(
+          new Map([
+            [
+              transcript,
+              {
+                provider: "claude" as const,
+                size: 100,
+                mtimeMs: 100,
+                records: [row],
+                tailRecords: [],
+                position: { resumeOffset: 100, guardLength: 0, guardHash: 0, codexState: null },
+              },
+            ],
+          ]),
+        );
+        const legacy = {
+          ...encoded,
+          version: 5,
+          files: Object.fromEntries(
+            Object.entries(encoded.files).map(([path, entry]) => [
+              path,
+              {
+                ...entry,
+                r: entry.r.map((record) => [
+                  ...record.slice(0, 8),
+                  "msg_1:req_1",
+                  ...record.slice(9, 11),
+                ]),
+              },
+            ]),
+          ),
+        };
+        const serialized = yield* encodeLegacyFixture(legacy);
+        yield* Effect.promise(() =>
+          NodeFSP.writeFile(NodePath.join(config.stateDir, "usage-scan-cache-v5.json"), serialized),
+        );
+        const service = yield* UsageService.make.pipe(Effect.provide(layers));
+        assert.strictEqual(totalOutputTokens(yield* service.readSummary(WINDOW)), 29);
+        const persisted = yield* decodeHistoryFixture(
+          yield* Effect.promise(() =>
+            NodeFSP.readFile(NodePath.join(config.stateDir, "usage-history.json"), "utf8"),
+          ),
+        );
+        assert.strictEqual(persisted.historyVersion, 2);
+        yield* Effect.promise(() =>
+          NodeFSP.unlink(NodePath.join(config.stateDir, "usage-scan-cache-v5.json")),
+        );
+        const restarted = yield* UsageService.make.pipe(Effect.provide(layers));
+        assert.strictEqual(totalOutputTokens(yield* restarted.readSummary(WINDOW)), 29);
+      }).pipe(Effect.scoped),
+  );
+
+  it.live("replaces collapsed Claude history and cache with every original transcript row", () =>
+    Effect.gen(function* () {
+      const { transcript, settings, home } = yield* setup;
+      const layers = serviceLayers({ prefix: "restore-row-accounting", home, settings });
+      const config = yield* ServerConfig.ServerConfig.pipe(Effect.provide(layers));
+      const collapsed = { ...parseClaudeLine(claudeLine(1, 70))!, dedupeKey: "old-message-id" };
+      const encoded = encodeScanCache(
+        new Map([
+          [
+            transcript,
+            {
+              provider: "claude" as const,
+              size: 100,
+              mtimeMs: 100,
+              records: [collapsed],
+              tailRecords: [],
+              position: { resumeOffset: 100, guardLength: 0, guardHash: 0, codexState: null },
+            },
+          ],
+        ]),
+      );
+      yield* Effect.promise(() =>
+        NodeFSP.writeFile(transcript, claudeLine(1, 5) + claudeLine(1, 70) + claudeLine(1, 70)),
+      );
+      const oldHistory = yield* encodeLegacyFixture({ ...encoded, version: 8, historyVersion: 1 });
+      yield* Effect.promise(() =>
+        NodeFSP.writeFile(NodePath.join(config.stateDir, "usage-history.json"), oldHistory),
+      );
+      const oldCache = yield* encodeLegacyFixture({ ...encoded, version: 8 });
+      yield* Effect.promise(() =>
+        NodeFSP.writeFile(NodePath.join(config.stateDir, "usage-scan-cache.json"), oldCache),
+      );
+      const service = yield* UsageService.make.pipe(Effect.provide(layers));
+      assert.strictEqual(totalOutputTokens(yield* service.readSummary(WINDOW)), 145);
+      const restarted = yield* UsageService.make.pipe(Effect.provide(layers));
+      assert.strictEqual(totalOutputTokens(yield* restarted.readSummary(WINDOW)), 145);
+      yield* Effect.promise(() => NodeFSP.unlink(transcript));
+      const retained = yield* UsageService.make.pipe(Effect.provide(layers));
+      assert.strictEqual(totalOutputTokens(yield* retained.readSummary(WINDOW)), 145);
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("retains lifetime usage after deletion, process restart and a narrow-window scan", () =>
+    Effect.gen(function* () {
+      const { transcript, settings, home } = yield* setup;
+      const base = NodePath.join(home, "server-state");
+      const layers = ServerConfig.layerTest(process.cwd(), base).pipe(
+        Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(ServerSettings.layerTest(settings)),
+        Layer.provideMerge(Layer.succeed(HostProcessEnvironment, { HOME: home })),
+        Layer.provideMerge(
+          Layer.succeed(
+            HttpClient.HttpClient,
+            HttpClient.make((request) =>
+              Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({}))),
+            ),
+          ),
+        ),
+      );
+      yield* Effect.promise(() => NodeFSP.writeFile(transcript, claudeLine(1, 17)));
+      const first = yield* UsageService.make.pipe(Effect.provide(layers));
+      assert.strictEqual(totalOutputTokens(yield* first.readSummary(WINDOW)), 17);
+      yield* Effect.promise(() => NodeFSP.unlink(transcript));
+      assert.strictEqual(totalOutputTokens(yield* first.readSummary(WINDOW)), 17);
+      const restarted = yield* UsageService.make.pipe(Effect.provide(layers));
+      assert.strictEqual(
+        totalOutputTokens(
+          yield* restarted.readSummary({ ...WINDOW, sinceDay: UsageDay.make("2026-08-02") }),
+        ),
+        0,
+      );
+      const recovered = yield* restarted.readSummary(WINDOW);
+      assert.strictEqual(totalOutputTokens(recovered), 17);
+      assert.ok(
+        recovered.sources.some((source) => source.message?.includes("retained transcript")),
+      );
+      yield* Effect.promise(() =>
+        NodeFSP.writeFile(transcript, claudeLine(1, 17) + claudeLine(2, 6)),
+      );
+      assert.strictEqual(totalOutputTokens(yield* restarted.readSummary(WINDOW)), 23);
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("includes configured Claude instances and archived Codex usage", () =>
+    Effect.gen(function* () {
+      const { transcript, settings, home } = yield* setup;
+      const secondary = NodePath.join(home, "secondary");
+      const archived = NodePath.join(home, "codex", "archived_sessions");
+      yield* Effect.promise(async () => {
+        await NodeFSP.writeFile(transcript, claudeLine(1, 5));
+        await NodeFSP.mkdir(NodePath.join(secondary, "projects", "proj"), { recursive: true });
+        await NodeFSP.writeFile(
+          NodePath.join(secondary, "projects", "proj", "other.jsonl"),
+          claudeLine(2, 7),
+        );
+        await NodeFSP.mkdir(archived, { recursive: true });
+        await NodeFSP.writeFile(
+          NodePath.join(archived, "old.jsonl"),
+          [
+            { type: "session_meta", payload: { id: "archived-session" } },
+            { type: "turn_context", payload: { model: "codex-fixture" } },
+            {
+              type: "event_msg",
+              timestamp: "2026-08-01T10:00:00Z",
+              payload: {
+                type: "token_count",
+                info: { last_token_usage: { input_tokens: 20, output_tokens: 9 } },
+              },
+            },
+          ]
+            .map((row) => JSON.stringify(row))
+            .join("\n") + "\n",
+        );
+      });
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(
+          serviceLayers({
+            prefix: "usage-extra-homes",
+            home,
+            settings: {
+              ...settings,
+              providerInstances: {
+                [ProviderInstanceId.make("extra")]: {
+                  driver: ProviderDriverKind.make("claudeAgent"),
+                  config: { homePath: secondary },
+                  enabled: false,
+                },
+              },
+            },
+          }),
+        ),
+      );
+      const summary = yield* service.readSummary(WINDOW);
+      assert.strictEqual(totalOutputTokens(summary), 21);
+      assert.strictEqual(
+        summary.buckets
+          .filter((bucket) => bucket.provider === "claude")
+          .reduce((n, bucket) => n + bucket.totals.outputTokens, 0),
+        12,
+      );
+      assert.isTrue(summary.buckets.every((bucket) => bucket.sourceId !== undefined));
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("reports malformed usage consistently across incremental scans and cache hits", () =>
+    Effect.gen(function* () {
+      const { transcript, settings, home } = yield* setup;
+      yield* Effect.promise(() =>
+        NodeFSP.writeFile(transcript, claudeLine(1, 5) + '{"usage": broken}\n'),
+      );
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(serviceLayers({ prefix: "usage-malformed", home, settings })),
+      );
+      const check = (summary: {
+        sources: readonly {
+          fingerprint: { provider: string };
+          malformedRecords: number;
+          status: string;
+        }[];
+      }) => {
+        const source = summary.sources.find((item) => item.fingerprint.provider === "claude");
+        assert.strictEqual(source?.malformedRecords, 1);
+        assert.strictEqual(source?.status, "partial");
+      };
+      check(yield* service.readSummary(WINDOW));
+      check(yield* service.readSummary(WINDOW));
+      yield* Effect.promise(() => NodeFSP.appendFile(transcript, claudeLine(2, 7)));
+      const grown = yield* service.readSummary(WINDOW);
+      check(grown);
+      assert.strictEqual(totalOutputTokens(grown), 12);
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("marks unreadable paths as partial instead of reporting complete empty usage", () =>
+    Effect.gen(function* () {
+      const { transcript, settings, home } = yield* setup;
+      yield* Effect.promise(async () => {
+        await NodeFSP.writeFile(transcript, claudeLine(1, 5));
+        await NodeFSP.symlink(
+          NodePath.join(home, "missing-target"),
+          NodePath.join(NodePath.dirname(transcript), "broken.jsonl"),
+        );
+      });
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(serviceLayers({ prefix: "usage-read-failure", home, settings })),
+      );
+      const summary = yield* service.readSummary(WINDOW);
+      assert.strictEqual(totalOutputTokens(summary), 5);
+      assert.strictEqual(
+        summary.sources.find((source) => source.fingerprint.provider === "claude")?.status,
+        "partial",
+      );
+    }).pipe(Effect.scoped),
+  );
+
   it.live("reprices unchanged transcripts when custom prices are added, edited, or removed", () =>
     Effect.gen(function* () {
       const { transcript, settings, home } = yield* setup;
@@ -145,6 +417,31 @@ describe("UsageService", () => {
           serviceLayers({ prefix: "usage-service-price-overrides-test", home, settings }),
         ),
       );
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("preserves original Claude row accounting on incremental scans and across files", () =>
+    Effect.gen(function* () {
+      const { transcript, settings, home } = yield* setup;
+      yield* Effect.promise(() => NodeFSP.writeFile(transcript, claudeLine(1, 5)));
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(serviceLayers({ prefix: "usage-snapshots-test", home, settings })),
+      );
+      assert.strictEqual(totalOutputTokens(yield* service.readSummary(WINDOW)), 5);
+      yield* Effect.promise(() =>
+        NodeFSP.appendFile(transcript, claudeLine(1, 70) + claudeLine(1, 70)),
+      );
+      yield* Effect.promise(() =>
+        NodeFSP.writeFile(
+          NodePath.join(NodePath.dirname(transcript), "copy.jsonl"),
+          claudeLine(1, 5),
+        ),
+      );
+      const revised = yield* service.readSummary(WINDOW);
+      assert.strictEqual(totalOutputTokens(revised), 150);
+      assert.strictEqual(revised.buckets[0]?.totals.uncachedInputTokens, 40);
+      assert.strictEqual(revised.buckets[0]?.records, 4);
+      assert.deepStrictEqual((yield* service.readSummary(WINDOW)).buckets, revised.buckets);
     }).pipe(Effect.scoped),
   );
 

@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-13 */
 // @effect-diagnostics nodeBuiltinImport:off -- a loopback stub server for the relay client.
 import * as NodeFS from "node:fs";
@@ -44,6 +45,39 @@ afterEach(() => {
 });
 
 describe("claudeRelay", () => {
+  it("retries failed acknowledgements without changing the cumulative accounting key", async () => {
+    reply = { status: 503, body: { ok: false } };
+    const outcome = await reportClaudeSpend(
+      { token: "t0k", baseUrl },
+      {
+        sessionId: "s",
+        totalCostUsd: 7,
+        apiKeySource: "none",
+        resumed: false,
+        accountingId: "runtime",
+        baselineCostUsd: 0,
+      },
+    );
+    expect(outcome).toBe("failed");
+    expect(seen).toHaveLength(2);
+    expect(seen[0]?.body).toEqual(seen[1]?.body);
+  });
+
+  it("refuses to substitute a reservation for an unknown resumed-session baseline", async () => {
+    const outcome = await reportClaudeSpend(
+      { token: "t0k", baseUrl },
+      {
+        sessionId: "s",
+        totalCostUsd: 70,
+        apiKeySource: "none",
+        resumed: true,
+        accountingId: "runtime",
+      },
+    );
+    expect(outcome).toBe("failed");
+    expect(seen).toHaveLength(0);
+  });
+
   it("is off under the test runner unless asked, and reads the token file", () => {
     const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-relay-"));
     const token = NodePath.join(dir, "token");
@@ -106,6 +140,32 @@ describe("claudeRelay", () => {
         { prompt: "x", schema: {}, model: "m", timeoutMs: 5_000 },
       ),
     ).rejects.toBeInstanceOf(ClaudeRelayUnavailable);
+  });
+
+  it("reports the full increase from a resumed SDK baseline without the unseen-resume cap", async () => {
+    reply = { status: 200, body: { ok: true } };
+    const arrived = new Promise<void>((resolve) => {
+      received = resolve;
+    });
+    reportClaudeSpend(
+      { token: "t0k", baseUrl },
+      {
+        sessionId: "existing-conversation",
+        totalCostUsd: 42,
+        baselineCostUsd: 35,
+        accountingId: "new-runtime",
+        apiKeySource: "/login managed key",
+        resumed: true,
+      },
+    );
+    await arrived;
+    expect(seen[0]).toMatchObject({
+      body: {
+        sessionId: "t3:new-runtime:existing-conversation",
+        totalCostUsd: 7,
+        resumed: false,
+      },
+    });
   });
 
   it("reports a session's cumulative cost to the ledger, and skips when there is nothing to report", async () => {

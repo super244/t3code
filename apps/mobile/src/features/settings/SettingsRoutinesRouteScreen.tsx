@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=125m; seat=codex; date=2026-10-14 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-10 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=30m; seat=codex; date=2026-10-08 */
@@ -14,6 +15,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { StackActions, useNavigation, usePreventRemove } from "@react-navigation/native";
 import {
   createRoutineDraft,
+  makeRoutineBulkAction,
   duplicateRoutine,
   importRoutineTemplate,
   serializeRoutineTemplate,
@@ -217,6 +219,69 @@ export function SettingsRoutinesRouteScreen() {
       writeInFlight.current = false;
       setAction(null);
     }
+  }
+
+  function reviewBulk(kind: "pause" | "resume") {
+    if (
+      !environmentId ||
+      !connected ||
+      dirty ||
+      config?.routineBulkActions !== true ||
+      writeInFlight.current
+    )
+      return;
+    let batch: ReturnType<typeof makeRoutineBulkAction>;
+    try {
+      batch = makeRoutineBulkAction(filteredRoutines, kind);
+    } catch (error) {
+      setNotice({
+        error: true,
+        text: error instanceof Error ? error.message : "Narrow the routine filter.",
+      });
+      return;
+    }
+    if (!batch.count) return;
+    const targetEnvironment = environmentId;
+    Alert.alert(
+      `${kind === "pause" ? "Pause" : "Resume"} ${batch.count} routine schedules?`,
+      `${batch.names.join("\n")}\n\n${kind === "pause" ? "Future scheduled launches pause. Running tasks continue." : "Schedules resume from their next occurrence; no immediate run is requested."}\nIf any configuration changed, the whole batch is refused.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Apply",
+          onPress: () => {
+            void (async () => {
+              if (writeInFlight.current) return;
+              writeInFlight.current = true;
+              setAction("bulk");
+              setNotice(null);
+              try {
+                const result = await updateSettings({
+                  environmentId: targetEnvironment,
+                  input: { patch: { routines: batch.routines } },
+                });
+                if (result._tag === "Failure") throw Cause.squash(result.cause);
+                setNotice({
+                  error: false,
+                  text: `${kind === "pause" ? "Paused" : "Resumed"} ${batch.count} routine schedules.`,
+                });
+              } catch (error) {
+                setNotice({
+                  error: true,
+                  text:
+                    error instanceof Error
+                      ? error.message
+                      : "Routine batch was not applied. Refresh and review again.",
+                });
+              } finally {
+                writeInFlight.current = false;
+                setAction(null);
+              }
+            })();
+          },
+        },
+      ],
+    );
   }
 
   function save() {
@@ -442,6 +507,37 @@ export function SettingsRoutinesRouteScreen() {
                     );
                   })}
                 </View>
+              </View>
+            ) : null}
+            {filteredRoutines.length > 0 ? (
+              <View className="gap-2 border-t border-border py-3">
+                <View className="flex-row flex-wrap gap-2">
+                  <Action
+                    label={`Pause visible (${filteredRoutines.filter(([, routine]) => routine.enabled).length})`}
+                    disabled={
+                      disabled ||
+                      dirty ||
+                      config?.routineBulkActions !== true ||
+                      !filteredRoutines.some(([, routine]) => routine.enabled)
+                    }
+                    onPress={() => reviewBulk("pause")}
+                  />
+                  <Action
+                    label={`Resume visible (${filteredRoutines.filter(([, routine]) => !routine.enabled).length})`}
+                    disabled={
+                      disabled ||
+                      dirty ||
+                      config?.routineBulkActions !== true ||
+                      !filteredRoutines.some(([, routine]) => !routine.enabled)
+                    }
+                    onPress={() => reviewBulk("resume")}
+                  />
+                </View>
+                {config?.routineBulkActions !== true ? (
+                  <Text className="text-xs text-foreground-muted">
+                    Update this computer to use reviewed batch controls.
+                  </Text>
+                ) : null}
               </View>
             ) : null}
             <View className="border-y border-border">

@@ -13,7 +13,8 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon, EllipsisIcon } from "lucide-react";
+import { ChevronDownIcon, EllipsisIcon, FlagIcon } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import {
   memo,
   useCallback,
@@ -57,6 +58,8 @@ import { cn } from "~/lib/utils";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
+import { useThreadShell } from "~/state/entities";
+import { raceArenaTarget } from "../race/race.logic";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -294,6 +297,9 @@ export const ChatHeader = memo(function ChatHeader({
     () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
     [activeThreadEnvironmentId, activeThreadId],
   );
+  const navigate = useNavigate();
+  const threadShell = useThreadShell(isServerThread ? activeThreadRef : null);
+  const arenaTarget = raceArenaTarget(threadShell);
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -564,6 +570,24 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
+        {arenaTarget ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size={compact ? "icon-xs" : "sm"}
+                  variant="ghost"
+                  aria-label="Compare this race"
+                  onClick={() => void navigate(arenaTarget)}
+                />
+              }
+            >
+              <FlagIcon aria-hidden className="size-3.5" />
+              {!compact ? "Compare race" : null}
+            </TooltipTrigger>
+            <TooltipPopup>Compare this race</TooltipPopup>
+          </Tooltip>
+        ) : null}
         {turnRecap && onOpenTurnDiff ? (
           <TurnRecapControl recap={turnRecap} compact={compact} onOpenTurnDiff={onOpenTurnDiff} />
         ) : null}

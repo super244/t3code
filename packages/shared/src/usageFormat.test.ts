@@ -1,8 +1,10 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=5m; seat=codex; date=2026-10-02 */
 // @effect-diagnostics globalDate:off -- A fixed instant keeps calendar-window assertions deterministic.
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  formatUsd,
   makeAllHistoryWindow,
   enumerateHourStarts,
   formatDateTimeShort,
@@ -84,4 +86,9 @@ describe("hourly usage formatting", () => {
       resolvedOptions.mockRestore();
     }
   });
+});
+
+it("does not display positive sub-cent spend as zero", () => {
+  expect(formatUsd(0.004)).toBe("<$0.01");
+  expect(formatUsd(0)).toBe("$0.00");
 });

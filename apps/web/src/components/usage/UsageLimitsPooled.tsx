@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=8m; seat=codex; date=2026-10-17 */
 import {
   collectLimitAccounts,
   collectLimitNotices,
@@ -9,6 +10,7 @@ import {
   type LimitPoolMember,
   type LimitPoolWindow,
   remainingPercent,
+  quotaSnapshotAge,
 } from "@t3tools/shared/usageLimits";
 import { TicketIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -181,6 +183,7 @@ function SegmentPopover({
       </div>
       <div className="flex flex-col gap-1 border-t border-border/60 pt-2.5">
         <Row label="Left">{remaining}%</Row>
+        <Row label="Read">{quotaSnapshotAge(account.limits.checkedAt, now).label}</Row>
         {window.resetsAt ? (
           <Row label="Resets">
             {formatUpcomingTimestamp(window.resetsAt, timestampFormat, now)}
@@ -485,11 +488,11 @@ function PoolWindowCard({
   // The soonest reset that hands anything back; an untouched account resets to no effect.
   const nextRefill = pool.resets.find((reset) => reset.restoresPercent > 0);
   return (
-    <div className="grid items-center gap-x-6 gap-y-3 rounded-xl border border-border/50 bg-gradient-to-br from-card/80 via-card/50 to-muted/20 backdrop-blur-md p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md md:grid-cols-[11rem_minmax(0,1fr)]">
+    <div className="grid items-center gap-x-6 gap-y-3 border-b border-border/50 py-3 md:grid-cols-[11rem_minmax(0,1fr)]">
       <div className="flex flex-col gap-1">
         <span className="text-sm font-medium text-foreground">{pool.label}</span>
         <span className="flex items-baseline gap-2">
-          <span className="text-3xl font-semibold text-foreground tabular-nums">
+          <span className="text-xl font-semibold text-foreground tabular-nums">
             {pool.remainingPercent}%
           </span>
           <span className="text-sm text-muted-foreground">left</span>
@@ -522,6 +525,25 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
         />
         {label}
       </h2>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        {pool.accounts.map((account) => {
+          const age = quotaSnapshotAge(account.limits.checkedAt, now);
+          return (
+            <span
+              key={account.key}
+              className={age.stale ? "text-amber-600 dark:text-amber-400" : undefined}
+            >
+              <AccountName account={account} /> · {age.label}
+              {age.stale ? " · refresh limits" : ""}
+            </span>
+          );
+        })}
+      </div>
+      {pool.accounts.length > 1 ? (
+        <p className="text-xs text-muted-foreground">
+          Percentages average the reporting accounts equally; plans may have different capacities.
+        </p>
+      ) : null}
       {pool.windows.map((window) => (
         <PoolWindowCard key={`${window.kind}:${window.id}`} pool={window} color={color} now={now} />
       ))}
@@ -545,6 +567,7 @@ export function UsageLimitsPooled({
   const notices = collectLimitNotices(presentations);
   return (
     <div className="flex flex-col gap-8">
+      <LimitNotices notices={notices} />
       {pools.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No provider on the selected environments reports subscription limits.
@@ -553,7 +576,6 @@ export function UsageLimitsPooled({
       {pools.map((pool) => (
         <PoolSection key={pool.driver} pool={pool} now={now} />
       ))}
-      <LimitNotices notices={notices} />
     </div>
   );
 }

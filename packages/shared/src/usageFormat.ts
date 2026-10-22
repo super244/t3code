@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=5m; seat=codex; date=2026-10-02 */
 // @effect-diagnostics globalDate:off -- Usage windows are calendar days in the viewer's zone, derived from wall-clock "now" via Intl.
 /**
@@ -17,6 +18,7 @@ const CURRENCY = new Intl.NumberFormat("en-US", {
 const INTEGER = new Intl.NumberFormat("en-US");
 
 export function formatUsd(value: number): string {
+  if (value > 0 && value < 0.01) return "<$0.01";
   return CURRENCY.format(value);
 }
 
@@ -235,4 +237,10 @@ export function makeWindow(
 /** Provider transcripts use Unix-era timestamps; All has no rolling cutoff. */
 export function makeAllHistoryWindow(now = new Date()): UsageSummaryInput {
   return { ...makeWindow(1, now, "day"), sinceDay: UsageDay.make("1970-01-01") };
+}
+
+/** Missing prices are not free usage; partial totals are lower bounds. */
+export function formatUsageCost(value: number, unpricedRecords = 0, records = 0): string {
+  if (unpricedRecords > 0 && unpricedRecords >= records) return "Unpriced";
+  return unpricedRecords > 0 ? `${formatUsd(value)} (partial)` : formatUsd(value);
 }

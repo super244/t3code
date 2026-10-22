@@ -1,3 +1,4 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=25m; seat=antigravity; date=2026-10-16 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";

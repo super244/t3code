@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=125m; seat=codex; date=2026-10-14 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-10 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=30m; seat=codex; date=2026-10-08 */
@@ -215,6 +216,11 @@ export function resolveClientSettingsPatch(
     if ("_tag" in mutation && mutation._tag === "RoutineAction") {
       // The assertion follows the missing-entry check above, including for deleted routines.
       const routine = previous!;
+      if (mutation.expected && !sameRoutineConfiguration(routine, mutation.expected)) {
+        throw new Error(
+          "A selected routine changed on another device. Refresh and review the batch again; nothing was changed.",
+        );
+      }
       if (mutation.action === "run-now") {
         const issue = routineScheduleIssue(routine.cron, routine.timeZone);
         if (issue !== null) throw new Error(issue);

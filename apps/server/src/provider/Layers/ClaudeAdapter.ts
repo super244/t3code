@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-13 */
 /**
  * ClaudeAdapterLive - Scoped live implementation for the Claude Agent provider adapter.
@@ -341,7 +342,10 @@ interface ClaudeSessionContext {
   lastThreadStartedId: string | undefined;
   /** From the SDK init message: what paid for this session (Claude Relay ledger). */
   apiKeySource: string | undefined;
-  /** Opened on an existing resume cursor, so its first cost total includes older turns. */
+  spendAccountingId: string;
+  spendBaselineCostUsd: number | undefined;
+  lastSpendTotalCostUsd: number | undefined;
+  /** Whether this process opened on an existing conversation. */
   readonly resumedAtStart: boolean;
   /** Limits already announced for the running turn, keyed `window:resetsAt`. */
   announcedUsageLimits: { turnId: string; keys: Set<string> } | undefined;
@@ -353,6 +357,9 @@ interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
   readonly setPermissionMode: (mode: PermissionMode) => Promise<void>;
   readonly setMaxThinkingTokens: (maxThinkingTokens: number | null) => Promise<void>;
   readonly close: () => void;
+  readonly usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<{
+    readonly session: { readonly total_cost_usd: number };
+  }>;
 }
 
 export interface ClaudeAdapterLiveOptions {
@@ -3288,12 +3295,36 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     // spend still goes on the relay's ledger so its monthly cap stays true.
     // Only the default Claude home bills Luca's credit, the same rule text
     // generation follows.
-    reportClaudeSpend(claudeSettings.homePath.trim() === "" ? detectClaudeRelay() : undefined, {
-      sessionId: message.session_id,
-      totalCostUsd: message.total_cost_usd,
-      apiKeySource: context.apiKeySource,
-      resumed: context.resumedAtStart,
-    });
+    const cost = message.total_cost_usd;
+    if (
+      cost > 0 &&
+      context.lastSpendTotalCostUsd !== undefined &&
+      cost < context.lastSpendTotalCostUsd
+    ) {
+      // /clear can reset the SDK cost counter within a live process. Use a
+      // fresh scope rather than silently dropping spend below the old total.
+      context.spendAccountingId = yield* randomUUIDv4;
+      context.spendBaselineCostUsd = 0;
+    }
+    if (cost > 0) context.lastSpendTotalCostUsd = cost;
+    const spendReport = yield* Effect.promise(() =>
+      reportClaudeSpend(claudeSettings.homePath.trim() === "" ? detectClaudeRelay() : undefined, {
+        sessionId: message.session_id,
+        totalCostUsd: cost,
+        apiKeySource: context.apiKeySource,
+        resumed: context.resumedAtStart,
+        accountingId: context.spendAccountingId,
+        ...(context.spendBaselineCostUsd === undefined
+          ? {}
+          : { baselineCostUsd: context.spendBaselineCostUsd }),
+      }),
+    );
+    if (spendReport === "failed") {
+      yield* emitRuntimeWarning(
+        context,
+        "Claude spend could not be reconciled with the relay. Its promotional credit ledger is incomplete; check the provider balance. Transcript usage remains available in Usage.",
+      );
+    }
 
     if (status === "failed") {
       yield* emitRuntimeError(context, errorMessage ?? "Claude turn failed.");
@@ -4801,6 +4832,28 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           }),
       });
 
+      // Read before publishing ready: no prompt can race ahead of the baseline.
+      // CLI releases differ on whether resume restores cumulative cost; the
+      // control response gives the actual starting value for either lifecycle.
+      let spendBaselineCostUsd: number | undefined = existingResumeSessionId ? undefined : 0;
+      if (
+        existingResumeSessionId &&
+        claudeSettings.homePath.trim() === "" &&
+        detectClaudeRelay() &&
+        queryRuntime.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET
+      ) {
+        const usage = yield* Effect.tryPromise(() =>
+          queryRuntime.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET!(),
+        ).pipe(
+          Effect.timeout(3_000),
+          Effect.orElseSucceed(() => undefined),
+        );
+        const cost = usage?.session.total_cost_usd;
+        if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0)
+          spendBaselineCostUsd = cost;
+      }
+      const spendAccountingId = yield* randomUUIDv4;
+
       const session: ProviderSession = {
         threadId,
         provider: PROVIDER,
@@ -4847,6 +4900,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         lastThreadStartedId: undefined,
         apiKeySource: undefined,
         resumedAtStart: existingResumeSessionId !== undefined,
+        spendAccountingId,
+        spendBaselineCostUsd,
+        lastSpendTotalCostUsd: spendBaselineCostUsd,
         announcedUsageLimits: undefined,
         stopped: false,
       };

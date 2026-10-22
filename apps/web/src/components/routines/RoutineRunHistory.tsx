@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=1m; seat=codex; date=2026-10-18 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-10 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 import { useState } from "react";
@@ -30,7 +31,8 @@ export function RoutineRunHistory({
 }) {
   const [filter, setFilter] = useState<RoutineHistoryFilter>("all");
   const [outcome, setOutcome] = useState<RoutineOutcomeFilter>("all");
-  const receipts = selectRoutineRuns(routine, filter, outcome);
+  const [query, setQuery] = useState("");
+  const receipts = selectRoutineRuns(routine, filter, outcome, query);
   const total = routine.runHistory?.length ?? 0;
   function exportHistory() {
     const report = makeRoutineHistoryReport({
@@ -38,6 +40,9 @@ export function RoutineRunHistory({
       routineId,
       environmentId,
       exportedAt: new Date().toISOString(),
+      filter,
+      outcome,
+      query,
     });
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }),
@@ -57,11 +62,16 @@ export function RoutineRunHistory({
         <div>
           <h2 className="text-sm font-medium">Execution history</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            {total} retained occurrences · latest 50
+            {receipts.length} shown · {total} retained occurrences · latest 50
           </p>
         </div>
-        <Button variant="outline" size="sm" disabled={total === 0} onClick={exportHistory}>
-          <DownloadIcon /> Export history
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={receipts.length === 0}
+          onClick={exportHistory}
+        >
+          <DownloadIcon /> Export shown
         </Button>
       </div>
       <p className="my-3 text-xs text-muted-foreground">
@@ -69,6 +79,17 @@ export function RoutineRunHistory({
         task’s correctness. Open the thread to review the work.
       </p>
       <div className="flex flex-wrap items-center gap-3">
+        <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
+          Search retained receipts
+          <input
+            type="search"
+            value={query}
+            maxLength={160}
+            className="h-8 max-w-full rounded-md border border-input bg-background px-2 text-xs text-foreground"
+            placeholder="Error, model, date, task…"
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+        </label>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           Launch
           <select

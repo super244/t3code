@@ -1,3 +1,6 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=7m; seat=codex; date=2026-10-15 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=25m; seat=antigravity; date=2026-10-14 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-14 */
 import { describe, expect, it } from "@effect/vitest";
 
 import {
@@ -37,7 +40,7 @@ function claudeLine(overrides: {
 }
 
 describe("parseClaudeLine", () => {
-  it("extracts token totals and a dedupe key", () => {
+  it("extracts token totals without suppressing repeated message IDs", () => {
     const record = parseClaudeLine(claudeLine({ messageId: "msg_1", contentType: "text" }));
 
     expect(record).not.toBeNull();
@@ -53,17 +56,105 @@ describe("parseClaudeLine", () => {
     expect(record?.dedupeKey).toBeNull();
   });
 
-  it("gives every content block of one message the same dedupe key", () => {
-    // T3 Code writes one record per content block, each repeating the parent
-    // message's full usage. Summing them would overcount ~2.4x on real data.
-    const text = parseClaudeLine(claudeLine({ messageId: "msg_2", contentType: "text" }));
-    const toolUse = parseClaudeLine(claudeLine({ messageId: "msg_2", contentType: "tool_use" }));
-
-    expect(text?.dedupeKey).toBe(toolUse?.dedupeKey);
-    expect(text?.totals).toEqual(toolUse?.totals);
+  it("preserves the original per-row counters when message IDs repeat", () => {
+    const text = parseClaudeLine(
+      claudeLine({ messageId: "same", contentType: "text", outputTokens: 10 }),
+    )!;
+    const tool = parseClaudeLine(
+      claudeLine({ messageId: "same", contentType: "tool_use", outputTokens: 150 }),
+    )!;
+    expect(text.dedupeKey).toBeNull();
+    expect(tool.dedupeKey).toBeNull();
+    expect(text.totals.outputTokens + tool.totals.outputTokens).toBe(160);
   });
 
-  it("ignores records that are not assistant messages", () => {
+  it("extracts one-hour writes and thinking as subsets, not extra tokens", () => {
+    const raw = JSON.parse(claudeLine({ messageId: "m", contentType: "text", outputTokens: 100 }));
+    raw.message.usage.cache_creation = { ephemeral_1h_input_tokens: 60000 };
+    raw.message.usage.output_tokens_details = { thinking_tokens: 60 };
+    const record = parseClaudeLine(JSON.stringify(raw))!;
+    expect(record.cacheCreation1hTokens).toBe(60000);
+    expect(record.totals.reasoningTokens).toBe(60);
+    expect(totalTokens(record.totals)).toBe(67920);
+  });
+
+  it("prices standard usage with a non-applicable geography while rejecting pricing modifiers", () => {
+    const raw = JSON.parse(claudeLine({ messageId: "geo", contentType: "text" }));
+    Object.assign(raw.message.usage, {
+      speed: "standard",
+      service_tier: "standard",
+      inference_geo: "not_available",
+      server_tool_use: { web_search_requests: 0, web_fetch_requests: 0 },
+    });
+    expect(parseClaudeLine(JSON.stringify(raw))?.pricingUnsupported).toBe(false);
+    raw.message.usage.inference_geo = "global";
+    expect(parseClaudeLine(JSON.stringify(raw))?.pricingUnsupported).toBe(false);
+    for (const modifier of [
+      { inference_geo: "us" },
+      { speed: "fast" },
+      { service_tier: "priority" },
+      { server_tool_use: { web_search_requests: 1 } },
+    ]) {
+      const changed = structuredClone(raw);
+      Object.assign(changed.message.usage, modifier);
+      expect(parseClaudeLine(JSON.stringify(changed))?.pricingUnsupported).toBe(true);
+    }
+  });
+
+  it("handles numeric epoch timestamps, snake_case session_id, and cost fields", () => {
+    const raw = {
+      type: "assistant",
+      timestamp: 1723003513944,
+      session_id: "sess_numeric",
+      cost_usd: 0.042,
+      message: {
+        id: "msg_numeric",
+        role: "assistant",
+        model: "claude-sonnet-5",
+        usage: {
+          input_tokens: 10,
+          cache_creation_input_tokens: 20,
+          cache_read_input_tokens: 30,
+          output_tokens: 40,
+        },
+      },
+    };
+    const record = parseClaudeLine(JSON.stringify(raw))!;
+    expect(record.timestampMs).toBe(1723003513944);
+    expect(record.sessionId).toBe("sess_numeric");
+    expect(record.reportedCostUsd).toBe(0.042);
+    expect(record.model).toBe("claude-sonnet-5");
+    expect(record.totals.outputTokens).toBe(40);
+  });
+
+  it("parses Claude Relay thread transcript entries with reported cost and usage", () => {
+    const relayLine = {
+      at: "2026-10-14T20:00:00.000Z",
+      user: "Write commit message",
+      assistant: "feat: update usage",
+      billing: "credits",
+      costUsd: 0.015,
+      model: "sonnet",
+      sessionId: "relay_sess_1",
+      usage: {
+        input_tokens: 500,
+        output_tokens: 50,
+        cache_read_input_tokens: 1000,
+        cache_creation_input_tokens: 0,
+      },
+    };
+    const record = parseClaudeLine(JSON.stringify(relayLine))!;
+    expect(record).not.toBeNull();
+    expect(record.provider).toBe("claude");
+    expect(record.model).toBe("sonnet");
+    expect(record.reportedCostUsd).toBe(0.015);
+    expect(record.sessionId).toBe("relay_sess_1");
+    expect(record.totals.uncachedInputTokens).toBe(500);
+    expect(record.totals.cachedInputTokens).toBe(1000);
+    expect(record.totals.outputTokens).toBe(50);
+  });
+
+  it("ignores records that are not assistant messages or relay entries", () => {
     expect(parseClaudeLine(JSON.stringify({ type: "user", message: {} }))).toBeNull();
     expect(parseClaudeLine("not json")).toBeNull();
   });
@@ -121,6 +212,19 @@ describe("parseCodexLine", () => {
 
     expect(first).not.toBeNull();
     expect(repeat).toBeNull();
+  });
+
+  it("counts identical turn sizes when cumulative totals advance, but drops a repeated receipt", () => {
+    const state = initialCodexScanState();
+    parseCodexLine(turnContext, state);
+    const event = (total: number) => {
+      const raw = JSON.parse(tokenCount(100, 0, 10, 0));
+      raw.payload.info.total_token_usage = { input_tokens: total, output_tokens: total / 10 };
+      return JSON.stringify(raw);
+    };
+    expect(parseCodexLine(event(100), state)?.totals.outputTokens).toBe(10);
+    expect(parseCodexLine(event(200), state)?.totals.outputTokens).toBe(10);
+    expect(parseCodexLine(event(200), state)).toBeNull();
   });
 
   it("drops usage that arrives before any model is known", () => {

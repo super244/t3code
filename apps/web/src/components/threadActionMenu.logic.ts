@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=3m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-09 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
@@ -14,6 +15,7 @@ export type ThreadActionMenuId =
   | "new-thread-on-branch"
   | "handoff"
   | "review"
+  | "race"
   | "filter-by-project"
   | "project-settings"
   | "pin"
@@ -195,6 +197,8 @@ export function buildThreadActionMenuItems(
     },
     // A second provider checks the work read-only; its findings can be sent back.
     { id: "review", label: "Review with another agent…", icon: "scan-search" },
+    // The thread's last request, sent to several agents at once in fresh worktrees.
+    { id: "race", label: "Race this prompt…", icon: "flag" },
     { id: "rename", label: "Rename thread", icon: "pencil", separatorBefore: true },
     ...(state.supports.titleRegeneration
       ? [

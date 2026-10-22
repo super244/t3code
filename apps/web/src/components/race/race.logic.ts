@@ -47,6 +47,16 @@ export interface RaceGroup<T extends RaceThreadInput = RaceThreadInput> {
 
 const TITLE_SEPARATOR = " · ";
 
+/** Keep the owning environment in links: race ids may repeat across computers. */
+export function raceArenaTarget(
+  thread: { readonly branch: string | null; readonly environmentId: EnvironmentId } | null,
+) {
+  const identity = parseRaceBranchName(thread?.branch);
+  return identity && thread
+    ? { to: "/race" as const, search: { race: identity.raceId, env: thread.environmentId } }
+    : null;
+}
+
 export function buildRaceEntrantTitle(titleSeed: string, entrantLabel: string): string {
   return `${titleSeed}${TITLE_SEPARATOR}${entrantLabel}`;
 }

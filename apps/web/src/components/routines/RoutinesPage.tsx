@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=125m; seat=codex; date=2026-10-14 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=10m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-11 */
@@ -25,6 +26,7 @@ import {
 } from "@t3tools/contracts";
 import {
   createRoutineDraft,
+  makeRoutineBulkAction,
   duplicateRoutine,
   importRoutineTemplate,
   serializeRoutineTemplate,
@@ -130,9 +132,13 @@ export function RoutinesPage() {
   const [templateError, setTemplateError] = useState<string | null>(null);
   const writeInFlight = useRef(false);
   const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
-  const [routineAction, setRoutineAction] = useState<"run" | "delete" | "pause" | "resume" | null>(
-    null,
-  );
+  const [routineAction, setRoutineAction] = useState<
+    "run" | "delete" | "pause" | "resume" | "bulk" | null
+  >(null);
+  const [bulkReview, setBulkReview] = useState<{
+    environmentId: EnvironmentId;
+    batch: ReturnType<typeof makeRoutineBulkAction>;
+  } | null>(null);
   const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
     label: "routine update",
     reportFailure: false,
@@ -294,6 +300,61 @@ export function RoutinesPage() {
       return false;
     } finally {
       writeInFlight.current = false;
+    }
+  }
+
+  function reviewBulk(action: "pause" | "resume") {
+    if (!selectedEnvironmentId || !connected || dirty || config?.routineBulkActions !== true)
+      return;
+    try {
+      const batch = makeRoutineBulkAction(filteredRoutines, action);
+      if (batch.count) setBulkReview({ environmentId: selectedEnvironmentId, batch });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Narrow this routine batch",
+        description: String(error),
+      });
+    }
+  }
+
+  async function applyBulk() {
+    const review = bulkReview;
+    if (
+      !review ||
+      !connected ||
+      writeInFlight.current ||
+      review.environmentId !== selectedEnvironmentId ||
+      config?.routineBulkActions !== true
+    )
+      return;
+    writeInFlight.current = true;
+    setRoutineAction("bulk");
+    try {
+      const result = await updateSettings({
+        environmentId: review.environmentId,
+        input: { patch: { routines: review.batch.routines } },
+      });
+      if (result._tag === "Failure") throw Cause.squash(result.cause);
+      if (editingId && result.value.routines[editingId] && !dirty) {
+        setDraft(result.value.routines[editingId]);
+        setBaseline(result.value.routines[editingId]);
+      }
+      toastManager.add({
+        type: "success",
+        title: `${review.batch.action === "pause" ? "Paused" : "Resumed"} ${review.batch.count} routine schedules`,
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Routine batch was not applied",
+        description:
+          error instanceof Error ? error.message : "Refresh and review this batch again.",
+      });
+    } finally {
+      writeInFlight.current = false;
+      setRoutineAction(null);
+      setBulkReview(null);
     }
   }
 
@@ -485,42 +546,89 @@ export function RoutinesPage() {
                       {routines.length === 0 ? "No routines yet." : "No matching routines."}
                     </p>
                   ) : (
-                    filteredRoutines.map(([id, routine]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        className={cn(
-                          "relative w-full border-t border-border px-3 py-3 text-left transition-colors hover:bg-muted/50",
-                          editingId === id && "bg-muted/60",
-                        )}
-                        disabled={saving || routineAction !== null}
-                        onClick={() => {
-                          if (id !== editingId)
-                            leaveDraft(() => {
-                              setEditingId(id);
-                              setDraft(routine);
-                              setBaseline(routine);
-                            });
-                        }}
-                      >
-                        {editingId === id ? (
-                          <span className="absolute inset-y-2 left-0 w-0.5 rounded-r bg-foreground" />
+                    <>
+                      <div className="flex flex-wrap gap-1 border-y border-border py-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={
+                            !connected ||
+                            dirty ||
+                            saving ||
+                            routineAction !== null ||
+                            config?.routineBulkActions !== true ||
+                            !filteredRoutines.some(([, routine]) => routine.enabled)
+                          }
+                          onClick={() => reviewBulk("pause")}
+                        >
+                          Pause visible (
+                          {filteredRoutines.filter(([, routine]) => routine.enabled).length})
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={
+                            !connected ||
+                            dirty ||
+                            saving ||
+                            routineAction !== null ||
+                            config?.routineBulkActions !== true ||
+                            !filteredRoutines.some(([, routine]) => !routine.enabled)
+                          }
+                          onClick={() => reviewBulk("resume")}
+                        >
+                          Resume visible (
+                          {filteredRoutines.filter(([, routine]) => !routine.enabled).length})
+                        </Button>
+                        {config?.routineBulkActions !== true ? (
+                          <p className="px-2 text-xs text-muted-foreground">
+                            Update this computer to use reviewed batch controls.
+                          </p>
+                        ) : dirty ? (
+                          <p className="px-2 text-xs text-muted-foreground">
+                            Save or discard the draft before changing schedules.
+                          </p>
                         ) : null}
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                            {routine.name}
-                          </span>
-                          <Badge variant={ROUTINE_STATUS[routine.lastRunStatus].variant}>
-                            {routine.enabled
-                              ? ROUTINE_STATUS[routine.lastRunStatus].label
-                              : "Paused"}
-                          </Badge>
-                        </span>
-                        <span className="mt-1 block truncate text-xs text-muted-foreground">
-                          {routineListSubtitle(routine)}
-                        </span>
-                      </button>
-                    ))
+                      </div>
+                      <div>
+                        {filteredRoutines.map(([id, routine]) => (
+                          <button
+                            key={id}
+                            type="button"
+                            className={cn(
+                              "relative w-full border-t border-border px-3 py-3 text-left transition-colors hover:bg-muted/50",
+                              editingId === id && "bg-muted/60",
+                            )}
+                            disabled={saving || routineAction !== null}
+                            onClick={() => {
+                              if (id !== editingId)
+                                leaveDraft(() => {
+                                  setEditingId(id);
+                                  setDraft(routine);
+                                  setBaseline(routine);
+                                });
+                            }}
+                          >
+                            {editingId === id ? (
+                              <span className="absolute inset-y-2 left-0 w-0.5 rounded-r bg-foreground" />
+                            ) : null}
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                                {routine.name}
+                              </span>
+                              <Badge variant={ROUTINE_STATUS[routine.lastRunStatus].variant}>
+                                {routine.enabled
+                                  ? ROUTINE_STATUS[routine.lastRunStatus].label
+                                  : "Paused"}
+                              </Badge>
+                            </span>
+                            <span className="mt-1 block truncate text-xs text-muted-foreground">
+                              {routineListSubtitle(routine)}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </>
                   )}
                 </aside>
                 {draft ? (
@@ -1162,6 +1270,53 @@ export function RoutinesPage() {
           </WorkspacePageContainer>
         </ScrollArea>
       </div>
+      <AlertDialog
+        open={bulkReview !== null}
+        onOpenChange={(open) => {
+          if (!open && routineAction !== "bulk") setBulkReview(null);
+        }}
+      >
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {bulkReview?.batch.action === "pause" ? "Pause" : "Resume"} {bulkReview?.batch.count}{" "}
+              routine schedules?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {bulkReview?.batch.action === "pause"
+                ? "Future scheduled launches pause. Running tasks continue."
+                : "Schedules resume from their next occurrence. This does not request an immediate run."}{" "}
+              If any selected configuration changed, the whole batch is refused.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="max-h-56 overflow-y-auto border-y border-border py-2 text-sm">
+            {bulkReview?.batch.names.map((name, index) => (
+              <li key={index} className="py-1">
+                {name}
+              </li>
+            ))}
+          </ul>
+          <AlertDialogFooter>
+            <Button
+              variant="outline"
+              disabled={routineAction === "bulk"}
+              onClick={() => setBulkReview(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                routineAction === "bulk" ||
+                !connected ||
+                bulkReview?.environmentId !== selectedEnvironmentId
+              }
+              onClick={() => void applyBulk()}
+            >
+              {routineAction === "bulk" ? "Applying…" : "Apply to these schedules"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
       <AlertDialog
         open={pendingLeave !== null || blocker.status === "blocked"}
         onOpenChange={(open) => {

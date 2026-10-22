@@ -1,3 +1,7 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-17 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=25m; seat=antigravity; date=2026-10-14 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-14 */
 import { describe, expect, it } from "vite-plus/test";
 
 import { claudeRateLimitEventToUpdate, claudeUsageResponseToLimits } from "./claudeUsageLimits.ts";
@@ -6,6 +10,55 @@ const checkedAt = "2026-07-18T10:00:00.000Z";
 const noNames = { overageIncluded: undefined } as const;
 
 describe("claudeUsageResponseToLimits", () => {
+  it("does not turn missing or malformed percentages into zero usage", () => {
+    const mapped = claudeUsageResponseToLimits({
+      checkedAt,
+      response: {
+        rate_limits_available: true,
+        rate_limits: { five_hour: { utilization: NaN, resets_at: null } },
+      },
+    });
+    expect(mapped.limits.windows).toEqual([]);
+    expect(mapped.limits.unavailable?.reason).toBe("unsupported");
+    expect(
+      claudeRateLimitEventToUpdate(
+        { status: "allowed", rateLimitType: "five_hour", utilization: NaN },
+        noNames,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("preserves fractional percentages from get_usage without guessing the unit", () => {
+    const mapped = claudeUsageResponseToLimits({
+      checkedAt,
+      response: {
+        rate_limits_available: true,
+        rate_limits: {
+          five_hour: { utilization: 0.85, resets_at: "2026-07-18T14:39:00Z" },
+          seven_day: { utilization: 1.0, resets_at: "2026-07-24T08:59:00Z" },
+        },
+      },
+    });
+    expect(mapped.limits.windows).toEqual([
+      {
+        id: "five_hour",
+        kind: "session",
+        label: "Session",
+        usedPercent: 0.85,
+        windowDurationMins: 300,
+        resetsAt: "2026-07-18T14:39:00.000Z",
+      },
+      {
+        id: "seven_day",
+        kind: "weekly",
+        label: "Weekly",
+        usedPercent: 1,
+        windowDurationMins: 10080,
+        resetsAt: "2026-07-24T08:59:00.000Z",
+      },
+    ]);
+  });
+
   it("maps the session, weekly, and model-scoped weekly windows", () => {
     expect(
       claudeUsageResponseToLimits({
@@ -62,6 +115,13 @@ describe("claudeUsageResponseToLimits", () => {
             windowDurationMins: 10080,
             resetsAt: "2026-07-24T08:59:00.000Z",
           },
+          {
+            id: "seven_day_opus",
+            kind: "weekly",
+            label: "Weekly · Opus",
+            usedPercent: 3,
+            windowDurationMins: 10080,
+          },
         ],
       },
     });
@@ -92,7 +152,7 @@ describe("claudeUsageResponseToLimits", () => {
         checkedAt,
         response: { rate_limits_available: false, rate_limits: null },
       }).limits,
-    ).toEqual({ checkedAt, windows: [], unavailable: { reason: "unsupported" } });
+    ).toMatchObject({ checkedAt, windows: [], unavailable: { reason: "unsupported" } });
   });
 
   it("skips a window the endpoint reports without a utilization", () => {
@@ -166,13 +226,13 @@ describe("claudeRateLimitEventToUpdate", () => {
     });
   });
 
-  it("ignores windows the page does not render and events without a utilization", () => {
+  it("retains model weekly events and ignores events without utilization", () => {
     expect(
       claudeRateLimitEventToUpdate(
         { status: "allowed", rateLimitType: "seven_day_opus", utilization: 0.1 },
         noNames,
       ),
-    ).toBeUndefined();
+    ).toMatchObject({ windows: [{ id: "seven_day_opus", usedPercent: 10 }] });
     expect(
       claudeRateLimitEventToUpdate({ status: "rejected", rateLimitType: "five_hour" }, noNames),
     ).toBeUndefined();

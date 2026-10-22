@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-14 */
 import { describe, expect, it } from "@effect/vitest";
 
 import {
@@ -125,7 +127,7 @@ describe("scan cache round trip", () => {
 
   it("rejects a document from the previous cache version", () => {
     const encoded = encodeScanCache(cacheWith([["/a.jsonl", 100, [record()]]]));
-    const previous = { ...encoded, version: 2 };
+    const previous = { ...encoded, version: 4 };
 
     expect(decodeScanCache(JSON.parse(JSON.stringify(previous))).size).toBe(0);
   });
@@ -281,14 +283,20 @@ describe("pruneScanCache with an unwalked root", () => {
 });
 
 describe("dedupeWithinFile", () => {
-  it("keeps the first record per dedupe key", () => {
+  it("round trips the one-hour cache counter", () => {
+    const original = cacheWith([["/a.jsonl", 100, [record({ cacheCreation1hTokens: 7 })]]]);
+    const decoded = decodeScanCache(JSON.parse(JSON.stringify(encodeScanCache(original))));
+    expect(decoded.get("/a.jsonl")?.records[0]?.cacheCreation1hTokens).toBe(7);
+  });
+  it("preserves revised Claude counters while removing identical snapshots", () => {
     const kept = dedupeWithinFile([
       record({ totals: { ...record().totals, outputTokens: 1 } }),
       record({ totals: { ...record().totals, outputTokens: 999 } }),
       record({ dedupeKey: "msg_2:" }),
+      record({ totals: { ...record().totals, outputTokens: 999 } }),
     ]);
 
-    expect(kept).toHaveLength(2);
+    expect(kept).toHaveLength(3);
     expect(kept[0]?.totals.outputTokens).toBe(1);
   });
 

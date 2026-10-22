@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=24m; seat=codex; date=2026-10-19 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=13m; seat=codex; date=2026-10-01 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-10-02 */
 import type { ThreadMoveDestination } from "../threads/threadOrder";
@@ -250,6 +251,17 @@ function MobileCommandCenterStrip({
         navigation.navigate("SettingsSheet", {
           screen: "SettingsContent",
           params: { screen: "SettingsRoutines" },
+        }),
+    },
+    {
+      label: "Races",
+      value: "History ›",
+      accessibilityLabel: "Open retained race history and scoreboard",
+      interactive: true,
+      onPress: () =>
+        navigation.navigate("SettingsSheet", {
+          screen: "SettingsContent",
+          params: { screen: "SettingsRaceHistory" },
         }),
     },
     {

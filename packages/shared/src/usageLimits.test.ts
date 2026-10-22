@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=8m; seat=codex; date=2026-10-17 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-15 */
 import {
   EnvironmentId,
   ProviderDriverKind,
@@ -21,6 +23,7 @@ import {
   collectLimitsGroups,
   elapsedShare,
   formatResetsIn,
+  quotaSnapshotAge,
   limitsNotice,
   paceOf,
   providersWithLimits,
@@ -86,7 +89,7 @@ describe("limitsNotice", () => {
     expect(limitsNotice({ checkedAt, windows: [window] })).toBeNull();
     expect(limitsNotice({ checkedAt, windows: [] })).toBe("No limits reported.");
     expect(limitsNotice({ checkedAt, windows: [], unavailable: { reason: "unsupported" } })).toBe(
-      "This account has no subscription limits.",
+      "Subscription limits unavailable for this account.",
     );
     expect(
       limitsNotice({
@@ -887,7 +890,7 @@ describe("collectLimitNotices", () => {
     accounts: [],
   };
 
-  it("names failures and silence, skips unsupported accounts, and labels environments only when several", () => {
+  it("names failures, unsupported quota and silence, and labels environments only when several", () => {
     const failed = provider({
       instanceId: ProviderInstanceId.make("claude"),
       driver: claude,
@@ -917,6 +920,7 @@ describe("collectLimitNotices", () => {
     ]);
     expect(collectLimitNotices(one)).toEqual([
       "Claude Max: Could not read limits.",
+      "claudeAgent: Subscription limits unavailable for this account.",
       "codex: No limits reported.",
       "hub: No accounts reported.",
       "down: ECONNREFUSED",
@@ -1194,5 +1198,22 @@ describe("isUsageLimitsCommand", () => {
     expect(isUsageLimitsCommand("/usage-limits explain")).toBe(false);
     expect(isUsageLimitsCommand("Explain /usage-limits")).toBe(false);
     expect(isUsageLimitsCommand("/usage")).toBe(false);
+  });
+});
+
+describe("quota snapshot freshness", () => {
+  const now = Date.parse("2026-10-17T12:00:00Z");
+  it("distinguishes a fresh reading from old or unverifiable quota", () => {
+    expect(quotaSnapshotAge("2026-10-17T11:59:40Z", now)).toEqual({
+      label: "Read just now",
+      stale: false,
+    });
+    expect(quotaSnapshotAge("2026-10-17T11:45:00Z", now)).toEqual({
+      label: "Read 15m ago",
+      stale: true,
+    });
+    expect(quotaSnapshotAge("invalid", now).stale).toBe(true);
+    expect(quotaSnapshotAge("2026-10-18T12:00:00Z", now).stale).toBe(true);
+    expect(quotaSnapshotAge("2026-10-17T12:00:30Z", now).stale).toBe(false);
   });
 });

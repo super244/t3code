@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-17 */
 /* agent-watermark: model=muse-spark; effort=high; duration=50m; seat=opencode; date=2026-10-07 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=2m; seat=antigravity; date=2026-10-02 */
@@ -152,36 +153,82 @@ function readAntigravity(
 ): readonly UsageRecord[] {
   if (!hasTable(database, "steps")) return [];
 
+  const generationModels = readAntigravityGenerationModels(database);
   const rows = database
     .prepare("SELECT idx, metadata FROM steps WHERE step_type = 15")
     .all() as readonly Record<string, unknown>[];
   const sessionId = NodePath.basename(filePath, ".db");
   const records: UsageRecord[] = [];
+  const seenGenerations = new Set<number>();
 
   for (const row of rows) {
     const metadata = asBuffer(row["metadata"]);
     if (metadata === null || metadata.length === 0 || metadata.length > MAX_METADATA_BYTES) {
       continue;
     }
-    const record = parseAntigravityMetadata(metadata, sessionId, positiveInt(row["idx"]));
-    if (record !== null) records.push(record);
+    const stepIndex = positiveInt(row["idx"]);
+    const generation = generationModels.get(stepIndex);
+    if (generation && seenGenerations.has(generation.index)) continue;
+    const record = parseAntigravityMetadata(metadata, sessionId, stepIndex, generation?.model);
+    if (record !== null) {
+      if (generation) {
+        seenGenerations.add(generation.index);
+        records.push({
+          ...record,
+          dedupeKey: `antigravity:${sessionId}:generation:${generation.index}`,
+        });
+      } else records.push(record);
+    }
   }
   return records;
 }
 
-/**
- * Antigravity step metadata is a protobuf message.
- *
- * Field 9 is the usage submessage. On real conversations its fields line up as
- * uncached input (2), candidates (3), cache read (5), cache write (9), and
- * thoughts (10). Thoughts are not inside the candidate count, so they are
- * added to output and also kept as `reasoningTokens` (a subset, not summed
- * again into the token total).
- */
+/** Generation indices differ from step indices; the protobuf explicitly lists their relationship. */
+function readAntigravityGenerationModels(
+  database: NodeSqlite.DatabaseSync,
+): ReadonlyMap<number, { readonly model: string; readonly index: number }> {
+  const models = new Map<number, { readonly model: string; readonly index: number }>();
+  if (!hasTable(database, "gen_metadata")) return models;
+  for (const row of database.prepare("SELECT idx, data FROM gen_metadata").iterate()) {
+    const data = asBuffer(row["data"]);
+    if (!data || data.length > 64 * 1024 * 1024) continue;
+    const fields = readFields(data);
+    if (!fields) continue;
+    const chat = readFields(bytesField(fields, 1) ?? Buffer.alloc(0));
+    const responseModel = chat ? bytesField(chat, 19) : null;
+    const planner = readFields(bytesField(fields, 3) ?? Buffer.alloc(0));
+    const plannedModel = planner ? bytesField(planner, 28) : null;
+    const model = (responseModel ?? plannedModel)?.toString("utf8").trim() ?? "";
+    if (!/^(?:gemini|claude|gpt)[a-zA-Z0-9_.:/+-]{1,119}$/.test(model)) continue;
+    // These are Antigravity routing/thinking variants of the same public Flash model.
+    const publicModel = model.replace(
+      /^(gemini-[0-9.]+-flash)-(?:tiered|n|high|medium|low)$/,
+      "$1",
+    );
+    for (const field of fields) {
+      if (field.field !== 2) continue;
+      if (field.kind === "varint")
+        models.set(field.value, { model: publicModel, index: positiveInt(row["idx"]) });
+      else {
+        let offset = 0;
+        while (offset < field.value.length) {
+          const index = readVarint(field.value, offset);
+          if (!index) break;
+          models.set(index.value, { model: publicModel, index: positiveInt(row["idx"]) });
+          offset = index.next;
+        }
+      }
+    }
+  }
+  return models;
+}
+
+/** ModelUsageStats: output includes thinking; cache writes are field 4, thinking is field 9. */
 function parseAntigravityMetadata(
   metadata: Buffer,
   sessionId: string,
   stepIndex: number,
+  generationModel?: string,
 ): UsageRecord | null {
   const fields = readFields(metadata);
   if (fields === null) return null;
@@ -194,12 +241,13 @@ function parseAntigravityMetadata(
   const usage = readFields(usageMessage);
   if (usage === null) return null;
 
-  const thoughts = positiveInt(varintField(usage, 10));
+  const output = positiveInt(varintField(usage, 3));
+  const thoughts = Math.min(output, positiveInt(varintField(usage, 9)));
   const totals: UsageTokenTotals = {
     uncachedInputTokens: positiveInt(varintField(usage, 2)),
     cachedInputTokens: positiveInt(varintField(usage, 5)),
-    cacheCreationTokens: positiveInt(varintField(usage, 9)),
-    outputTokens: positiveInt(varintField(usage, 3)) + thoughts,
+    cacheCreationTokens: positiveInt(varintField(usage, 4)),
+    outputTokens: output,
     reasoningTokens: thoughts,
   };
   if (sameTotals(totals, EMPTY_TOTALS)) return null;
@@ -207,7 +255,7 @@ function parseAntigravityMetadata(
   return {
     provider: "antigravity",
     timestampMs: timestamp,
-    model: modelName(fields),
+    model: generationModel ?? modelName(fields),
     sessionId,
     totals,
     reportedCostUsd: null,

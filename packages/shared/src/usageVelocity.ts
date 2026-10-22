@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=5m; seat=antigravity; date=2026-10-02 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-02 */
@@ -88,11 +89,11 @@ export type UsageComparisonCoverage = "complete" | "unpriced" | "partial";
 export type BudgetStatus = "on_track" | "warning" | "exceeded" | "unknown";
 
 const minimumContract: Record<UsageProviderKind, number> = {
-  codex: 4,
-  claude: 4,
-  grok: 5,
-  opencode: 6,
-  antigravity: 6,
+  codex: 7,
+  claude: 7,
+  grok: 7,
+  opencode: 7,
+  antigravity: 7,
 };
 
 /** A below-target indicator requires both priced records and complete selected sources. */

@@ -1,3 +1,9 @@
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=45m; seat=codex; date=2026-10-21 -->
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=22m; seat=codex; date=2026-10-20 -->
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-19 -->
+<!-- agent-watermark: model=opus-5.5; effort=high; duration=110m; seat=claude-code; date=2026-10-18 -->
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=35m; seat=codex; date=2026-10-15 -->
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=13m; seat=codex; date=2026-10-14 -->
 <!-- agent-watermark: model=haiku-5.5; effort=high; duration=70m; seat=claude-code; date=2026-10-12 -->
 <!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-10 -->
 <!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 -->
@@ -53,6 +59,20 @@ docs/           # Project documentation
 ```
 
 ## Changelog
+
+**2026-10-19 — Mobile Race evidence (local, not committed).** Home Command center → Races and Settings → Race history open a new native screen over the existing typed Race RPC. Choose a connected computer, search prompts/models/failures, filter project/task/outcome/30-day window, inspect winner/judge/entrant failures and reported costs, and page retained records 20 at a time. The shared leaderboard uses the full filtered set, including explicit price coverage. JSON/CSV sharing captures all matches through the established attachment cache; unknown prices remain null/blank, and abort/temporary-file cleanup follow native lifetime. Offline computers and older unsupported hosts produce explicit unavailable/error states rather than an empty success.
+
+Mobile typecheck and touched-file lint/format pass (existing warnings outside the added hunks remain). Four existing shared/settings/navigation/attachment suites pass 47 checks, and the iOS Expo export bundles successfully (19 MB Hermes). The React skill checklist was applied to state derivation, bounded rows, lazy export imports, abort lifetime and accessible controls. No tests or dependencies were added, and no live T3 userdata/provider call was used. Browser/mobile UI verification still awaits the explicit permission required by AGENTS.md; this is not enterprise-v1 completion.
+
+
+**2026-10-19 — Filtered Race evidence and quota connection repair (local, not committed).** Race Scoreboard now searches retained prompts/models/failures and filters by project+computer, outcome, task kind and last 30 days. It renders 20 history rows per page, with the leaderboard and JSON/CSV exports covering every matching loaded record. Offline computers, missing prices and the 500-record per-computer retention bound remain explicit. Exports refuse incomplete/error-loading views; CSV quotes cells and neutralizes formulas. `RaceHistoryListInput` adds typed filters/paging; the server and web share `queryRaceHistory`, with additive optional total/offset/retention metadata for older clients. The stale `makePromoCreditsWindow` import in ClaudeProvider was also removed: subscription quotas now use subscription responses only; relay dollar spend remains separate.
+
+Verification: web/server typechecks pass, focused Race history suites pass 14 tests and quota mapping passes 9 existing tests; touched-file lint/format pass. A temporary persisted Effect store exercised search, outcome/paging, reopen, unknown-cost blanks and formula escaping. No new tests, provider calls, live-userdata writes or commits. T3 browser QA requires explicit permission per AGENTS.md; permission was requested and is pending. Native/mobile interaction and enterprise-v1 readiness remain unverified.
+
+
+**2026-10-19 — Race from anywhere, and a scoreboard of who wins what (branch `goal/t3-w1-race-anywhere`, not pushed).** **Race this prompt** opens from every thread menu (sidebar and header), the command palette, and a flag button next to Send whenever the composer has text. It offers the thread's last request or the typed text, a compact 2–3 agent picker, and the thread's project and branch, and it warns when that checkout has uncommitted changes the entrants won't see. Then it opens the arena. Entrant and judge threads show a "Compare" pill linking back to their arena, and the palette offers "Compare this race". Board cards now count +/− from the same `review.getDiffPreview` the arena reads, so untracked files count; that is the shared `useEntrantReport`. **Race history:** new `race.recordResult` / `race.listHistory` / `race.forgetResult` RPCs (`packages/contracts/src/raceHistory.ts`) persist to `<userdata>/race-history.json` through `apps/server/src/race/RaceHistoryStore.ts`, with a per-file lock and merge rules in `packages/shared/src/raceHistory.ts`: a decision is never reopened, a decided race's entrant lines are frozen, and a kind the user picked beats a guess. Keep (arena or board), the judge's verdict and **No winner** all record. Claude's SDK `total_cost_usd` is now a `turn.cost` activity, hidden from both work logs. **Race → Scoreboard** shows wins, keep rate, judge picks, median time, median reported cost and failures per harness+model, leaders per kind of task, and an editable history. Verified live on an isolated dev server: three real races (Claude Haiku 5.5 / Sonnet 5, with Codex failing on "usage limit reached" at 09:18 and shown as failed), started from the composer, the thread menu and the Race page. One was judged by Haiku 5.5 and kept, one closed with no winner, and one kept by hand. Recorded costs were $0.0098 to $0.308 for Claude and none for Codex. Typecheck is clean in web, server, mobile, contracts and shared. Targeted suites pass (web 182, server 329, contracts 387, shared race 21, mobile threadActivity 101). `vp lint` shows no errors in touched files.
+
+**2026-10-18 — Race Arena: watch entrants side by side, compare their diffs, ask a judge (branch `goal/t3-w1-race-arena`, not pushed).** **Compare** on a race opens `/race?race=<id>`: one lane per entrant with its live transcript (messages, commands, edits), elapsed time and +/− from the worktree's real diff (committed + uncommitted + untracked, via `review.getDiffPreview`, re-read every 4 s while it works); a "Changes compared" matrix lines files up across entrants and opens any file as side-by-side `FileDiff`s; **Ask the judge** starts a plan-mode thread on any ready provider with every entrant's diff (`buildRaceJudgeBrief` in `packages/shared/src/race.ts`), parses its `Winner: Entrant N` line, marks the pick and offers **Keep Entrant N**. Keep/Discard moved into `useRaceEntrantActions` (board and arena share them); entrant titles no longer read "Claude Claude …"; an entrant with no changes cannot be kept. Verified live on an isolated dev server (`--home-dir` scratch, demo repo): Claude Haiku 5.5 vs Fable 5.1 and a 3-way Codex/Sonnet 5/Haiku race streamed in the arena, Codex lanes showed "Codex usage limit reached", Haiku and Sonnet 5 judges each wrote a real verdict, and Keep Entrant 1 squash-merged 81 lines into the demo repo and discarded the loser. Web + shared typecheck clean, `vp lint`/`vp fmt --check` clean on touched files, race tests 28 + 10 pass. Mobile shows entrants and judges as ordinary threads. Not done: a "Compare race" link from an entrant's thread header and the command palette; the board card's +/− still comes from `git status` and undercounts new files.
 
 **2026-10-12 — Premium polish: phone thread header, honest labels, safer Nightly install.** Below 768px wide the thread title stays on one line: the project opens from its favicon in a one-tap popover with "New thread", and scripts and editors sit behind a "Project tools" popover. Desktop header is unchanged. Single-line labels (tool activity, changed files, approval details, plan titles) show their full text on hover when the column cuts them off. The thread menu's "Export as Markdown" works for read-only clients, as copy does. The Upstream Nightly install refuses a malformed request body (400) instead of installing the latest Nightly; the isolation check resolves `.`, `..` and repeated slashes in `T3CODE_HOME` before comparing it with the shared home. Nightly rollback puts the running bundle back if the backup cannot be moved into place. The "pairing link has expired" flag now lapses after 60 seconds, so a later plain visit to `/pair` shows the token form instead of the expired-link card. The loading, empty and phone states for Usage, PRs, Command Center, Race, Routines and the shell landed in `df4948f6f4`.
 
@@ -164,6 +184,12 @@ remains unfinished.
 
 ## Linear queue
 
+- [ ] update — Inspect supporting races for a model pair — 2026-10-21 implementation and focused shared/type/lint checks pass; browser/native/package verification remains open. Linear unavailable.
+
+- [ ] update — Matched race comparisons — 2026-10-21 implementation and focused verification complete across shared/web/mobile; native/browser/package verification pending. Linear unavailable.
+
+- [ ] update — Usage transparency and quota readability — record custom32 validation; native mobile verification remains outstanding; no Linear connection or project binding available.
+
 - [ ] create — Model slug alias normalization for Antigravity and Claude — track upstream contribution PR.
 
 ## 2026-10-08 — Schedule preview and downtime choice
@@ -249,3 +275,141 @@ state and the Alpha profile are preserved. Signature verification passed and the
 listens on :3774. Post-upgrade native UI inspection timed out; updated native screen and mobile
 share-sheet interaction remain unverified. This is one delivered capability; full enterprise-v1
 and upstream parity remain partial.
+
+
+## 2026-10-14 — Review-bound routine batch controls
+
+Web/desktop and native mobile can pause or resume the schedules in the current routine filter after reviewing the captured names. The shared client builder excludes already-matching schedules and caps batches at 100. Optional expected configuration on the existing RoutineAction wire shape binds every selected routine; the server resolves all entries under the existing settings write lock, refusing changed or deleted configurations before persistence. Runtime history and starting/running task state remain server-owned. A capability flag keeps these controls disabled on older environments. No new execution queue or provider launch path.
+
+Direct source runtime evidence: a two-schedule pause preserved the active task identity/status and original input; changed and deleted selections refused before persistence. Mobile and server typechecks passed; web reports no TypeScript errors (existing Effect schema suggestions remain). No new tests, live schedule mutation, provider run, installed-app rebuild or browser/native QA in this pass. Enterprise-v1 readiness remains partial.
+
+Delivery follow-through: the scoped production web, server and desktop build completed successfully on 2026-10-14. Installed Alpha and live schedules remain unchanged; native UI permission remains pending under this project’s AGENTS.md. This is build evidence, not installed client verification.
+
+
+## 2026-10-15 — Claude usage accounting after the promo-credit relay
+
+Claude content blocks and fork/resume copies repeat message usage; reconciled snapshots retain component maxima before day/project aggregation. One-hour cache writes and available thinking counts remain subsets of their token totals; pricing uses the recorded TTL, and the versioned scan cache cold-rebuilds older parse results. Unknown Claude generations remain unpriced. Subscription probes use a stored subscription token independently of the credit path when available, retain Opus/Sonnet weekly buckets, preserve endpoint percentage units, and reject nonfinite quota values.
+
+The relay's first unseen resumed-session report was capped at its reservation. T3 now reads the SDK starting cost before publishing a resumed runtime ready and reports the increase under a separate accounting scope, preserving the relay's cumulative deduplication. If that optional baseline read fails, the prior estimated-report path remains; no historical promotional balance is reconstructed from ambiguous billing history. The Usage total is API-equivalent consumption, not an authoritative credit balance.
+
+## Linear queue
+- [ ] create — Verify Claude usage accounting and installed Alpha delivery — snapshot reconciliation, one-hour pricing, quota windows and resumed relay spend; Linear tools unavailable in this session.
+
+
+Accounting verification: an isolated checkout at `~/.cache/t3code-development/usage-20261015` contains only the 18 usage/provider source and test changes above HEAD; unrelated routine edits were excluded. All 240 focused tests in 12 files and the server typecheck passed. Scoped lint reports one existing warning in `usageProjects.ts`. The real client at `http://localhost:7004` rendered the verification-only message as 100 output tokens, one million cache writes and $6.80, across three repeated snapshots. No provider turn ran. The disposable test base remains in the current session's `/tmp/t3-usage-qa-path` locator.
+
+The arm64 `0.0.45-preview.20261015.custom21` ZIP is in `/Users/luca/Downloads`; production web/server/desktop packaging and extracted bundle signature verification passed. Installer dry-run targets installed custom20, preserves server data/profile, and retains a rollback bundle. Luca explicitly approved native verification and an idle update. Both native attempts were blocked by the locked Mac; custom20 remains installed and running, so installation and installed Usage verification are pending manual unlock. No live ledger, transcript, credential or installed app was changed. Historical promotional credit remaining is not established by these estimates.
+
+
+### 2026-10-15 — Usage coverage audit and custom22
+
+Usage v7 attributes buckets and project rows to a physical source. Shared clients merge overlapping source sets independently and prefer healthy/newer snapshots; legacy summaries without source attribution remain visibly incomplete. Archived Codex sessions, separately configured Claude/Codex homes and Grok homes are scanned. Codex receipt deduplication uses cumulative totals when supplied so equal-sized distinct turns survive. Failed reads and malformed complete usage lines mark coverage partial across cold/incremental/cached scans. Synthetic Claude messages do not count as billed responses.
+
+Public long-context rates are selected from recorded input length, including cache tokens. Unknown models, unsupported recorded billing modifiers and unpriced server-tool surcharges remain unpriced; Antigravity's missing model no longer borrows a Gemini price. Web/desktop/mobile distinguish known cost, partial prices and unpriced rows. Positive sub-cent amounts display `<$0.01`, and JSON/CSV exports retain numeric precision and incomplete-coverage flags.
+
+The earlier estimated fallback for an unknown resumed-runtime baseline is superseded: scoped relay reporting refuses reconciliation without its starting cost, retries the same idempotent cumulative report, checks acknowledgement and emits a persisted warning on failure. A positive SDK cost-counter decrease creates a fresh accounting scope for `/clear`. Transcript coverage and an acknowledged local ledger still do not establish Anthropic's authoritative promotional balance.
+
+Verification: 361 tests across 21 focused files, server/web/mobile/shared/contracts typechecks, scoped lint (one existing project-slug warning), production packaging and strict extracted-bundle signature verification passed. The isolated client exported exactly 1,000,150 tokens, 130 output tokens, $6.802 known cost, two distinct messages, one unpriced message and incomplete coverage from the malformed fixture. The 32 selected usage files match the isolated checkout; unrelated routine changes are excluded. Evidence: `/Users/luca/.cache/t3code-verification/2026-10-15/usage-accounting.json`.
+
+`/Users/luca/Downloads/T3-Code-0.0.45-preview.20261015.custom22-arm64.zip` is ready. The approved native idle inspection/update remains blocked by the locked Mac; custom20 is still installed. No live ledger, transcript or credential was changed. Native mobile interaction and provider-authoritative promotional balance remain unverified. The disposable client at :7004 is retained for follow-up.
+
+
+### 2026-10-15 — Independent pricing recheck and custom23
+
+A second audit found unpublished cache prices could inherit cheaper base-tier rates, and exact variant prices could be discarded before lookup. Missing required cache/context-tier categories now remain unpriced; exact model keys take precedence, while unknown preview/latest/exp IDs no longer borrow base prices. Negative provider cost quotes cannot override token pricing. Explicit custom overrides retain their documented cache defaults.
+
+All 363 tests across the same 21 focused files passed; the server typecheck, focused pricing lint, production packaging and strict extracted-bundle signature check passed. Independent arithmetic reconfirmed the exported fixture at 1,000,150 tokens and $6.802 known cost with incomplete coverage explicit. Custom23 supersedes custom22: `/Users/luca/Downloads/T3-Code-0.0.45-preview.20261015.custom23-arm64.zip`. The Mac remains locked and custom20 remains installed; the approved idle update and provider-authoritative credit reconciliation are still pending. Evidence remains in the external usage-accounting.json artifact.
+
+
+### 2026-10-15 — Installed custom28 and lifetime-history reconciliation
+
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=1m; seat=codex; date=2026-10-15 -->
+
+The approved idle update installed custom28 in `/Applications/T3 Code (Alpha).app`; strict bundle signature verification and native startup passed. A durable usage-history ledger imports validated legacy evidence and retains records when original transcripts disappear or parser caches are pruned. Current and historical evidence reconcile before aggregation. Non-applicable Claude `inference_geo:not_available` no longer excludes otherwise priceable records. Calendar activity includes tokens with unknown/zero cost and quiet days; unavailable account limits remain visible.
+
+A raw Claude audit found repeated snapshots behind the older near-90B lifetime count. Separate missing transcript evidence was recovered from the legacy cache. After restart the installed Usage page displayed 42.2B tokens and $15,750.09 known API-equivalent cost; 11.9% of records remain unpriced. These are consumption estimates, not invoice totals or remaining promo credit. Claude subscription quota is unavailable for the current account. Focused history/service/calendar tests, scoped lint/typechecks and production packaging passed. Custom27 native JSON export arithmetic passed; custom28 reached the native save panel but Save stayed disabled, so its final export comparison remains unverified. Evidence and reconciliation: `/Users/luca/.cache/t3code-verification/2026-10-15/native-verification.json` and `history-reconciliation/report.md`. Prior installation notes above are historical and superseded by this installed-build record.
+
+
+### 2026-10-17 — Original Claude accounting restored and verified
+
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=1m; seat=codex; date=2026-10-17 -->
+
+Custom29 is installed. Luca supplied Claude-side counterevidence to message-ID collapsing; the original per-transcript-row accounting is restored. Version-9 parse caches rebuild collapsed records, and the version-2 history ledger retains original row multiplicity across repeated scans and restarts. Missing historical records, pricing-category handling, coverage, exports and account-limit changes remain. The earlier assertion that collapsed usage established the correct consumption total is superseded.
+
+Native Usage and JSON export now agree on 84,412,724,115 total tokens and $33,350.387295399974 known API-equivalent cost, including 77,555,107,436 Claude tokens and $31,895.319666149986 Claude cost. Claude has zero unpriced records; overall 6.893% of records remain unpriced, from Antigravity lacking a usable model/price. Independent token-category, provider, model, daily, session and cost-coverage arithmetic passed. Native export Save works. Provider invoice, subscription quota and promotional balance are separate and are not established by this transcript accounting. Previous focused tests/build validation passed; no further runtime source changes were needed in this verification. Evidence: `/Users/luca/.cache/t3code-verification/2026-10-17/verification.json`.
+
+
+### 2026-10-17 — Antigravity accounting and provider quota (custom30)
+
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=4m; seat=codex; date=2026-10-17 -->
+
+Custom30 is installed and its strict bundle signature passed. Antigravity now resolves the served model from generation metadata linked by explicit step indices, counts each generation once, reads cache writes from protobuf field 4, and treats thinking as a subset of output. Version-10 scan caches rebuild older parses; live-history migration replaces obsolete step identities. Original Claude per-row accounting and other usage features remain.
+
+The installed Usage screen showed $33,682.76 known API-equivalent cost, including $316.38 / 2.39B Antigravity tokens, $31,895.32 / 77.6B Claude tokens and 0.3% unpriced records. Ongoing activity changes these snapshots. A later independent replay across all three Antigravity conversation homes counted 2,420,497,561 tokens and $316.75779317499865 known cost; 2,246,178,496 tokens were cache reads. Gemini 3.8/3.6 Flash rows independently matched public input/cache/output rate arithmetic. Internal trial models without public rates remain unpriced.
+
+Antigravity now reads Google's real per-model quota with the existing instance OAuth grant; the installed runtime returned 25 model windows, exact provider fractions and reset times. Claude subscription quota remains unavailable because the local login contains API/proxy credentials without a subscription OAuth token. The UI surfaces that reason and the subscription-login requirement. Promotional balance, invoice spend and API-equivalent usage remain separate.
+
+Validation: 117 focused tests, server/web/shared typechecks, scoped lint, two additional all-home/live-quota checks, production packaging and native Usage observation passed. Native Limits interaction and a new custom30 JSON export remain unverified: native automation input fails with noWindowsAvailable or leaves selectors unchanged. Custom29 export evidence is retained. Evidence: `/Users/luca/.cache/t3code-verification/2026-10-17/provider-fixes-verification.json`.
+
+
+### 2026-10-17 — Inspectable pricing gaps and quota freshness
+
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=8m; seat=codex; date=2026-10-17 -->
+
+Web/desktop and mobile model breakdowns now offer Needs pricing, preserving search and selected-window totals while showing each affected model's exact unpriced/total record counts. Model token totals intentionally include both priced and unpriced rows; unknown cost is not represented as zero. Quota views show snapshot read age and flag readings at least 15 minutes old. The compact web quota list removes large per-model cards; both clients explain equal-account averaging rather than implying capacity weighting across plans. Mobile Antigravity uses its own label/color and missing-quota notices precede other providers' bars.
+
+72 focused shared tests, web/mobile/shared typechecks, scoped lint and production desktop/server/web build passed. Real isolated browser checks verified filter/search/reverse actions with unchanged window totals, quota read ages and 413px/1280px layouts. Native mobile device verification remains outstanding. Delivery evidence: `/Users/luca/.cache/t3code-verification/2026-10-17/premium-verification.json`.
+
+Custom32 delivery: approved idle update installed after a fresh zero-active-turn check and native Quit; the previous custom30 bundle is retained for rollback. Strict signature verification passed. The updated native process and bundled server on :3774 are running; desktop automation timed out inspecting the window, so native interaction is not confirmed. The isolated verification server was stopped.
+
+## Linear queue
+
+- [ ] create — Review Race Scoreboard evidence filters and subscription-only quota probe — local changes pass focused checks; browser permission pending; no Linear tools/binding available.
+
+- [ ] create — Review mobile Race evidence parity — implementation, typecheck, iOS export and existing focused checks pass; rendered native verification pending permission and suitable runtime.
+
+### 2026-10-19 — Race conversation provenance across desktop and mobile
+
+New Race records retain optional, typed entrant and judge thread IDs from the actual source conversations. Older records remain readable without invented links; later reports can fill matching missing entrant provenance while preserving decided metrics. Both desktop scoreboard and mobile history open available conversations on the same connected computer. Deleted/unavailable or unrecorded entrant links are explained. This is navigation only; viewing a record never merges code or starts another agent.
+
+JSON exports retain provenance and CSV adds explicit entrant/judge thread ID columns. Existing Race suites (14 checks), mobile/web/server typechecks, scoped lint and an iOS Expo production export pass. No new tests. Rendered T3 verification remains pending the previously requested browser/computer-use permission; no desktop/mobile UI was launched.
+
+- [ ] create — Verify Race conversation provenance on desktop/mobile — additive contract and both navigation paths implemented; production mobile bundle exported, rendered permission still pending.
+
+### 2026-10-20 — Portable Race evidence and approved browser verification
+
+Desktop and mobile now export Markdown evidence from actual retained records, either the filtered history or one race. Reports preserve the source prompt, per-entrant phase/diff counts/reported time and price, judge choice and optional conversation IDs. Unknown fields remain unreported; prompts/failures use collision-safe code fences and metadata/table cells are escaped. JSON/CSV stay available. Mobile uses the existing explicit native share flow, abort cleanup and bounded rendering.
+
+Luca approved isolated browser QA. The retained test environment uses `/var/folders/3k/8kq7zwlj4ts3pz6g2tpjrh5w0000gn/T/t3code-race-qa-LR4xk9`, web :5733 and backend :13773. No live projects were imported and no agent task was started. Controlled JSON fixtures demonstrated 20/5-row pagination, literal search (1 match), project (13), task (9), kept outcome (15) and last-30-days (24 of 25). Real browser downloads contained 25 JSON records, 50 CSV entrant rows with 37 unknown prices, and 25 Markdown race sections while viewing page two. Filtered CSV neutralized a formula-leading prompt; single-race Markdown preserved literal text behind safe fences. Browser warnings/errors: zero. The authenticated review tab and dev runner are retained for follow-up; pairing tokens are not stored here.
+
+Existing Race suites (14 checks), mobile/shared/web typechecks, scoped lint/format and an iOS Expo bundle pass. No new project test files. This proves the desktop browser filters/pagination/export flow; native mobile sharing/navigation, installed desktop behavior and live provider/code-merge workflows remain outside this verification.
+
+- [ ] create — Review portable Race evidence and native follow-up — desktop browser flow verified with controlled records; mobile export compiled, native interaction still pending.
+
+### 2026-10-20 — Race history refresh without losing filters
+
+The web/desktop Scoreboard now refreshes the connected computers’ retained history through the existing query atoms, preserves filters and pagination, and disables exports while refreshed data is pending. Failed reads can be retried through the same control. In the retained isolated browser, adding one controlled record then clicking Refresh changed 1/25 to 2/26 matches while keeping the `needle` search; the fixture was restored afterward. Web typecheck and scoped lint/format passed; no tests added. The authorized QA environment remains retained for follow-up.
+
+### 2026-10-20 — Current-source desktop review candidate
+
+Production web/server/desktop build and arm64 ZIP packaging completed for custom33. `/Users/luca/Downloads/T3-Code-0.0.45-preview.20261020.custom33-arm64.zip` SHA256 is `0459e381c79be3d6fe7aac0a0ca147c2b2c1600624676f4031de857a232c663d`. Extraction and strict deep bundle signature verification pass; packaged `apps/server/dist/client/assets/race-UhD28xrl.js` includes Race refresh, evidence, search and Scoreboard controls, and bundle/package version is `0.0.45-preview.20261020.custom33`. This is package evidence, not native UI evidence. Installed application and live data were not changed. Isolated native candidate QA permission was requested under AGENTS.md; the candidate has not been launched. Details: `/tmp/t3-custom33-delivery.json`.
+
+### 2026-10-20 — Authorized isolated desktop launch and export lifetime repair
+
+Luca approved isolated native desktop QA. Custom33 launched with separate home `/tmp/t3-custom33-native.9OlIy1`, Electron profile under that home and bundled backend on :3775. Native setup rendered; its state changed during observation and 139 historical threads were found copied into the isolated database. Those records are preserved. Native controls then timed out, so Electron Race/save-dialog behavior is still unverified. Provider-session count in this QA database remained zero; no agent turn was started by this pass. The installed app was not replaced.
+
+The same bundled backend/client worked in an authenticated browser: 25 controlled Race records loaded, literal `needle` search matched one, refresh kept the filter, and browser warnings/errors were empty. The initial CSV content inspection mistakenly selected a file from the earlier dev pass; modification times exposed the mistake. Custom33 production CSV saving is not verified. The corrected external report is `/tmp/t3-custom33-delivery.json`.
+
+Race full-history and per-race exports now retain their Blob URLs until replacement or component teardown, matching the established Usage exporter lifecycle, rather than revoking them immediately. A visible prepared-file link supports clients that block the automatic transfer. Browser verification saved fresh CSV (two entrant rows with formula-leading prompt neutralized) and Markdown (literal prompt/fence text retained) through those links; file modification times were checked. Web typecheck and scoped lint/format pass; no tests added. Custom34 is packaged with this fix. Native save-dialog consumption remains outside that evidence.
+
+Custom34 delivery follow-through: production build/arm64 packaging, extraction, strict deep signature and packaged retained-link marker checks pass. Review ZIP: `/Users/luca/Downloads/T3-Code-0.0.45-preview.20261020.custom34-arm64.zip`; SHA256 `187e3dc2d4d7dc30dab3bfcb09636aac7f5def585da7309cbb726115fdd4fe20`. The first renamed QA copy flattened framework symlinks and failed helper/signature checks; it was discarded and rebuilt with symlinks/original helper names intact. The resulting QA copy has a separate bundle identifier, passed strict signature verification and reused the isolated home after custom33 quit cleanly. Its bundled backend/main window started on :3775; native observation still times out. The packaged custom34 frontend loaded 25 controlled records in the browser, matched one literal search and saved a fresh two-row formula-neutralized CSV through the retained link. Browser warnings/errors and QA provider sessions were zero. External delivery evidence is `/tmp/t3-custom34-delivery.json`; authenticated dev/production browser tabs and the QA process are retained for follow-up. Installed application was not replaced.
+
+
+### 2026-10-21 — Matched race comparisons
+
+Race Scoreboard now compares harness/model pairs only over races both entered, on web/desktop and mobile Settings → Race history. It separates each side's keeps, no-winner decisions, open races, keeps of a third entrant and unknown kept slots. Time deltas use pairs that both finished with recorded durations; cost deltas use pairs with both prices reported, including actual zero. Sample counts accompany each median, and ambiguous repeated entries of the same harness/model in one race are excluded. All filtered pairs are retained in JSON and Markdown exports. The 30 focused shared/race tests, touched-file lint, and shared/web/mobile TypeScript checks pass. Native/browser QA, packaging and enterprise-v1 acceptance remain open; no live install or userdata was modified.
+
+
+### 2026-10-21 — Inspect the races behind a model comparison
+
+Head-to-head rows now offer View shared races on web/desktop and mobile. The selected pair scopes the leaderboard, history, pagination and exports to exact harness/model identities, requiring one unique entrant per side in each race. Races where a third entrant was kept remain visible as supporting evidence; repeated copies of one model are excluded consistently with the comparison table. Clear model pair removes only that scope, and Clear filters also resets it on web. JSON retains the selected identities, and exported pair statistics are rebuilt from the captured filtered records. Shared tests (15), shared/web/mobile TypeScript and touched-file lint pass. This turn did not perform T3 browser/native QA or packaging; enterprise-v1 acceptance remains partial.

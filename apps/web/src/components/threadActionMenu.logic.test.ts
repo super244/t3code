@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=3m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=55m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=60m; seat=claude-code; date=2026-10-05 */
 /* agent-watermark: model=muse-spark; effort=high; duration=90m; seat=opencode; date=2026-10-07 */
@@ -61,6 +62,7 @@ describe("buildThreadActionMenuItems", () => {
             // Handoff and review create threads, so they need operate scope too.
             "handoff",
             "review",
+            "race",
             "rename",
             "regenerate-title",
             "auto-settle",
@@ -74,6 +76,7 @@ describe("buildThreadActionMenuItems", () => {
             // Handoff and review create threads, so they need operate scope too.
             "handoff",
             "review",
+            "race",
             "rename",
             "regenerate-title",
             "auto-settle",
@@ -116,6 +119,7 @@ describe("buildThreadActionMenuItems", () => {
     ).toEqual([
       "handoff",
       "review",
+      "race",
       "rename",
       "mark-unread",
       "copy",

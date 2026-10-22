@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=10m; seat=codex; date=2026-10-01 */
 import { UsageDay, USAGE_CONTRACT_VERSION } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -67,6 +68,7 @@ describe("portable usage reports", () => {
     expect(json.filters).toEqual({ provider: "codex", environmentIds: ["my-machine"] });
     expect(json.summary.cacheCreationTokens).toBe(10);
     expect(json.coverage).toEqual({
+      incomplete: false,
       contributingEnvironments: [],
       duplicateSources: [],
       staleEnvironments: [],

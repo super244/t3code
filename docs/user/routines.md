@@ -1,3 +1,5 @@
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=1m; seat=codex; date=2026-10-18 -->
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=125m; seat=codex; date=2026-10-14 -->
 <!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-10 -->
 <!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 -->
 <!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=35m; seat=codex; date=2026-10-02 -->
@@ -18,6 +20,8 @@ The routine list features an instant search filter (matching name, schedule cron
 along with status pills (**All**, **Active**, **Paused**, **Failed**) to quickly inspect fleet health on desktop,
 web, and mobile. Curated 1-tap template chips (**Daily Task**, **Health & Security**, **24h Digest**, **Code Cleanup**)
 provide editable starting instructions for recurring work.
+
+**Change a group of schedules:** narrow the list by search or status, then choose **Pause visible** or **Resume visible**. Review the saved routine names before applying. The batch excludes schedules already in the requested state and is limited to 100 routines. If any selected routine changed or was deleted after review, none of the batch is applied. Pausing leaves running tasks alone; resuming starts scheduling from the next occurrence rather than requesting an immediate run. Save or discard an open draft first. Older environments need a server update to use these controls.
 
 The routine list shows the plain-language schedule, when the next run is due, and the last failure when one exists. The selected provider instance is the subscription or account used for the run. Every occurrence
 creates a normal T3 Code thread, so its messages, status, diff, and provider usage remain visible in
@@ -70,7 +74,7 @@ Routine saves retain the server’s latest launch history. Run, pause, and resum
 
 If another device changes the routine while you edit, your draft stays open and saving is blocked. Choose **Review saved version** to load the newer configuration, or duplicate your draft to keep it separately. Run-history updates do not create editing conflicts.
 
-**Execution history** retains the latest fifty occurrences recorded by the updated environment. Filter starting, launched, failed or skipped occurrences, inspect their schedule and provider selection, and open any launched task. Export the retained history as JSON on web/desktop, or share it on mobile. Editing and pausing preserve receipts, while duplicating a routine starts a fresh history. Deleting a routine removes its retained receipts; its existing tasks stay in project history.
+**Execution history** retains the latest fifty occurrences recorded by the updated environment. Filter starting, launched, failed or skipped occurrences, inspect their schedule and provider selection, and open any launched task. Search by error, model, subscription, recorded date or task ID; words can match across those fields. Export the shown selection as JSON on web/desktop, or share it on mobile. The report records the filters and matching versus retained counts; clearing the search and filters includes every retained receipt. Editing and pausing preserve receipts, while duplicating a routine starts a fresh history. Deleting a routine removes its retained receipts; its existing tasks stay in project history.
 
 New launches also record their first agent turn’s **completed**, **interrupted** or **failed** outcome from the environment’s stored session events. The Outcome filter is independent of the launch filter. Recording continues while the routine is paused and resumes after a server restart, usually on the next thirty-second scheduler sweep. Receipt details identify the turn and recorded event; exports include that evidence and any failure reason. A later conversation turn cannot replace an already recorded outcome. When events cannot establish which turn belongs to the routine, the receipt says **Outcome not attributable** instead.
 

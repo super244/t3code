@@ -1,3 +1,5 @@
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=8m; seat=codex; date=2026-10-17 -->
+<!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 -->
 <!-- agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 -->
 <!-- agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 -->
 <!-- agent-watermark: model=gemini-3.8-flash; effort=high; duration=8m; seat=antigravity; date=2026-10-01 -->
@@ -9,6 +11,12 @@
 ## Understand your usage
 
 **Usage** combines Codex, Claude Code, Grok Build, OpenCode, and Antigravity session history from your connected environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent cost. These estimates are not your subscription bill.
+
+Claude usage preserves the original transcript-row accounting: each recorded usage row contributes, including rows sharing a message ID. Refreshing or restarting does not add those same stored rows again. One-hour cache writes use their own rate. Unknown model prices and missing published cache or context-tier rates remain visibly unpriced rather than receiving a guessed rate.
+
+Promo-credit spend and subscription limits are separate. The cost estimate does not establish your remaining promotional balance; use the provider's account balance for that. Missing quota data remains unavailable rather than appearing as zero usage.
+
+Usage includes archived Codex sessions and separately configured Claude/Codex transcript homes. Long-context requests use the published context-tier rates. Unreadable files and malformed usage mark history incomplete. Unsupported billing modifiers or tool surcharges remain unpriced unless a provider quote or explicit rate override establishes the cost. “Known cost only” is a subtotal, not a complete bill; unpriced rows are not free. JSON/CSV exports preserve full numeric precision and cost-coverage details.
 
 A connected harness stays on the page even when the selected window has no tokens. OpenCode is read from its local database. Antigravity is read from the IDE, CLI, and T3 Code conversation stores. Switch to **All** when recent windows look empty.
 
@@ -53,6 +61,8 @@ results appear as each one responds.
 If recent work is missing or a new model shows no cost, refresh to rescan session history and
 update model pricing.
 
+To inspect excluded costs, choose **Model → Needs pricing** (web/desktop) or **By model → Needs pricing** (mobile). Search still applies. Each affected model shows its unpriced record count. Its token total includes both priced and unpriced records; the filter does not change your window totals. Use a documented rate or your provider invoice before setting an override.
+
 ## Set custom model prices
 
 On web or desktop, open the environment dropdown on **Usage**, then choose **Model prices** to add,
@@ -75,6 +85,10 @@ without writing again to environments that already saved. Changes are not queued
 the dialog.
 
 ## Track subscription limits
+
+Antigravity uses its signed-in Google account to report model quota and reset times. Claude Code requires subscription OAuth credentials to report subscription quota; an API-key or promo-credit proxy login cannot provide those percentages. Missing quota is explained above the available bars.
+
+Quota readings show when they were read. Readings at least 15 minutes old are marked for refresh; a reset countdown alone does not establish a fresh balance. Multi-account percentages are equal averages of reported percentages, not capacity-weighted balances across different plans.
 
 **Usage → Limits** pools every subscription account it can see per provider, so with several Codex
 or Claude accounts across your environments and hubs you read one number per window rather than a

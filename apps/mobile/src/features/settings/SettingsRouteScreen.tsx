@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=24m; seat=codex; date=2026-10-19 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=13m; seat=codex; date=2026-10-01 */
 import { useAuth, useUser } from "@clerk/expo";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
@@ -587,6 +588,11 @@ function GeneralSettingsSection() {
         target="SettingsSkills"
       />
       <SettingsRow icon="calendar.badge.clock" label="Routines" target="SettingsRoutines" />
+      <SettingsRow
+        icon={{ ios: "flag.checkered", android: "flag" }}
+        label="Race history"
+        target="SettingsRaceHistory"
+      />
       <SettingsRow icon="chart.bar.xaxis" label="Usage" target="SettingsUsage" />
     </SettingsSection>
   );

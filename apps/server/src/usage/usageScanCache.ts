@@ -1,3 +1,7 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-17 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=7m; seat=codex; date=2026-10-15 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=25m; seat=antigravity; date=2026-10-14 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-14 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 /**
  * Durable per-file scan cache.
@@ -28,7 +32,10 @@ import type { CodexScanState, UsageRecord } from "./usageTranscripts.ts";
 // v3: entries carry the parse position and reducer state so a grown file
 // re-parses only its appended bytes instead of starting over.
 // v4: accurate Claude Code block token counting and Antigravity pricing.
-const USAGE_SCAN_CACHE_VERSION = 4 as const;
+// v5: preserve Claude snapshots and one-hour cache-write counters.
+// v6: Claude relay and proxy timestamp/cost fallback fields and unlisted rate fallbacks.
+// v7: Codex deduplication uses cumulative counters when present.
+const USAGE_SCAN_CACHE_VERSION = 10 as const;
 
 export interface CachedFile {
   readonly size: number;
@@ -43,6 +50,7 @@ export interface CachedFile {
    */
   readonly tailRecords: readonly UsageRecord[];
   readonly position: TranscriptParsePosition;
+  readonly malformedRecords?: number;
 }
 
 export type ScanCache = Map<string, CachedFile>;
@@ -63,6 +71,8 @@ type SerializedRecord = readonly [
   reasoningTokens: number,
   dedupeKey: string | null,
   reportedCostUsd: number | null,
+  cacheCreation1hTokens: number | null,
+  pricingUnsupported: boolean | null,
 ];
 
 interface SerializedFile {
@@ -78,6 +88,7 @@ interface SerializedFile {
   readonly gh: number;
   /** Codex reducer state at `o`; `null` for stateless providers. */
   readonly cs: CodexScanState | null;
+  readonly bad?: number;
 }
 
 interface SerializedCache {
@@ -114,6 +125,8 @@ export function encodeScanCache(cache: ScanCache): SerializedCache {
     record.totals.reasoningTokens,
     record.dedupeKey,
     record.reportedCostUsd,
+    record.cacheCreation1hTokens ?? null,
+    record.pricingUnsupported ?? null,
   ];
 
   const files: Record<string, SerializedFile> = {};
@@ -128,6 +141,7 @@ export function encodeScanCache(cache: ScanCache): SerializedCache {
       gl: entry.position.guardLength,
       gh: entry.position.guardHash,
       cs: entry.position.codexState,
+      ...(entry.malformedRecords === undefined ? {} : { bad: entry.malformedRecords }),
     };
   }
 
@@ -170,7 +184,7 @@ export function decodeScanCache(document: unknown): ScanCache {
   ): UsageRecord[] | null => {
     const records: UsageRecord[] = [];
     for (const row of rows) {
-      if (!isRecordArray(row) || row.length < 10) return null;
+      if (!isRecordArray(row) || row.length < 12) return null;
       const [
         timestampMs,
         modelIndex,
@@ -182,6 +196,8 @@ export function decodeScanCache(document: unknown): ScanCache {
         reasoning,
         dedupeKey,
         reportedCostUsd,
+        cacheCreation1hTokens,
+        pricingUnsupported,
       ] = row as SerializedRecord;
 
       const model = typeof modelIndex === "number" ? models[modelIndex] : undefined;
@@ -193,7 +209,13 @@ export function decodeScanCache(document: unknown): ScanCache {
         !Number.isFinite(cached) ||
         !Number.isFinite(cacheCreation) ||
         !Number.isFinite(output) ||
-        !Number.isFinite(reasoning)
+        !Number.isFinite(reasoning) ||
+        (pricingUnsupported !== null && typeof pricingUnsupported !== "boolean") ||
+        (cacheCreation1hTokens !== null &&
+          (typeof cacheCreation1hTokens !== "number" ||
+            !Number.isSafeInteger(cacheCreation1hTokens) ||
+            cacheCreation1hTokens < 0 ||
+            cacheCreation1hTokens > cacheCreation))
       ) {
         return null;
       }
@@ -212,6 +234,8 @@ export function decodeScanCache(document: unknown): ScanCache {
         },
         reportedCostUsd: typeof reportedCostUsd === "number" ? reportedCostUsd : null,
         dedupeKey: typeof dedupeKey === "string" ? dedupeKey : null,
+        ...(typeof cacheCreation1hTokens === "number" ? { cacheCreation1hTokens } : {}),
+        ...(typeof pricingUnsupported === "boolean" ? { pricingUnsupported } : {}),
       });
     }
     return records;
@@ -252,6 +276,7 @@ export function decodeScanCache(document: unknown): ScanCache {
     const codexState = decodeCodexState(entry.cs);
     if (codexState === undefined) continue;
 
+    if (entry.bad !== undefined && (!Number.isSafeInteger(entry.bad) || entry.bad < 0)) continue;
     const provider: UsageProviderKind = entry.p;
     const records = decodeRecords(entry.r, provider);
     const tailRecords = decodeRecords(entry.t, provider);
@@ -263,6 +288,7 @@ export function decodeScanCache(document: unknown): ScanCache {
       provider,
       records,
       tailRecords,
+      ...(entry.bad === undefined ? {} : { malformedRecords: entry.bad }),
       position: {
         resumeOffset: entry.o,
         guardLength: entry.gl,
@@ -367,8 +393,18 @@ export function dedupeWithinFile(
   const kept: UsageRecord[] = [];
   for (const record of records) {
     if (record.dedupeKey !== null) {
-      if (seen.has(record.dedupeKey)) continue;
-      seen.add(record.dedupeKey);
+      const key =
+        record.provider === "claude"
+          ? JSON.stringify([
+              record.dedupeKey,
+              record.totals,
+              record.cacheCreation1hTokens,
+              record.pricingUnsupported,
+              record.reportedCostUsd,
+            ])
+          : record.dedupeKey;
+      if (seen.has(key)) continue;
+      seen.add(key);
     }
     kept.push(record);
   }

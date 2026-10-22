@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 // @effect-diagnostics nodeBuiltinImport:off
 /**
@@ -61,6 +62,7 @@ export interface TranscriptParsePosition {
 }
 
 export interface TranscriptParseResult {
+  readonly malformedRecords?: number;
   /** Records from newline-terminated lines at or after the parse start. */
   readonly records: readonly UsageRecord[];
   /**
@@ -111,6 +113,7 @@ export async function listTranscriptFiles(
      * large snapshot trees that never carry usage.
      */
     readonly shallowFile?: string;
+    readonly onError?: () => void;
   },
 ): Promise<readonly TranscriptFile[]> {
   const found: TranscriptFile[] = [];
@@ -124,7 +127,8 @@ export async function listTranscriptFiles(
       if (stats.isFile() && stats.mtimeMs >= sinceMs) {
         found.push({ path: child, size: stats.size, mtimeMs: stats.mtimeMs });
       }
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") options?.onError?.();
       // The store directory can exist before the first session database.
     }
     return found;
@@ -135,6 +139,7 @@ export async function listTranscriptFiles(
     try {
       entries = await NodeFSP.readdir(dir, { withFileTypes: true });
     } catch {
+      options?.onError?.();
       return;
     }
     for (const entry of entries) {
@@ -156,6 +161,7 @@ export async function listTranscriptFiles(
           found.push({ path: child, size: stats.size, mtimeMs: stats.mtimeMs });
         }
       } catch {
+        options?.onError?.();
         // Vanished between readdir and stat.
       }
     }
@@ -265,7 +271,32 @@ export async function readTranscriptRecords(
       resumed = true;
     }
 
-    const parseLine = (line: string, state: CodexScanState, out: UsageRecord[]): void => {
+    let malformedRecords = 0;
+    const checkMalformed = (line: string) => {
+      try {
+        const raw = JSON.parse(line) as {
+          type?: string;
+          message?: { usage?: unknown; model?: unknown };
+          timestamp?: unknown;
+        };
+        if (
+          provider === "claude" &&
+          raw?.type === "assistant" &&
+          raw.message?.usage !== undefined &&
+          raw.message.model !== "<synthetic>" &&
+          raw.message.model !== "synthetic"
+        )
+          malformedRecords += 1;
+      } catch {
+        malformedRecords += 1;
+      }
+    };
+    const parseLine = (
+      line: string,
+      state: CodexScanState,
+      out: UsageRecord[],
+      tail = false,
+    ): void => {
       if (provider === "codex") {
         if (
           !mightCarryUsage(line, provider) &&
@@ -276,6 +307,7 @@ export async function readTranscriptRecords(
         }
         const record = parseCodexLine(line, state);
         if (record !== null) out.push(record);
+        else if (!tail && mightCarryUsage(line, provider)) checkMalformed(line);
         return;
       }
       if (!mightCarryUsage(line, provider)) return;
@@ -285,6 +317,7 @@ export async function readTranscriptRecords(
       }
       const record = parseClaudeLine(line);
       if (record !== null) out.push(record);
+      else if (!tail) checkMalformed(line);
     };
 
     const toLineString = (lineBuffer: Buffer): string => {
@@ -331,7 +364,8 @@ export async function readTranscriptRecords(
     const tailRecords: UsageRecord[] = [];
     if (pendingChunks.length > 0) {
       const pending = pendingChunks.length === 1 ? pendingChunks[0]! : Buffer.concat(pendingChunks);
-      if (pending.length > 0) parseLine(toLineString(pending), { ...codexState }, tailRecords);
+      if (pending.length > 0)
+        parseLine(toLineString(pending), { ...codexState }, tailRecords, true);
     }
 
     const guardLength = Math.min(GUARD_LENGTH, resumeOffset);
@@ -345,6 +379,7 @@ export async function readTranscriptRecords(
     return {
       records,
       tailRecords,
+      malformedRecords,
       position: {
         resumeOffset,
         guardLength,

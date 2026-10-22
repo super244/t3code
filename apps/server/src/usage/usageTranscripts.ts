@@ -1,3 +1,7 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=25m; seat=antigravity; date=2026-10-17 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=7m; seat=codex; date=2026-10-15 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=25m; seat=antigravity; date=2026-10-14 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-14 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 /**
  * Pure parsers for the provider CLIs' on-disk session transcripts.
@@ -16,6 +20,10 @@ export interface UsageRecord {
   readonly sessionId: string;
   readonly totals: UsageTokenTotals;
   readonly reportedCostUsd: number | null;
+  /** Subset of cacheCreationTokens written with a one-hour TTL. */
+  readonly cacheCreation1hTokens?: number;
+  /** Recorded billing modifiers require a provider quote or explicit override. */
+  readonly pricingUnsupported?: boolean;
   /**
    * Key for cross-file de-duplication, or `null` when the record is inherently
    * unique and needs no dedup.
@@ -36,6 +44,9 @@ function int(value: unknown): number {
 }
 
 function parseTimestampMs(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value > 1e11 ? Math.floor(value) : Math.floor(value * 1000);
+  }
   if (typeof value !== "string") return null;
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) ? null : parsed;
@@ -94,9 +105,8 @@ function grokCostTicksToUsd(ticks: unknown): number | null {
 /**
  * Parses one line of a Claude Code transcript.
  *
- * Claude Code logs each turn/content block with usage metrics. Keeping dedupeKey
- * null ensures each distinct turn and block recorded in transcripts contributes
- * to total consumption, matching Claude Code's native reporting.
+ * Preserve the original Claude transcript-row accounting. Message IDs may repeat
+ * across recorded usage rows; they are not grounds for suppressing consumption.
  */
 export function parseClaudeLine(line: string): UsageRecord | null {
   let parsed: unknown;
@@ -108,7 +118,50 @@ export function parseClaudeLine(line: string): UsageRecord | null {
   if (typeof parsed !== "object" || parsed === null) return null;
 
   const record = parsed as Record<string, unknown>;
-  if (record["type"] !== "assistant") return null;
+  if (record["type"] !== "assistant") {
+    if (
+      typeof record["assistant"] === "string" &&
+      (typeof record["costUsd"] === "number" || typeof record["usage"] === "object")
+    ) {
+      const timestampMs = parseTimestampMs(
+        record["at"] ?? record["timestamp"] ?? record["created_at"],
+      );
+      if (timestampMs === null) return null;
+      const model =
+        typeof record["model"] === "string" && record["model"].trim().length > 0
+          ? record["model"].trim()
+          : "claude-sonnet-5";
+      const cost =
+        typeof record["costUsd"] === "number" &&
+        Number.isFinite(record["costUsd"]) &&
+        record["costUsd"] >= 0
+          ? record["costUsd"]
+          : null;
+      const relayUsage =
+        typeof record["usage"] === "object" && record["usage"] !== null
+          ? (record["usage"] as Record<string, unknown>)
+          : {};
+      const sessionId = typeof record["sessionId"] === "string" ? record["sessionId"] : "";
+      return {
+        provider: "claude",
+        timestampMs,
+        model,
+        sessionId,
+        totals: {
+          uncachedInputTokens: int(relayUsage["input_tokens"]),
+          cachedInputTokens: int(relayUsage["cache_read_input_tokens"]),
+          cacheCreationTokens: int(relayUsage["cache_creation_input_tokens"]),
+          outputTokens: int(relayUsage["output_tokens"]),
+          reasoningTokens: 0,
+        },
+        pricingUnsupported: false,
+        cacheCreation1hTokens: 0,
+        reportedCostUsd: cost,
+        dedupeKey: null,
+      };
+    }
+    return null;
+  }
 
   const message = record["message"];
   if (typeof message !== "object" || message === null) return null;
@@ -117,29 +170,90 @@ export function parseClaudeLine(line: string): UsageRecord | null {
   const usage = messageRecord["usage"];
   if (typeof usage !== "object" || usage === null) return null;
   const usageRecord = usage as Record<string, unknown>;
+  if (
+    typeof usageRecord["input_tokens"] !== "number" ||
+    typeof usageRecord["output_tokens"] !== "number"
+  )
+    return null;
+  for (const name of [
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+  ]) {
+    const value = usageRecord[name];
+    if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0))
+      return null;
+  }
 
-  const timestampMs = parseTimestampMs(record["timestamp"]);
+  const timestampMs = parseTimestampMs(
+    record["timestamp"] ??
+      record["created_at"] ??
+      record["createdAt"] ??
+      messageRecord["timestamp"],
+  );
   if (timestampMs === null) return null;
 
-  const model = typeof messageRecord["model"] === "string" ? messageRecord["model"] : "";
-  if (model.length === 0) return null;
+  const model =
+    typeof messageRecord["model"] === "string"
+      ? messageRecord["model"].trim()
+      : typeof record["model"] === "string"
+        ? (record["model"] as string).trim()
+        : "";
+  if (model.length === 0 || model === "<synthetic>" || model === "synthetic") return null;
 
-  const cost = record["costUSD"];
+  const cost =
+    record["costUSD"] ??
+    record["costUsd"] ??
+    record["cost_usd"] ??
+    messageRecord["costUSD"] ??
+    messageRecord["costUsd"] ??
+    messageRecord["cost_usd"];
+  const cacheCreation = usageRecord["cache_creation"] as Record<string, unknown> | undefined;
+  const outputDetails = usageRecord["output_tokens_details"] as Record<string, unknown> | undefined;
+
+  const sessionId =
+    typeof record["sessionId"] === "string"
+      ? record["sessionId"]
+      : typeof record["session_id"] === "string"
+        ? record["session_id"]
+        : "";
+
+  const serverToolUsage = usageRecord["server_tool_use"];
+  const hasUnpricedServerTools =
+    typeof serverToolUsage === "object" &&
+    serverToolUsage !== null &&
+    Object.values(serverToolUsage).some((value) => typeof value === "number" && value > 0);
 
   return {
     provider: "claude",
     timestampMs,
     model,
-    sessionId: typeof record["sessionId"] === "string" ? record["sessionId"] : "",
+    sessionId,
     totals: {
       uncachedInputTokens: int(usageRecord["input_tokens"]),
       cachedInputTokens: int(usageRecord["cache_read_input_tokens"]),
       cacheCreationTokens: int(usageRecord["cache_creation_input_tokens"]),
       outputTokens: int(usageRecord["output_tokens"]),
-      // Anthropic folds thinking tokens into output and does not break them out.
-      reasoningTokens: 0,
+      reasoningTokens: Math.min(
+        int(usageRecord["output_tokens"]),
+        int(outputDetails?.["thinking_tokens"]),
+      ),
     },
-    reportedCostUsd: typeof cost === "number" && Number.isFinite(cost) ? cost : null,
+    pricingUnsupported:
+      hasUnpricedServerTools ||
+      [usageRecord["speed"], usageRecord["service_tier"]].some(
+        (value) => typeof value === "string" && !["", "standard"].includes(value),
+      ) ||
+      // Anthropic uses not_available when the geography dimension does not
+      // apply; it is not a regional pricing modifier (Usage and Cost API).
+      (typeof usageRecord["inference_geo"] === "string" &&
+        !["", "global", "not_available"].includes(usageRecord["inference_geo"])),
+    cacheCreation1hTokens: Math.min(
+      int(usageRecord["cache_creation_input_tokens"]),
+      int(cacheCreation?.["ephemeral_1h_input_tokens"]),
+    ),
+    reportedCostUsd: typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : null,
     dedupeKey: null,
   };
 }
@@ -259,7 +373,12 @@ export function parseCodexLine(line: string, state: CodexScanState): UsageRecord
 
   // Codex re-emits an unchanged token_count on some stream boundaries. Summing
   // those would double count, so identical consecutive payloads are skipped.
-  const signature = JSON.stringify(lastRecord);
+  // Equal per-request usage does not imply the same request. Prefer the
+  // session cumulative counters; they change even when two turns cost alike.
+  const cumulative = (info as Record<string, unknown>)["total_token_usage"];
+  const signature = JSON.stringify(
+    typeof cumulative === "object" && cumulative !== null ? cumulative : lastRecord,
+  );
   if (signature === state.lastUsageSignature) return null;
   state.lastUsageSignature = signature;
 

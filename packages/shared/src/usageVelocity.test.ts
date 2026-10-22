@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-02 */
 import {
   EnvironmentId,
@@ -138,7 +139,7 @@ describe("usage comparison coverage", () => {
       environments: [{ ...environment, summary: { ...summary, contractVersion: 4 } }],
     };
     expect(usageComparisonCoverage(input)).toBe("partial");
-    expect(usageComparisonCoverage({ ...input, provider: "codex" })).toBe("complete");
+    expect(usageComparisonCoverage({ ...input, provider: "codex" })).toBe("partial");
     expect(usageComparisonCoverage({ ...input, provider: "grok" })).toBe("partial");
     expect(usageComparisonCoverage({ ...input, provider: "antigravity" })).toBe("partial");
     expect(
@@ -147,6 +148,6 @@ describe("usage comparison coverage", () => {
         provider: "grok",
         environments: [{ ...environment, summary: { ...summary, contractVersion: 5 } }],
       }),
-    ).toBe("complete");
+    ).toBe("partial");
   });
 });

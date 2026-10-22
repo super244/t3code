@@ -1,3 +1,6 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-17 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=7m; seat=codex; date=2026-10-15 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-14 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=20m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-09-30 */
@@ -20,6 +23,9 @@ import * as NodeOS from "node:os";
 
 import {
   USAGE_CONTRACT_VERSION,
+  usageSourceFingerprintKey,
+  ClaudeSettings,
+  CodexSettings,
   type ServerSettings as ServerSettingsValue,
   type UsageProviderKind,
   type UsageSource,
@@ -68,7 +74,11 @@ import {
   pruneScanCache,
   type ScanCache,
 } from "./usageScanCache.ts";
-import type { UsageRecord } from "./usageTranscripts.ts";
+import { decodeUsageHistory, mergeUsageHistoryRecords, usageHistoryRoot } from "./usageHistory.ts";
+import { type UsageRecord } from "./usageTranscripts.ts";
+
+const decodeClaudeUsageSettings = Schema.decodeUnknownEffect(ClaudeSettings);
+const decodeCodexUsageSettings = Schema.decodeUnknownEffect(CodexSettings);
 
 const LITELLM_RATES_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
@@ -159,15 +169,22 @@ export const make = Effect.gen(function* () {
 
   const fileCache: ScanCache = new Map();
   let cacheDirty = false;
+  const history: ScanCache = new Map();
+  // Older ledgers collapsed Claude rows; replace that evidence when raw files return.
+  const collapsedClaudeFiles = new Set<string>();
+  let historyDirty = false;
+  let historyGeneration = 0;
 
   const ratesCachePath = path.join(config.stateDir, "usage-model-rates.json");
   const scanCachePath = path.join(config.stateDir, "usage-scan-cache.json");
+  const historyPath = path.join(config.stateDir, "usage-history.json");
   let rates: RateTable = new Map();
   let ratesFetchedAtMs: number | null = null;
   let ratesStatus: UsagePricing["status"] = "unavailable";
   // One fetch at a time. A burst of refreshes from several clients waits on
   // the first fetch and then sees a table young enough to skip its own.
   const ratesLock = yield* Semaphore.make(1);
+  const scanLock = yield* Semaphore.make(1);
 
   const pricing = (): UsagePricing => ({
     status: ratesStatus,
@@ -284,9 +301,93 @@ export const make = Effect.gen(function* () {
         : path.join(userHome, ".local", "share");
     const geminiHome = path.join(userHome, ".gemini");
 
-    const candidates = [
+    // Instances can choose separate log homes even when the legacy default
+    // settings are unchanged. Disabled instances still own historical usage.
+    const extraClaudeDirs: string[] = [];
+    const extraCodexDirs: string[] = [];
+    const extraGrokDirs: string[] = [];
+    const envValue = (
+      entries: readonly { name: string; value: string }[] | undefined,
+      name: string,
+    ) => {
+      const entry = entries?.find((value) => value.name === name);
+      return entry ? entry.value.trim() : hostEnvironment[name]?.trim();
+    };
+    if (hostEnvironment["CLAUDE_CONFIG_DIR"]?.trim()) {
+      extraClaudeDirs.push(
+        path.join(
+          path.resolve(expandHomePath(hostEnvironment["CLAUDE_CONFIG_DIR"]!.trim())),
+          "projects",
+        ),
+      );
+    }
+    if (hostEnvironment["CODEX_HOME"]?.trim()) {
+      const home = path.resolve(expandHomePath(hostEnvironment["CODEX_HOME"]!.trim()));
+      extraCodexDirs.push(path.join(home, "sessions"), path.join(home, "archived_sessions"));
+    }
+    for (const instance of Object.values(settings.providerInstances)) {
+      if (instance.driver === "claudeAgent") {
+        const cfg = yield* decodeClaudeUsageSettings(instance.config ?? {}).pipe(
+          Effect.mapError(
+            (cause) =>
+              new UsageReadError({
+                reason: "scanFailed",
+                detail: "A Claude usage instance has invalid settings.",
+                cause,
+              }),
+          ),
+        );
+        const configured = cfg.homePath.trim();
+        const inherited = envValue(instance.environment, "CLAUDE_CONFIG_DIR");
+        if (configured)
+          extraClaudeDirs.push(
+            yield* resolveClaudeTranscriptDir(path.resolve(expandHomePath(configured))),
+          );
+        else if (inherited)
+          extraClaudeDirs.push(path.join(path.resolve(expandHomePath(inherited)), "projects"));
+      } else if (instance.driver === "codex") {
+        const cfg = yield* decodeCodexUsageSettings(instance.config ?? {}).pipe(
+          Effect.mapError(
+            (cause) =>
+              new UsageReadError({
+                reason: "scanFailed",
+                detail: "A Codex usage instance has invalid settings.",
+                cause,
+              }),
+          ),
+        );
+        const layout = yield* resolveCodexHomeLayout(cfg);
+        const home = cfg.homePath.trim()
+          ? layout.sharedHomePath
+          : path.resolve(
+              expandHomePath(envValue(instance.environment, "CODEX_HOME") || layout.sharedHomePath),
+            );
+        extraCodexDirs.push(path.join(home, "sessions"), path.join(home, "archived_sessions"));
+      } else if (instance.driver === "grok") {
+        const home = envValue(instance.environment, "GROK_HOME");
+        if (home) extraGrokDirs.push(path.join(path.resolve(expandHomePath(home)), "sessions"));
+      }
+    }
+    const candidates: {
+      provider: UsageProviderKind;
+      dir: string;
+      fileName?: string;
+      extension?: string;
+      shallowFile?: string;
+    }[] = [
+      ...extraClaudeDirs.map((dir) => ({ provider: "claude" as const, dir })),
+      ...extraCodexDirs.map((dir) => ({ provider: "codex" as const, dir })),
+      ...extraGrokDirs.map((dir) => ({
+        provider: "grok" as const,
+        dir,
+        fileName: "updates.jsonl",
+      })),
       { provider: "claude" as const, dir: claudeDir },
       { provider: "codex" as const, dir: path.join(codexLayout.sharedHomePath, "sessions") },
+      {
+        provider: "codex" as const,
+        dir: path.join(codexLayout.sharedHomePath, "archived_sessions"),
+      },
       {
         provider: "grok" as const,
         dir: path.join(grokHome, "sessions"),
@@ -350,12 +451,68 @@ export const make = Effect.gen(function* () {
         Effect.flatMap((raw) => decodeScanCacheFile(raw)),
         Effect.catchCause(() => Effect.succeed(null)),
       );
-      if (document === null) return;
-      for (const [path, entry] of decodeScanCache(document)) fileCache.set(path, entry);
+      // Prefer the original row evidence to the intervening collapsed ledger.
+      // Collapsed-only missing files remain recoverable until their raw transcript returns.
+      const loadHistory = (retained: unknown) => {
+        const root = retained as Record<string, unknown> | null;
+        const originalRows =
+          root?.version === 5 ||
+          root?.version === 9 ||
+          root?.version === 10 ||
+          root?.historyVersion === 2;
+        const collapsed = new Set(
+          Array.isArray(root?.collapsedClaudeFiles) ? root.collapsedClaudeFiles : [],
+        );
+        for (const [filePath, entry] of decodeUsageHistory(retained)) {
+          const isCollapsed =
+            entry.provider === "claude" && (!originalRows || collapsed.has(filePath));
+          const prior = history.get(filePath);
+          if (isCollapsed && prior && !collapsedClaudeFiles.has(filePath)) continue;
+          history.set(filePath, entry);
+          if (isCollapsed) collapsedClaudeFiles.add(filePath);
+          else collapsedClaudeFiles.delete(filePath);
+        }
+      };
+      for (const candidate of [
+        path.join(config.stateDir, "usage-scan-cache-v5.json"),
+        historyPath,
+      ]) {
+        const retained = yield* fileSystem.readFileString(candidate).pipe(
+          Effect.flatMap((raw) => decodeScanCacheFile(raw)),
+          Effect.catchCause(() => Effect.succeed(null)),
+        );
+        loadHistory(retained);
+      }
+      loadHistory(document);
+      if (document !== null) {
+        for (const [filePath, entry] of decodeScanCache(document)) fileCache.set(filePath, entry);
+      }
+      historyDirty = history.size > 0;
     }),
   );
 
-  const persistScanCache = Effect.fn("UsageService.persistScanCache")(function* () {
+  const persistScanCacheUnlocked = Effect.fn("UsageService.persistScanCacheUnlocked")(function* () {
+    if (historyDirty) {
+      const generation = historyGeneration;
+      yield* encodeScanCacheFile({
+        ...encodeScanCache(history),
+        historyVersion: 2,
+        collapsedClaudeFiles: [...collapsedClaudeFiles],
+      }).pipe(
+        Effect.flatMap((serialized) =>
+          fileSystem.writeFileString(`${historyPath}.tmp`, serialized),
+        ),
+        Effect.andThen(fileSystem.rename(`${historyPath}.tmp`, historyPath)),
+        Effect.map(() => {
+          if (historyGeneration === generation) historyDirty = false;
+        }),
+        // A failed ledger write must be visible: otherwise deleting transcripts
+        // would silently erase usage again after the next process restart.
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not persist usage history", { cause }),
+        ),
+      );
+    }
     if (!cacheDirty) return;
     // Cleared only after the write lands, so a failed persist is retried on
     // the next scan instead of leaving disk permanently stale.
@@ -367,6 +524,10 @@ export const make = Effect.gen(function* () {
       // A cache we cannot write is a slower next start, not a failed read.
       Effect.catchCause(() => Effect.void),
     );
+  });
+
+  const persistScanCache = Effect.fn("UsageService.persistScanCache")(function* () {
+    yield* scanLock.withPermit(persistScanCacheUnlocked());
   });
 
   /**
@@ -382,7 +543,7 @@ export const make = Effect.gen(function* () {
     size: number,
     mtimeMs: number,
     provider: UsageProviderKind,
-  ): Effect.Effect<readonly UsageRecord[]> =>
+  ): Effect.Effect<{ records: readonly UsageRecord[]; malformedRecords: number } | null> =>
     Effect.gen(function* () {
       const cached = fileCache.get(filePath);
       // Provider is part of the identity: if both providers were ever pointed
@@ -393,9 +554,13 @@ export const make = Effect.gen(function* () {
         cached.mtimeMs === mtimeMs &&
         cached.provider === provider
       ) {
-        return cached.tailRecords.length === 0
-          ? cached.records
-          : [...cached.records, ...cached.tailRecords];
+        return {
+          records:
+            cached.tailRecords.length === 0
+              ? cached.records
+              : [...cached.records, ...cached.tailRecords],
+          malformedRecords: cached.malformedRecords ?? 0,
+        };
       }
 
       // Only a strictly grown file may resume. Same size with a new mtime, or
@@ -410,7 +575,7 @@ export const make = Effect.gen(function* () {
       );
       // A read failure is not an empty transcript: caching it under this
       // (size, mtime) would silently drop the file's usage until it changes.
-      if (parsed === null) return [];
+      if (parsed === null) return null;
 
       // Stored already de-duplicated within the file, which is 99% of all
       // duplicates. The aggregator still runs the cross-file dedupe pass. One
@@ -421,16 +586,22 @@ export const make = Effect.gen(function* () {
       const records = dedupeWithinFile([...base, ...parsed.records], seen);
       const tailRecords = dedupeWithinFile(parsed.tailRecords, seen);
 
+      const malformedRecords =
+        (parsed.resumed ? (cached?.malformedRecords ?? 0) : 0) + (parsed.malformedRecords ?? 0);
       fileCache.set(filePath, {
         size,
         mtimeMs,
         provider,
         records,
         tailRecords,
+        malformedRecords,
         position: parsed.position,
       });
       cacheDirty = true;
-      return tailRecords.length === 0 ? records : [...records, ...tailRecords];
+      return {
+        records: tailRecords.length === 0 ? records : [...records, ...tailRecords],
+        malformedRecords,
+      };
     });
 
   /** One provider directory's walk and parse, before rates are involved. */
@@ -438,6 +609,9 @@ export const make = Effect.gen(function* () {
     readonly provider: UsageProviderKind;
     readonly dir: string;
     readonly volumeId: string;
+    readonly readFailures: number;
+    readonly malformedRecords: number;
+    readonly retainedFiles?: number;
     /** Parsed records per file, or `null` when the directory does not exist. */
     readonly files:
       | readonly { readonly path: string; readonly records: readonly UsageRecord[] }[]
@@ -453,41 +627,107 @@ export const make = Effect.gen(function* () {
     const dirs = yield* resolveTranscriptDirs(settings).pipe(
       Effect.provideService(Path.Path, path),
     );
+    for (const [filePath, entry] of history) {
+      const dir = usageHistoryRoot(filePath);
+      if (
+        !dirs.some((candidate) => candidate.provider === entry.provider && candidate.dir === dir)
+      ) {
+        dirs.push({ provider: entry.provider, dir });
+      }
+    }
     const scanned: ScannedDir[] = [];
+    const seenPhysicalDirs = new Set<string>();
     for (const { provider, dir, fileName, extension, shallowFile } of dirs) {
+      let readFailures = 0;
+      let malformedRecords = 0;
       const volumeId = yield* Effect.promise(() => readDirectoryVolumeId(dir));
-      const exists = yield* fileSystem
-        .exists(dir)
-        .pipe(Effect.catchCause(() => Effect.succeed(false)));
+      const physicalId = `${provider}:${volumeId}`;
+      if (volumeId && seenPhysicalDirs.has(physicalId)) continue;
+      if (volumeId) seenPhysicalDirs.add(physicalId);
+      const exists = yield* fileSystem.exists(dir).pipe(
+        Effect.catchCause(() =>
+          Effect.sync(() => {
+            readFailures += 1;
+            return false;
+          }),
+        ),
+      );
       if (!exists) {
-        scanned.push({ provider, dir, volumeId, files: null });
+        scanned.push({ provider, dir, volumeId, readFailures, malformedRecords, files: null });
         continue;
       }
       const listOptions: {
         fileName?: string;
         extension?: string;
         shallowFile?: string;
-      } = {};
+        onError: () => void;
+      } = {
+        onError: () => {
+          readFailures += 1;
+        },
+      };
       if (fileName !== undefined) listOptions.fileName = fileName;
       if (extension !== undefined) listOptions.extension = extension;
       if (shallowFile !== undefined) listOptions.shallowFile = shallowFile;
       const files = yield* Effect.promise(() =>
-        listTranscriptFiles(
-          dir,
-          windowStartMs,
-          fileName === undefined && extension === undefined && shallowFile === undefined
-            ? undefined
-            : listOptions,
-        ),
+        listTranscriptFiles(dir, windowStartMs, listOptions),
       );
       const parsedFiles: { path: string; records: readonly UsageRecord[] }[] = [];
       for (const file of files) {
-        const records = yield* readFileRecords(file.path, file.size, file.mtimeMs, provider);
-        parsedFiles.push({ path: file.path, records });
+        const parsed = yield* readFileRecords(file.path, file.size, file.mtimeMs, provider);
+        if (parsed === null) readFailures += 1;
+        malformedRecords += parsed?.malformedRecords ?? 0;
+        parsedFiles.push({ path: file.path, records: parsed?.records ?? [] });
       }
-      scanned.push({ provider, dir, volumeId, files: parsedFiles });
+      scanned.push({ provider, dir, volumeId, readFailures, malformedRecords, files: parsedFiles });
     }
-    return scanned;
+    const live = new Set(scanned.flatMap((source) => source.files?.map((file) => file.path) ?? []));
+    const withHistory = scanned.map((source) => ({
+      ...source,
+      files:
+        source.files?.map((file) => {
+          const parsed = fileCache.get(file.path);
+          if (!parsed) return file;
+          const old = history.get(file.path);
+          const currentKeys = new Set(file.records.map((record) => record.dedupeKey));
+          const prior =
+            old && !collapsedClaudeFiles.has(file.path) ? [...old.records, ...old.tailRecords] : [];
+          // Legacy Antigravity caches counted step copies. Raw generation links
+          // replace those step identities; don't retain both accounting formats.
+          const retained =
+            source.provider === "antigravity"
+              ? prior.filter(
+                  (record) =>
+                    record.dedupeKey?.includes(":generation:") || currentKeys.has(record.dedupeKey),
+                )
+              : prior;
+          const records = mergeUsageHistoryRecords(retained, file.records);
+          collapsedClaudeFiles.delete(file.path);
+          history.set(file.path, { ...parsed, records, tailRecords: [] });
+          historyDirty = true;
+          return { ...file, records };
+        }) ?? null,
+    }));
+    return withHistory.map((source) => {
+      const retained = [...history].filter(
+        ([filePath, entry]) =>
+          entry.provider === source.provider &&
+          !live.has(filePath) &&
+          filePath.startsWith(`${source.dir}${path.sep}`),
+      );
+      if (retained.length === 0) return source;
+      return {
+        ...source,
+        retainedFiles: retained.length,
+        files: [
+          ...(source.files ?? []),
+          ...retained.map(([filePath, entry]) => ({
+            path: filePath,
+            records: [...entry.records, ...entry.tailRecords],
+          })),
+        ],
+      };
+    });
   });
 
   const scanSummary = Effect.fn("UsageService.scanSummary")(function* (
@@ -583,20 +823,37 @@ export const make = Effect.gen(function* () {
     const livePaths = new Set<string>();
     const walkedRoots: string[] = [];
 
-    for (const { provider, dir, volumeId, files } of scannedDirs) {
+    for (const {
+      provider,
+      dir,
+      volumeId,
+      files,
+      readFailures,
+      malformedRecords,
+      retainedFiles,
+    } of scannedDirs) {
       if (files === null) {
         sources.push({
           fingerprint: { hostId, provider, resolvedHomePath: dir, volumeId },
-          status: "missing",
+          status: readFailures > 0 ? "failed" : "missing",
           scannedFiles: 0,
           skippedFiles: 0,
           malformedRecords: 0,
           distinctSessions: 0,
-          message: "No transcript directory on this environment.",
+          message:
+            readFailures > 0
+              ? "The transcript directory could not be checked."
+              : "No transcript directory on this environment.",
         });
         continue;
       }
 
+      const sourceId = usageSourceFingerprintKey({
+        hostId,
+        provider,
+        resolvedHomePath: dir,
+        volumeId,
+      });
       walkedRoots.push(dir);
       let scannedFiles = 0;
       let skippedFiles = 0;
@@ -615,20 +872,27 @@ export const make = Effect.gen(function* () {
         for (const record of file.records) {
           // Only sessions that contributed in-window count: the mtime slack
           // admits boundary files whose records fall outside the range.
-          if (!aggregator.add(record)) continue;
-          projects.add(project, record);
+          if (!aggregator.add(record, sourceId)) continue;
+          projects.add(project, record, sourceId);
           if (record.sessionId.length > 0) sessionIds.add(record.sessionId);
         }
       }
 
       sources.push({
         fingerprint: { hostId, provider, resolvedHomePath: dir, volumeId },
-        status: "ok",
+        status: readFailures > 0 || malformedRecords > 0 ? "partial" : "ok",
         scannedFiles,
         skippedFiles,
-        malformedRecords: 0,
+        malformedRecords,
         distinctSessions: sessionIds.size,
-        message: null,
+        message:
+          readFailures > 0
+            ? `${readFailures} transcript paths could not be read; totals are incomplete.`
+            : malformedRecords > 0
+              ? `${malformedRecords} malformed usage records were excluded; totals are incomplete.`
+              : retainedFiles
+                ? `${retainedFiles} retained transcript files included from recorded usage history.`
+                : null,
       });
     }
 
@@ -640,6 +904,21 @@ export const make = Effect.gen(function* () {
     });
     if (pruned > 0) cacheDirty = true;
     yield* persistScanCache();
+    if (historyDirty) {
+      for (let index = 0; index < sources.length; index += 1) {
+        const source = sources[index]!;
+        sources[index] = {
+          ...source,
+          status: source.status === "ok" ? "partial" : source.status,
+          message: [
+            source.message,
+            "Usage history could not be saved; lifetime totals are not durable.",
+          ]
+            .filter(Boolean)
+            .join(" "),
+        };
+      }
+    }
 
     const aggregated = aggregator.finish();
     const readAt = yield* DateTime.now;

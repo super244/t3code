@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-17 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=2m; seat=antigravity; date=2026-10-02 */
 // @effect-diagnostics nodeBuiltinImport:off
@@ -42,8 +43,9 @@ function antigravityMetadata(): Buffer {
         fieldVarint(2, 1000),
         fieldVarint(3, 50),
         fieldVarint(5, 200),
-        fieldVarint(9, 10),
-        fieldVarint(10, 7),
+        fieldVarint(4, 10),
+        fieldVarint(9, 7),
+        fieldVarint(10, 43),
       ]),
     ),
     fieldBytes(24, fieldBytes(8, Buffer.from("gemini-3.8-flash"))),
@@ -124,10 +126,41 @@ describe("readSqliteUsageRecords", () => {
         uncachedInputTokens: 1000,
         cachedInputTokens: 200,
         cacheCreationTokens: 10,
-        outputTokens: 57,
+        outputTokens: 50,
         reasoningTokens: 7,
       },
     });
     await NodeFSP.rm(dir, { recursive: true, force: true });
+  });
+  it("resolves served models through packed generation step indices, not row indices", async () => {
+    const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "antigravity-model-"));
+    try {
+      const file = NodePath.join(dir, "session.db");
+      const db = new NodeSqlite.DatabaseSync(file);
+      db.exec(
+        "CREATE TABLE steps (idx INTEGER, step_type INTEGER, metadata BLOB); CREATE TABLE gen_metadata (idx INTEGER, data BLOB)",
+      );
+      db.prepare("INSERT INTO steps VALUES (?,15,?)").run(42, antigravityMetadata());
+      db.prepare("INSERT INTO steps VALUES (?,15,?)").run(43, antigravityMetadata());
+      db.prepare("INSERT INTO gen_metadata VALUES (?,?)").run(
+        3,
+        Buffer.concat([
+          fieldBytes(1, fieldBytes(19, Buffer.from("gemini-3.6-flash-tiered"))),
+          fieldBytes(2, Buffer.concat([varint(42), varint(43)])),
+        ]),
+      );
+      db.close();
+      const rows = readSqliteUsageRecords(file, "antigravity");
+      expect(rows).toHaveLength(1);
+      expect(rows?.[0]?.dedupeKey).toBe("antigravity:session:generation:3");
+      expect(rows?.[0]?.model).toBe("gemini-3.6-flash");
+      expect(rows?.[0]?.totals).toMatchObject({
+        outputTokens: 50,
+        reasoningTokens: 7,
+        cacheCreationTokens: 10,
+      });
+    } finally {
+      await NodeFSP.rm(dir, { recursive: true, force: true });
+    }
   });
 });

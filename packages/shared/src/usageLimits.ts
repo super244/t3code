@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=8m; seat=codex; date=2026-10-17 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-15 */
 /**
  * Selection and pace maths for the provider limits view, shared by web and
  * mobile so both agree on which providers show, what "ahead of pace" means,
@@ -8,10 +10,10 @@
 import {
   type EnvironmentId,
   type UsageLimitsReport,
+  isProviderAvailable,
   type ProviderInstanceId,
   type ProviderConsumeResetCreditInput,
   type ServerProviderSlashCommand,
-  isProviderAvailable,
   type ServerProvider,
   type ServerProviderUsageLimits,
   type ServerProviderUsageWindow,
@@ -311,9 +313,9 @@ export function collectLimitAccounts(
 
 /**
  * What the pooled views cannot draw as a bar: a hub that failed to read, a
- * provider whose probe failed. Accounts that can never report (API keys)
- * are left out; there is nothing for the user to act on. The environment
- * is named only when more than one is connected.
+ * provider whose probe failed, or an account that cannot report (API keys).
+ * Missing quota must remain visible even when another account has bars.
+ * The environment is named only when more than one is connected.
  */
 export function collectLimitNotices(
   presentations: Parameters<typeof collectLimitSources>[0],
@@ -323,11 +325,16 @@ export function collectLimitNotices(
   const notices: string[] = [];
   for (const presentation of presentations.values()) {
     const environmentLabel = presentation.entry.target.label;
-    for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
-      // An account that can never report (API key) is left out; one that
-      // failed, or reported nothing at all, is worth a line.
-      if (provider.usageLimits?.unavailable?.reason === "unsupported") continue;
-      const notice = provider.usageLimits ? limitsNotice(provider.usageLimits) : null;
+    for (const provider of presentation.serverConfig?.providers ?? []) {
+      if (
+        !provider.enabled ||
+        !provider.installed ||
+        !["codex", "claudeAgent", "antigravity"].includes(provider.driver)
+      )
+        continue;
+      const notice = provider.usageLimits
+        ? limitsNotice(provider.usageLimits)
+        : "Quota has not been read. Refresh limits or check provider sign-in.";
       const name = provider.displayName?.trim() || String(provider.driver);
       if (notice) notices.push(`${label(environmentLabel, name)}: ${notice}`);
     }
@@ -491,7 +498,7 @@ function poolWindows(accounts: readonly LimitAccount[], now: number): readonly L
 /** The one-line status under a provider heading when there are no bars to draw. */
 export function limitsNotice(limits: ServerProviderUsageLimits): string | null {
   if (limits.unavailable?.reason === "unsupported") {
-    return limits.unavailable.message ?? "This account has no subscription limits.";
+    return limits.unavailable.message ?? "Subscription limits unavailable for this account.";
   }
   if (limits.unavailable?.reason === "probeFailed") {
     return limits.unavailable.message ?? "Could not read limits.";
@@ -740,4 +747,20 @@ export function collectProviderUsageLimits(
     }
   }
   return { createdAt: DateTime.formatIso(DateTime.makeUnsafe(now)), accounts, notices };
+}
+
+/** Snapshot age is separate from a reset countdown: an old quota must not look live. */
+export function quotaSnapshotAge(
+  checkedAt: string,
+  now: number,
+): { label: string; stale: boolean } {
+  const at = Date.parse(checkedAt);
+  if (!Number.isFinite(at) || !Number.isFinite(now) || at > now + MINUTE) {
+    return { label: "Read time unavailable · refresh limits", stale: true };
+  }
+  const age = Math.max(0, now - at);
+  return {
+    label: age < MINUTE ? "Read just now" : `Read ${formatDuration(age)} ago`,
+    stale: age >= 15 * MINUTE,
+  };
 }

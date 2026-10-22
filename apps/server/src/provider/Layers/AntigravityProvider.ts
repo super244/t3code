@@ -1,9 +1,11 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-17 */
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   ProviderDriverKind,
   type AntigravitySettings,
   type ProviderSetupError,
   type ServerProvider,
+  type ServerProviderUsageLimits,
   type ServerProviderModel,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
@@ -123,6 +125,7 @@ interface AntigravityProviderOptions {
     EffectAcpErrors.AcpError | ProviderSetupError
   >;
   readonly supportsTextGeneration: Effect.Effect<boolean>;
+  readonly usageProbe?: Effect.Effect<ServerProviderUsageLimits>;
   readonly maintenanceCapabilities?: ProviderMaintenanceCapabilities;
   /** Auth type and label published once a session authenticates. */
   readonly auth?: { readonly type: string; readonly label: string };
@@ -192,11 +195,13 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
               : `Antigravity did not respond to its local health check within ${HEALTH_CHECK_TIMEOUT}.`;
     const supportsTextGeneration =
       initialized !== undefined ? yield* options.supportsTextGeneration : false;
+    const usageLimits = options.usageProbe ? yield* options.usageProbe : undefined;
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
     const next = yield* SubscriptionRef.updateAndGet(metadata, (state) => {
       if (state.authRevision !== before.authRevision) return state;
       const { message: _previousMessage, ...draft } = state.draft;
-      const authenticated = draft.auth.status === "authenticated";
+      const authenticated =
+        draft.auth.status === "authenticated" || Boolean(usageLimits?.windows.length);
       const message =
         errorMessage ??
         (authenticated
@@ -208,6 +213,10 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
         ...state,
         draft: {
           ...draft,
+          ...(usageLimits ? { usageLimits } : {}),
+          ...(usageLimits?.windows.length
+            ? { auth: { ...draft.auth, status: "authenticated" as const } }
+            : {}),
           installed: !missingInstallation,
           version: initialized?.agentInfo?.version || draft.version,
           status: errorMessage ? "error" : authenticated ? "ready" : "warning",
@@ -359,6 +368,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
           draft: {
             ...state.draft,
             auth: { status: "unauthenticated" },
+            usageLimits: undefined,
             status: settings.enabled ? "warning" : "disabled",
             message: SIGN_IN_MESSAGE,
             checkedAt: updatedAt,

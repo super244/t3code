@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-14 */
 import type { UsageProjectTotals, UsageProviderKind } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
@@ -98,6 +100,7 @@ export const resolveTranscriptProjects = (
   });
 
 interface MutableProject {
+  sourceId: string;
   provider: UsageProviderKind;
   project: TranscriptProject;
   totals: UsageProjectTotals["totals"];
@@ -120,11 +123,12 @@ export class UsageProjectAggregator {
     this.#priceOverrides = priceOverrides;
   }
 
-  add(project: TranscriptProject, record: UsageRecord): void {
-    const key = `${record.provider}\u0000${project.projectPath ?? `~${project.name}`}`;
+  add(project: TranscriptProject, record: UsageRecord, sourceId = ""): void {
+    const key = `${record.provider}\u0000${project.projectPath ?? `~${project.name}`}\u0000${sourceId}`;
     let entry = this.#projects.get(key);
     if (entry === undefined) {
       entry = {
+        sourceId,
         provider: record.provider,
         project,
         totals: EMPTY_TOTALS,
@@ -142,6 +146,8 @@ export class UsageProjectAggregator {
       record.totals,
       record.reportedCostUsd,
       this.#priceOverrides,
+      record.cacheCreation1hTokens,
+      record.pricingUnsupported,
     ).costUsd;
     entry.costUsd += recordCost;
     const model = entry.models.get(record.model) ?? { costUsd: 0, totalTokens: 0 };
@@ -159,6 +165,7 @@ export class UsageProjectAggregator {
   finish(): UsageProjectTotals[] {
     return [...this.#projects.values()]
       .map((entry) => ({
+        ...(entry.sourceId ? { sourceId: entry.sourceId } : {}),
         provider: entry.provider,
         projectPath: entry.project.projectPath,
         name: entry.project.name,

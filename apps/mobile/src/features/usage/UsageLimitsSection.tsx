@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=8m; seat=codex; date=2026-10-17 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 import { useAtomValue } from "@effect/atom-react";
 import type {
@@ -16,6 +17,7 @@ import {
   limitsNotice,
   paceOf,
   remainingPercent,
+  quotaSnapshotAge,
 } from "@t3tools/shared/usageLimits";
 import { type ReactNode, useState } from "react";
 import { Alert, Pressable, View } from "react-native";
@@ -150,6 +152,7 @@ export function AccountLimits(props: {
   const color = useBarColor(props.driver);
   if (!limits) return null;
   const notice = limitsNotice(limits);
+  const age = quotaSnapshotAge(limits.checkedAt, now);
   const padding = dense ? "px-4 py-3" : "p-4";
   return (
     <View
@@ -172,6 +175,10 @@ export function AccountLimits(props: {
         </View>
         {props.trailing}
       </View>
+      <Text className="text-xs text-foreground-tertiary">
+        {age.label}
+        {age.stale ? " · refresh limits" : ""}
+      </Text>
       {notice ? (
         <Text className="text-sm text-foreground-muted">{notice}</Text>
       ) : (

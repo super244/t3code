@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=125m; seat=codex; date=2026-10-14 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-10 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=30m; seat=codex; date=2026-10-08 */
@@ -1429,6 +1430,8 @@ export const RoutineClientMutation = Schema.Union([
   Schema.Struct({
     _tag: Schema.Literal("RoutineAction"),
     action: Schema.Literals(["run-now", "pause", "resume"]),
+    /** Reviewed configuration for batch controls; reject the whole patch if it changed. */
+    expected: Schema.optionalKey(RoutineConfiguration),
   }),
   Schema.Struct({
     _tag: Schema.Literal("RoutineEdit"),

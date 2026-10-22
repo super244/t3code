@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 /**
  * Usage reporting contract.
@@ -23,11 +24,12 @@ import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
  * client renders partial coverage when an environment reports an older version
  * rather than failing the whole page.
  */
-export const USAGE_CONTRACT_VERSION = 6 as const;
+export const USAGE_CONTRACT_VERSION = 7 as const;
 
 /**
  * Oldest {@link UsageSummary} version a current client will still merge.
  *
+ * v7 attributes buckets/projects to physical sources for overlap-safe merges.
  * v6 adds `opencode` and `antigravity`. v5 only adds `grok`. v4 Claude/Codex
  * buckets remain valid, so mixed-version environments keep those totals
  * instead of treating every older server as stale.
@@ -97,6 +99,8 @@ export type UsageTokenTotals = typeof UsageTokenTotals.Type;
  * to `costUsd`.
  */
 export const UsageBucket = Schema.Struct({
+  /** Physical source owning this bucket, for overlap-safe environment merges. */
+  sourceId: Schema.optional(Schema.String),
   day: UsageDay,
   hourStart: Schema.optional(TrimmedNonEmptyString),
   provider: UsageProviderKind,
@@ -141,6 +145,15 @@ export const UsageSourceFingerprint = Schema.Struct({
   volumeId: Schema.String,
 });
 export type UsageSourceFingerprint = typeof UsageSourceFingerprint.Type;
+
+export function usageSourceFingerprintKey(fingerprint: UsageSourceFingerprint): string {
+  return JSON.stringify([
+    fingerprint.hostId,
+    fingerprint.provider,
+    fingerprint.resolvedHomePath,
+    fingerprint.volumeId,
+  ]);
+}
 
 export const UsageSourceStatus = Schema.Literals(["ok", "missing", "partial", "failed"]);
 export type UsageSourceStatus = typeof UsageSourceStatus.Type;
@@ -211,6 +224,7 @@ export const UsageProjectModel = Schema.Struct({
 export type UsageProjectModel = typeof UsageProjectModel.Type;
 
 export const UsageProjectTotals = Schema.Struct({
+  sourceId: Schema.optional(Schema.String),
   provider: UsageProviderKind,
   projectPath: Schema.NullOr(TrimmedNonEmptyString),
   name: TrimmedNonEmptyString,

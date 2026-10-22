@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-19 */
 /* agent-watermark: model=opus-5; effort=high; duration=38m; seat=claude-code; date=2026-10-04 */
 import {
   AuthAccessReadScope,
@@ -127,6 +128,10 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.vcsInit]: AuthOrchestrationOperateScope,
   [WS_METHODS.reviewGetDiffPreview]: AuthReviewWriteScope,
   [WS_METHODS.reviewGetDiffFileContents]: AuthReviewWriteScope,
+  // Recording or forgetting a race result changes server state the way Keep does.
+  [WS_METHODS.raceRecordResult]: AuthOrchestrationOperateScope,
+  [WS_METHODS.raceListHistory]: AuthOrchestrationReadScope,
+  [WS_METHODS.raceForgetResult]: AuthOrchestrationOperateScope,
   [WS_METHODS.terminalOpen]: AuthTerminalOperateScope,
   [WS_METHODS.terminalAttach]: AuthTerminalOperateScope,
   [WS_METHODS.terminalWrite]: AuthTerminalOperateScope,

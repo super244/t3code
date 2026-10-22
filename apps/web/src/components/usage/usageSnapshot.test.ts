@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=12m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=4m; seat=claude-code; date=2026-10-12 */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -35,6 +36,7 @@ afterEach(() => {
 const snapshot: UsageSnapshot = {
   savedAt: 1_000_000,
   costUsd: 12.5,
+  unpricedShare: 0.25,
   totalTokens: 2_400_000,
   sessions: 9,
   cachedInputTokens: 1_000_000,
@@ -75,6 +77,16 @@ describe("usage snapshot", () => {
     expect(readUsageSnapshot(key)).toBeNull();
     writeUsageSnapshot(key, snapshot);
     expect(readUsageSnapshot(key)).toEqual(snapshot);
+  });
+
+  it("does not reuse totals from before pricing coverage was recorded", () => {
+    const currentKey = usageSnapshotKey({
+      windowPreset: "30d",
+      provider: null,
+      environmentIds: ["env-a"],
+    });
+    values.set("t3code:usage-snapshot:v1:30d|all|env-a", JSON.stringify(snapshot));
+    expect(readUsageSnapshot(currentKey)).toBeNull();
   });
 
   it("treats corrupt stored values as no snapshot", () => {

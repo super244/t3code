@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=8m; seat=codex; date=2026-10-17 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=5m; seat=codex; date=2026-10-02 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=15m; seat=antigravity; date=2026-10-02 */
@@ -27,6 +29,7 @@ import {
   formatPercent,
   formatTokens,
   formatUsd,
+  formatUsageCost,
 } from "@t3tools/shared/usageFormat";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert, Platform, Pressable, RefreshControl, ScrollView, View } from "react-native";
@@ -168,6 +171,7 @@ export function UsageRouteScreen() {
       signal: request.signal,
       sourceIdentifier: exportSourceIdentifier,
       report: {
+        coverageIncomplete: comparisonCoverage !== "complete",
         merged,
         window,
         windowLabel,
@@ -599,6 +603,7 @@ export function UsageRouteScreen() {
               ) : (
                 <>
                   <ChartCard
+                    incomplete={comparisonCoverage !== "complete"}
                     merged={merged}
                     days={chartDays}
                     daily={chartTotals}
@@ -703,6 +708,7 @@ function SegmentedControl<Value extends number | string>(props: {
 
 /** Headline figure, the animated daily chart, and its legend, in one card. */
 function ChartCard(props: {
+  readonly incomplete: boolean;
   readonly merged: MergedUsage;
   readonly days: readonly string[];
   readonly daily: readonly DailyTotals[];
@@ -721,14 +727,20 @@ function ChartCard(props: {
     <View className="gap-4 rounded-[24px] border-continuous bg-card p-4">
       <View className="gap-0.5">
         <Text className="text-sm text-foreground-muted">
-          {metric === "cost" ? "Raw token cost" : "Processed tokens"}
+          {metric === "cost"
+            ? props.incomplete
+              ? "Known cost only"
+              : "API-equivalent cost"
+            : "Processed tokens"}
         </Text>
         <Text className="text-4xl font-t3-bold tabular-nums text-foreground">
           {metric === "cost" ? `${formatUsd(merged.costUsd)}*` : formatTokens(merged.totalTokens)}
         </Text>
         <Text className="text-sm text-foreground-muted">
           {metric === "cost"
-            ? "* if billed at full API rate"
+            ? props.incomplete
+              ? "* Incomplete estimate; actual usage may be higher"
+              : "* API-equivalent estimate, not billed"
             : `Across ${formatCount(merged.sessions)} sessions`}
         </Text>
       </View>
@@ -785,6 +797,8 @@ function ProviderSection(props: {
     return {
       provider,
       costUsd: existing?.costUsd ?? 0,
+      records: existing?.records ?? 0,
+      unpricedRecords: existing?.unpricedRecords ?? 0,
       totalTokens: existing?.totalTokens ?? 0,
       costShare: existing?.costShare ?? 0,
       tokenShare: existing?.tokenShare ?? 0,
@@ -816,7 +830,7 @@ function ProviderSection(props: {
               </View>
               <Text className="text-lg tabular-nums text-foreground">
                 {metric === "cost"
-                  ? formatUsd(provider.costUsd)
+                  ? formatUsageCost(provider.costUsd, provider.unpricedRecords, provider.records)
                   : formatTokens(provider.totalTokens)}
               </Text>
             </View>
@@ -830,7 +844,7 @@ function ProviderSection(props: {
             <Text className="text-sm text-foreground-muted">
               {metric === "cost"
                 ? `${formatPercent(share)} of cost · ${formatTokens(provider.totalTokens)} tokens`
-                : `${formatPercent(share)} of tokens · ${formatUsd(provider.costUsd)}`}
+                : `${formatPercent(share)} of tokens · ${formatUsageCost(provider.costUsd, provider.unpricedRecords, provider.records)}`}
             </Text>
           </View>
         );
@@ -1010,12 +1024,32 @@ function ModelsSection(props: { readonly merged: MergedUsage; readonly metric: U
   const colors = useProviderColors();
   const [query, setQuery] = useState("");
   const [limit, setLimit] = useState(20);
-  const models = selectUsageModels(merged.models, { metric, query });
+  const [needsPricing, setNeedsPricing] = useState(false);
+  const models = selectUsageModels(merged.models, { metric, query, needsPricing });
   if (merged.models.length === 0) return null;
 
   return (
     <SettingsSection title="By model" card>
       <View className="gap-2 p-4">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ selected: needsPricing }}
+          onPress={() => {
+            setNeedsPricing((current) => !current);
+            setLimit(20);
+          }}
+          className="min-h-11 justify-center rounded-md border border-border-subtle px-3"
+        >
+          <Text className="text-sm text-foreground">
+            {needsPricing ? "Showing models needing pricing · Show all" : "Needs pricing"}
+          </Text>
+        </Pressable>
+        {needsPricing ? (
+          <Text className="text-xs text-foreground-muted">
+            Unpriced records are excluded from known cost. Tokens include all records for each
+            model; partial models also contain priced records.
+          </Text>
+        ) : null}
         <TextInput
           accessibilityLabel="Search usage models"
           placeholder="Search model or provider"
@@ -1055,8 +1089,16 @@ function ModelsSection(props: { readonly merged: MergedUsage; readonly metric: U
               {PROVIDER_LABEL[model.provider]} · {formatPercent(model.costShare)} of cost ·{" "}
               {formatTokens(model.totalTokens)} tokens
             </Text>
+            {(model.unpricedRecords ?? 0) > 0 ? (
+              <Text className="text-xs text-foreground-muted">
+                {formatCount(model.unpricedRecords ?? 0)} of {formatCount(model.records)} records
+                unpriced
+              </Text>
+            ) : null}
           </View>
-          <Text className="text-base tabular-nums text-foreground">{formatUsd(model.costUsd)}</Text>
+          <Text className="text-base tabular-nums text-foreground">
+            {formatUsageCost(model.costUsd, model.unpricedRecords, model.records)}
+          </Text>
         </View>
       ))}
       {models.length > limit ? (
@@ -1104,5 +1146,11 @@ function usageEnvironmentStatus(environment: EnvironmentUsageStatus): string {
     return environment.summary ? "Usage unavailable · showing saved totals" : "Usage unavailable";
   if (isUsageLoading(environment))
     return environment.summary ? "Updating usage…" : "Loading usage…";
+  if (
+    environment.summary?.sources.some(
+      (source) => source.status === "partial" || source.status === "failed",
+    )
+  )
+    return "Incomplete history · usage may be higher";
   return "Usage up to date";
 }

@@ -1,3 +1,5 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=25m; seat=antigravity; date=2026-10-17 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=35m; seat=claude-code; date=2026-10-13 */
 // @effect-diagnostics nodeBuiltinImport:off globalFetch:off -- a loopback call to a local service, made from both Effect and plain callbacks; same footing as upstreamNightly.ts.
 /**
@@ -104,29 +106,97 @@ export const relayStructuredTurn = async (
 };
 
 /**
- * Report a session's cumulative cost to the relay ledger. Fire-and-forget:
- * a missing relay or a failed report never touches the turn.
+ * Report cumulative spend under an idempotent runtime scope. Acknowledgement
+ * failures are returned to the adapter so missing spend is visible.
  */
-export const reportClaudeSpend = (
+export const reportClaudeSpend = async (
   relay: ClaudeRelay | undefined,
   input: {
     readonly sessionId: string | undefined;
     readonly totalCostUsd: number | undefined;
     readonly apiKeySource: string | undefined;
     readonly resumed: boolean;
+    /** Per-process scope plus the SDK usage total read before any prompt. */
+    readonly accountingId?: string;
+    readonly baselineCostUsd?: number;
   },
-): void => {
-  if (!relay || !input.sessionId || typeof input.totalCostUsd !== "number") return;
-  void fetch(`${relay.baseUrl}/v1/ledger`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${relay.token}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      app: "t3code",
-      sessionId: input.sessionId,
-      totalCostUsd: input.totalCostUsd,
-      ...(input.apiKeySource ? { apiKeySource: input.apiKeySource } : {}),
-      resumed: input.resumed,
-    }),
-    signal: AbortSignal.timeout(5_000),
-  }).catch(() => undefined);
+): Promise<"reported" | "skipped" | "failed"> => {
+  if (!relay) return "skipped";
+  if (
+    !input.sessionId ||
+    typeof input.totalCostUsd !== "number" ||
+    !Number.isFinite(input.totalCostUsd) ||
+    input.totalCostUsd < 0
+  )
+    return "failed";
+  const scoped =
+    input.accountingId !== undefined &&
+    typeof input.baselineCostUsd === "number" &&
+    Number.isFinite(input.baselineCostUsd) &&
+    input.baselineCostUsd >= 0;
+  if (input.accountingId !== undefined && !scoped) return "failed";
+  const body = JSON.stringify({
+    app: "t3code",
+    sessionId: scoped ? `t3:${input.accountingId}:${input.sessionId}` : input.sessionId,
+    totalCostUsd: scoped
+      ? Math.max(0, input.totalCostUsd - input.baselineCostUsd!)
+      : input.totalCostUsd,
+    ...(input.apiKeySource ? { apiKeySource: input.apiKeySource } : {}),
+    resumed: scoped ? false : input.resumed,
+  });
+  // Retrying the same cumulative total is safe even if the first response
+  // was lost after the relay persisted it.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(`${relay.baseUrl}/v1/ledger`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${relay.token}`, "content-type": "application/json" },
+        body,
+        signal: AbortSignal.timeout(5_000),
+      });
+      const receipt = (await response.json().catch(() => null)) as { ok?: boolean } | null;
+      if (response.ok && receipt?.ok === true) return "reported";
+      if (response.status < 500 && response.status !== 429) return "failed";
+    } catch {
+      // Network errors can be transient; the second attempt shares the key.
+    }
+  }
+  return "failed";
+};
+
+export interface ClaudeRelayLedgerSummary {
+  readonly cycleStart: string;
+  readonly capUsd: number;
+  readonly creditsUsd: number;
+  readonly remainingUsd: number;
+  readonly subscriptionUsdEstimate?: number;
+  readonly turns?: number;
+  readonly estimatedUsd?: number;
+  readonly exhausted?: { readonly reason: string; readonly at: string; readonly until?: string } | null;
+}
+
+export interface ClaudeRelayStatus {
+  readonly creditKey?: { readonly present: boolean; readonly source?: string; readonly reason?: string };
+  readonly subscriptionToken?: { readonly present: boolean; readonly source?: string };
+  readonly nextTurnMode?: string;
+  readonly nextTurnReason?: string | null;
+  readonly fallback?: string;
+  readonly defaultModel?: string;
+  readonly ledger?: ClaudeRelayLedgerSummary;
+}
+
+export const fetchClaudeRelayStatus = async (
+  relay: ClaudeRelay | undefined,
+): Promise<ClaudeRelayStatus | undefined> => {
+  if (!relay) return undefined;
+  try {
+    const response = await fetch(`${relay.baseUrl}/v1/status`, {
+      headers: { authorization: `Bearer ${relay.token}` },
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (!response.ok) return undefined;
+    return (await response.json().catch(() => undefined)) as ClaudeRelayStatus | undefined;
+  } catch {
+    return undefined;
+  }
 };

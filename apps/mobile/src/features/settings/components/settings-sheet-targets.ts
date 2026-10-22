@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=24m; seat=codex; date=2026-10-19 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=13m; seat=codex; date=2026-10-01 */
 export type SettingsSheetTarget =
   | "SettingsEnvironments"
@@ -6,6 +7,7 @@ export type SettingsSheetTarget =
   | "SettingsProjectGrouping"
   | "SettingsClientStorage"
   | "SettingsRoutines"
+  | "SettingsRaceHistory"
   | "SettingsSkills"
   | "SettingsUsage";
 

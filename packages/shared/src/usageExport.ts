@@ -1,9 +1,11 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=10m; seat=codex; date=2026-10-01 */
 import type { UsageProviderKind, UsageSummaryInput } from "@t3tools/contracts";
 import type { MergedUsage } from "./usageMerge.ts";
 
 export interface UsageReportInput {
   readonly merged: MergedUsage;
+  readonly coverageIncomplete?: boolean;
   readonly window: UsageSummaryInput;
   readonly windowLabel: string;
   readonly metric: "cost" | "tokens";
@@ -36,6 +38,10 @@ export function makeUsageReport(input: UsageReportInput) {
       costQuality: merged.costQuality,
     },
     coverage: {
+      incomplete:
+        input.coverageIncomplete === true ||
+        merged.costQuality.unpricedShare > 0 ||
+        merged.staleEnvironments.length > 0,
       contributingEnvironments: merged.contributingEnvironments,
       staleEnvironments: merged.staleEnvironments,
       duplicateSources: merged.duplicateSources,
@@ -49,6 +55,7 @@ export function makeUsageReport(input: UsageReportInput) {
         totalTokens: entry?.totalTokens ?? 0,
         sessions: entry?.sessions ?? 0,
         records: entry?.records ?? 0,
+        unpricedRecords: entry?.unpricedRecords ?? 0,
         costShare: entry?.costShare ?? 0,
         tokenShare: entry?.tokenShare ?? 0,
       };
@@ -86,7 +93,13 @@ export function usageReportCsv(report: ReturnType<typeof makeUsageReport>): stri
     ["Cache Creation Tokens", report.summary.cacheCreationTokens],
     ["Output Tokens", report.summary.outputTokens],
     ["Reasoning Tokens", report.summary.reasoningTokens],
-    ["Cost USD", report.summary.costUsd],
+    ["Known Cost USD", report.summary.costUsd],
+    [
+      "Cost Coverage",
+      report.coverage.incomplete
+        ? "Incomplete; actual usage may be higher"
+        : "Recorded API-equivalent estimate",
+    ],
     ["Total Sessions", report.summary.sessions],
     ["Records", report.summary.records],
     ["Cache Savings USD", report.summary.costQuality.cacheSavingsUsd],
@@ -95,23 +108,25 @@ export function usageReportCsv(report: ReturnType<typeof makeUsageReport>): stri
     ["Model Priced Record Share", report.summary.costQuality.modelPricedShare],
     [],
     ["Harness Breakdown"],
-    ["Provider", "Total Tokens", "Cost USD", "Sessions", "Records"],
+    ["Provider", "Total Tokens", "Known Cost USD", "Sessions", "Records", "Unpriced Records"],
     ...report.providers.map((provider) => [
       provider.label,
       provider.totalTokens,
       provider.costUsd,
       provider.sessions,
       provider.records,
+      provider.unpricedRecords,
     ]),
     [],
     ["Model Breakdown"],
-    ["Provider", "Model", "Total Tokens", "Cost USD", "Records"],
+    ["Provider", "Model", "Total Tokens", "Known Cost USD", "Records", "Unpriced Records"],
     ...report.models.map((model) => [
       model.provider,
       model.model,
       model.totalTokens,
       model.costUsd,
       model.records,
+      model.unpricedRecords ?? 0,
     ]),
     [],
     ["Timeline Breakdown"],

@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=24m; seat=codex; date=2026-10-19 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=13m; seat=codex; date=2026-10-01 */
 import {
   createPathConfigForStaticNavigation,
@@ -58,6 +59,7 @@ import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnv
 import { SettingsLegalRouteScreen } from "./features/settings/SettingsLegalRouteScreen";
 import { SettingsProjectGroupingRouteScreen } from "./features/settings/SettingsProjectGroupingRouteScreen";
 import { SettingsRoutinesRouteScreen } from "./features/settings/SettingsRoutinesRouteScreen";
+import { SettingsRaceHistoryRouteScreen } from "./features/settings/SettingsRaceHistoryRouteScreen";
 import { SettingsSkillsRouteScreen } from "./features/settings/SettingsSkillsRouteScreen";
 import { UsageLimitAccountScreen } from "./features/usage/UsageLimitsPooled";
 import { UsageRouteScreen } from "./features/usage/UsageRouteScreen";
@@ -211,6 +213,11 @@ const SettingsContentStack = createNativeStackNavigator({
       screen: SettingsRoutinesRouteScreen,
       linking: "routines",
       options: { title: "Routines" },
+    }),
+    SettingsRaceHistory: createNativeStackScreen({
+      screen: SettingsRaceHistoryRouteScreen,
+      linking: "race-history",
+      options: { title: "Race history" },
     }),
     SettingsSkills: createNativeStackScreen({
       screen: SettingsSkillsRouteScreen,

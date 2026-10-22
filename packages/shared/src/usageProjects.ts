@@ -1,10 +1,13 @@
-import type {
-  EnvironmentId,
-  UsageProjectTotals,
-  UsageProviderKind,
-  UsageSourceFingerprint,
-  UsageSummary,
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
+import {
+  usageSourceFingerprintKey,
+  USAGE_CONTRACT_VERSION,
+  type EnvironmentId,
+  type UsageProjectTotals,
+  type UsageProviderKind,
+  type UsageSummary,
 } from "@t3tools/contracts";
+import { claimUsageSources } from "./usageMerge.ts";
 
 export interface ProjectUsage {
   /** Stable row key: the resolved path, or the label when the path is unknown. */
@@ -31,8 +34,7 @@ export interface ProjectUsageSummary {
   readonly partial: boolean;
 }
 
-const fingerprintKey = (f: UsageSourceFingerprint) =>
-  [f.hostId, f.provider, f.resolvedHomePath, f.volumeId].join(" ");
+const fingerprintKey = usageSourceFingerprintKey;
 
 const tokensOf = (row: UsageProjectTotals) =>
   row.totals.uncachedInputTokens +
@@ -54,15 +56,9 @@ export function mergeUsageProjects(
   filter: { readonly provider?: UsageProviderKind | null } = {},
 ): ProjectUsageSummary {
   const ordered = [...environments].sort((a, b) => a.environmentId.localeCompare(b.environmentId));
-  const owner = new Map<string, EnvironmentId>();
-  for (const environment of ordered) {
-    for (const source of environment.summary.sources) {
-      if (source.status === "missing") continue;
-      const key = fingerprintKey(source.fingerprint);
-      if (!owner.has(key)) owner.set(key, environment.environmentId);
-    }
-  }
-
+  const { ownerByFingerprint: owner } = claimUsageSources(
+    ordered.map((environment) => ({ ...environment, label: environment.environmentId })),
+  );
   let partial = false;
   const merged = new Map<
     string,
@@ -77,19 +73,40 @@ export function mergeUsageProjects(
     }
   >();
   for (const environment of ordered) {
+    if (
+      environment.summary.contractVersion < USAGE_CONTRACT_VERSION ||
+      environment.summary.sources.some(
+        (source) => source.status === "partial" || source.status === "failed",
+      )
+    )
+      partial = true;
     if (environment.summary.projects === undefined) {
       partial = true;
       continue;
     }
     const owned = new Set<UsageProviderKind>();
+    const ownedSources = new Set<string>();
     for (const source of environment.summary.sources) {
       if (source.status === "missing") continue;
       if (owner.get(fingerprintKey(source.fingerprint)) === environment.environmentId) {
         owned.add(source.fingerprint.provider);
+        ownedSources.add(fingerprintKey(source.fingerprint));
       }
     }
+    for (const provider of owned) {
+      if (
+        environment.summary.sources.some(
+          (source) =>
+            source.status !== "missing" &&
+            source.fingerprint.provider === provider &&
+            !ownedSources.has(fingerprintKey(source.fingerprint)),
+        )
+      )
+        owned.delete(provider);
+    }
     for (const row of environment.summary.projects) {
-      if (!owned.has(row.provider)) continue;
+      if (row.sourceId === undefined ? !owned.has(row.provider) : !ownedSources.has(row.sourceId))
+        continue;
       if (filter.provider && row.provider !== filter.provider) continue;
       const key = row.projectPath ?? `~${row.name}`;
       const entry = merged.get(key) ?? {

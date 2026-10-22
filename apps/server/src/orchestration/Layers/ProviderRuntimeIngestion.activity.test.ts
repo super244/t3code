@@ -1,3 +1,4 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-19 */
 import {
   EventId,
   ProviderDriverKind,
@@ -140,5 +141,32 @@ describe("runtimeEventToActivities tool streaming persistence", () => {
     expect(activities).toHaveLength(1);
     const payload = activities[0]?.payload as Record<string, unknown>;
     expect(payload.data).toEqual(streamingData);
+  });
+});
+
+describe("runtimeEventToActivities turn cost", () => {
+  const completed = (payload: Record<string, unknown>) =>
+    ({
+      ...base,
+      provider: ProviderDriverKind.make("claudeAgent"),
+      type: "turn.completed",
+      eventId: EventId.make("evt-turn-done"),
+      payload: { state: "completed", ...payload },
+    }) as ProviderRuntimeEvent;
+
+  it("keeps the cost a provider reports for its turn", () => {
+    const activities = runtimeEventToActivities(completed({ totalCostUsd: 0.0421 }));
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      kind: "turn.cost",
+      tone: "info",
+      payload: { totalCostUsd: 0.0421 },
+    });
+  });
+
+  it("records nothing when the provider reports no usable cost", () => {
+    expect(runtimeEventToActivities(completed({}))).toEqual([]);
+    expect(runtimeEventToActivities(completed({ totalCostUsd: Number.NaN }))).toEqual([]);
+    expect(runtimeEventToActivities(completed({ totalCostUsd: -1 }))).toEqual([]);
   });
 });

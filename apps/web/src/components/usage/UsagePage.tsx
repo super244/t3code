@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=8m; seat=codex; date=2026-10-17 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=30m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=20m; seat=codex; date=2026-10-02 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 */
@@ -49,6 +51,7 @@ import {
   formatPercent,
   formatTokens,
   formatUsd,
+  formatUsageCost,
 } from "@t3tools/shared/usageFormat";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -122,6 +125,13 @@ export function UsagePage() {
   const selectedProvider = preferences.provider ?? null;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshingRef = useRef(false);
+  const reportUrl = useRef<string | null>(null);
+  useEffect(
+    () => () => {
+      if (reportUrl.current !== null) URL.revokeObjectURL(reportUrl.current);
+    },
+    [],
+  );
   const [breakdown, setBreakdown] = useState<"model" | "project" | "time">("model");
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] =
     useState<ReadonlySet<EnvironmentId> | null>(null);
@@ -150,6 +160,7 @@ export function UsagePage() {
     writeUsageSnapshot(snapshotKey, {
       savedAt: Date.now(),
       costUsd: merged.costUsd,
+      unpricedShare: merged.costQuality.unpricedShare,
       totalTokens: merged.totalTokens,
       sessions: merged.sessions,
       cachedInputTokens: merged.cachedInputTokens,
@@ -202,15 +213,17 @@ export function UsagePage() {
     [isHourlyWindow, merged.daily, merged.hourly],
   );
   const [modelSearch, setModelSearch] = useState("");
+  const [needsPricing, setNeedsPricing] = useState(false);
   const [modelProviderFilter, setModelProviderFilter] = useState<string>("all");
   const filteredBreakdownModels = useMemo(
     () =>
       selectUsageModels(merged.models, {
         metric: metric === "tokens" ? "tokens" : "cost",
         query: modelSearch,
+        needsPricing,
         provider: modelProviderFilter === "all" ? null : modelProviderFilter,
       }),
-    [merged.models, metric, modelSearch, modelProviderFilter],
+    [merged.models, metric, modelSearch, modelProviderFilter, needsPricing],
   );
 
   const velocity = calculateUsageVelocity({
@@ -345,6 +358,7 @@ export function UsagePage() {
     if (metric === "limits") return;
     const exportedAt = new Date().toISOString();
     const report = makeUsageReport({
+      coverageIncomplete: comparisonCoverage !== "complete",
       merged,
       window,
       windowLabel,
@@ -361,12 +375,16 @@ export function UsagePage() {
       [format === "json" ? JSON.stringify(report, null, 2) : usageReportCsv(report)],
       { type: format === "json" ? "application/json" : "text/csv;charset=utf-8;" },
     );
+    // Electron can keep its native Save dialog open before consuming the blob.
+    // Retain this URL until the next export or page teardown instead of racing
+    // the download request with an immediate revoke.
+    if (reportUrl.current !== null) URL.revokeObjectURL(reportUrl.current);
     const url = URL.createObjectURL(blob);
+    reportUrl.current = url;
     const link = document.createElement("a");
     link.href = url;
     link.download = `t3-usage-${windowPreset}-${selectedProvider ?? "all"}-${exportedAt.slice(0, 10)}.${format}`;
     link.click();
-    URL.revokeObjectURL(url);
   };
   const exportUsage = () => exportReport("json");
   const exportUsageCsv = () => exportReport("csv");
@@ -660,10 +678,17 @@ export function UsagePage() {
                         {formatCount(merged.sessions)} sessions
                         {metric === "cost" ? (
                           <span className="block whitespace-nowrap">
-                            API-equivalent estimate, not billed
+                            {comparisonCoverage === "complete"
+                              ? "API-equivalent estimate, not billed"
+                              : "Known cost only · incomplete estimate"}
                           </span>
                         ) : null}
                       </span>
+                      {comparisonCoverage === "partial" ? (
+                        <span className="text-xs text-warning-foreground">
+                          Selected history is incomplete; usage may be higher.
+                        </span>
+                      ) : null}
                       {metric === "cost" && merged.costQuality.unpricedShare > 0 ? (
                         <span className="text-xs text-warning-foreground">
                           {formatPercent(merged.costQuality.unpricedShare)} of records are unpriced
@@ -702,7 +727,11 @@ export function UsagePage() {
                             </span>
                             <span className="shrink-0 text-sm font-medium text-foreground tabular-nums">
                               {metric === "cost"
-                                ? formatUsd(totals?.costUsd ?? 0)
+                                ? formatUsageCost(
+                                    totals?.costUsd ?? 0,
+                                    totals?.unpricedRecords,
+                                    totals?.records,
+                                  )
                                 : formatTokens(totals?.totalTokens ?? 0)}
                             </span>
                           </div>
@@ -724,7 +753,7 @@ export function UsagePage() {
                               ? `${sessionLabel} · no activity in this window`
                               : metric === "cost"
                                 ? `${sessionLabel} · ${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens`
-                                : `${sessionLabel} · ${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}`}
+                                : `${sessionLabel} · ${formatPercent(share)} of tokens · ${formatUsageCost(totals?.costUsd ?? 0, totals?.unpricedRecords, totals?.records)}`}
                           </span>
                         </div>
                       );
@@ -755,6 +784,7 @@ export function UsagePage() {
                     days={days}
                     daily={merged.daily}
                     metric={metric === "tokens" ? "tokens" : "cost"}
+                    costIncomplete={comparisonCoverage !== "complete"}
                   />
                 ) : null}
 
@@ -937,12 +967,21 @@ export function UsagePage() {
 
                     {breakdown === "model" ? (
                       <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant={needsPricing ? "secondary" : "outline"}
+                          aria-pressed={needsPricing}
+                          onClick={() => setNeedsPricing((current) => !current)}
+                        >
+                          Needs pricing
+                        </Button>
                         <div className="relative min-w-40 flex-1 sm:max-w-xs">
                           <SearchIcon className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
                           <Input
                             value={modelSearch}
                             onChange={(e) => setModelSearch(e.currentTarget.value)}
                             placeholder="Search models…"
+                            aria-label="Search usage models"
                             className="h-8 pl-8 text-xs"
                           />
                         </div>
@@ -975,6 +1014,13 @@ export function UsagePage() {
                     ) : null}
                   </div>
 
+                  {breakdown === "model" && needsPricing ? (
+                    <p className="text-xs text-muted-foreground">
+                      Unpriced records are excluded from known cost. Tokens include all records for
+                      each model; partial models also contain priced records. Provider invoices and
+                      subscription balances are separate.
+                    </p>
+                  ) : null}
                   {breakdown === "project" ? (
                     <UsageProjectBreakdown
                       summary={projectUsage}
@@ -1002,7 +1048,9 @@ export function UsagePage() {
                             <td colSpan={4} className="py-6 text-center text-muted-foreground">
                               {merged.models.length === 0
                                 ? "No activity in this window."
-                                : "No matching models."}
+                                : needsPricing
+                                  ? "No matching models need pricing."
+                                  : "No matching models."}
                             </td>
                           </tr>
                         ) : (
@@ -1014,16 +1062,26 @@ export function UsagePage() {
                               <td className="py-2 text-foreground">
                                 <span className="flex items-center gap-2">
                                   <ProviderMark provider={model.provider} className="size-3.5" />
-                                  {model.model}
+                                  <span className="min-w-0 break-words">{model.model}</span>
                                 </span>
+                                {(model.unpricedRecords ?? 0) > 0 ? (
+                                  <span className="text-xs text-amber-600 dark:text-amber-400">
+                                    {formatCount(model.unpricedRecords ?? 0)} of{" "}
+                                    {formatCount(model.records)} records unpriced
+                                  </span>
+                                ) : null}
                               </td>
-                              <td className="py-2 text-right text-foreground tabular-nums">
-                                {formatUsd(model.costUsd)}
+                              <td className="py-2 pl-2 text-right text-foreground tabular-nums">
+                                {formatUsageCost(
+                                  model.costUsd,
+                                  model.unpricedRecords,
+                                  model.records,
+                                )}
                               </td>
-                              <td className="py-2 text-right text-muted-foreground tabular-nums">
+                              <td className="py-2 pl-2 text-right text-muted-foreground tabular-nums">
                                 {formatPercent(model.costShare)}
                               </td>
-                              <td className="py-2 text-right text-muted-foreground tabular-nums">
+                              <td className="py-2 pl-2 text-right text-muted-foreground tabular-nums">
                                 {formatTokens(model.totalTokens)}
                               </td>
                             </tr>
@@ -1077,15 +1135,15 @@ export function UsagePage() {
                               {listedProviders.map((provider) => (
                                 <td
                                   key={provider}
-                                  className="py-2 text-right text-muted-foreground tabular-nums"
+                                  className="py-2 pl-2 text-right text-muted-foreground tabular-nums"
                                 >
                                   {formatUsd(period.byProvider.get(provider)?.costUsd ?? 0)}
                                 </td>
                               ))}
-                              <td className="py-2 text-right text-foreground tabular-nums">
+                              <td className="py-2 pl-2 text-right text-foreground tabular-nums">
                                 {formatUsd(period.costUsd)}
                               </td>
-                              <td className="py-2 text-right text-muted-foreground tabular-nums">
+                              <td className="py-2 pl-2 text-right text-muted-foreground tabular-nums">
                                 {formatTokens(period.totalTokens)}
                               </td>
                             </tr>
@@ -1264,8 +1322,13 @@ function UsageEnvironmentFilter({
       environment.error === null && (environment.isPending || environment.summary === null),
   ).length;
   const hasIssue =
-    selectedEnvironments.some((environment) => environment.error !== null) ||
-    staleEnvironments.length > 0;
+    selectedEnvironments.some(
+      (environment) =>
+        environment.error !== null ||
+        environment.summary?.sources.some(
+          (source) => source.status === "partial" || source.status === "failed",
+        ),
+    ) || staleEnvironments.length > 0;
 
   return (
     <>
@@ -1453,6 +1516,11 @@ function UsageLoadingState({
             {snapshot ? (
               <span className="text-xs text-muted-foreground tabular-nums">
                 {formatCount(snapshot.sessions)} sessions
+                {metric === "cost" && snapshot.unpricedShare > 0 ? (
+                  <span className="block text-warning-foreground">
+                    Known cost only · {formatPercent(snapshot.unpricedShare)} of records unpriced
+                  </span>
+                ) : null}
               </span>
             ) : (
               <Skeleton className="h-4 w-32" />

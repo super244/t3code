@@ -1,8 +1,12 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=25m; seat=antigravity; date=2026-10-14 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-14 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-13 */
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   claudeBillingEnvironment,
+  claudeUsageProbeEnvironment,
   promoCreditsDescriptor,
   readClaudeCredentials,
   wantsPromoCredits,
@@ -13,6 +17,28 @@ const none = { creditKey: undefined, subscriptionToken: undefined };
 const both = { creditKey: "sk-credit", subscriptionToken: "oat-sub" };
 
 describe("claudeBilling", () => {
+  it("probes subscription limits with the stored token instead of the credit/proxy key", () => {
+    const base = {
+      PATH: "/bin",
+      ANTHROPIC_API_KEY: "credit",
+      ANTHROPIC_AUTH_TOKEN: "proxy",
+      ANTHROPIC_BASE_URL: "http://localhost:9999",
+    };
+    expect(claudeUsageProbeEnvironment(base, both)).toEqual({
+      PATH: "/bin",
+      ANTHROPIC_API_KEY: "",
+      ANTHROPIC_AUTH_TOKEN: "",
+      ANTHROPIC_BASE_URL: "",
+      CLAUDE_CODE_OAUTH_TOKEN: "oat-sub",
+    });
+    expect(claudeUsageProbeEnvironment(base, none)).toEqual({
+      PATH: "/bin",
+      ANTHROPIC_API_KEY: "",
+      ANTHROPIC_AUTH_TOKEN: "",
+      ANTHROPIC_BASE_URL: "",
+    });
+    expect(base.ANTHROPIC_API_KEY).toBe("credit");
+  });
   it("never reads credentials under a test runner unless asked, and then never the real Keychain", () => {
     expect(readClaudeCredentials({ VITEST: "true" }, () => "keychain")).toEqual(none);
     expect(

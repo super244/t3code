@@ -1,3 +1,6 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=25m; seat=antigravity; date=2026-10-14 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=15m; seat=codex; date=2026-10-14 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=45m; seat=claude-code; date=2026-10-13 */
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off -- reads two macOS Keychain items (cached 30 s by wall clock) through /usr/bin/security, a local OS call outside the Effect platform services; same footing as claudeRelay.ts.
 /**
@@ -153,3 +156,17 @@ export const claudeBillingEnvironment = (
   env.CLAUDE_CODE_OAUTH_TOKEN = credentials.subscriptionToken;
   return { ok: true, billing: "subscription", env };
 };
+
+/** Subscription quota must be probed with its token, independently of API credits. */
+export const claudeUsageProbeEnvironment = (
+  base: NodeJS.ProcessEnv,
+  credentials: ClaudeCredentials,
+): NodeJS.ProcessEnv => ({
+  ...base,
+  ANTHROPIC_API_KEY: "",
+  ANTHROPIC_AUTH_TOKEN: "",
+  ANTHROPIC_BASE_URL: "",
+  ...(credentials.subscriptionToken
+    ? { CLAUDE_CODE_OAUTH_TOKEN: credentials.subscriptionToken }
+    : {}),
+});

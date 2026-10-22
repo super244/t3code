@@ -35,6 +35,10 @@
       "types": "./src/race.ts",
       "import": "./src/race.ts"
     },
+    "./raceHistory": {
+      "types": "./src/raceHistory.ts",
+      "import": "./src/raceHistory.ts"
+    },
     "./handoff": {
       "types": "./src/handoff.ts",
       "import": "./src/handoff.ts"

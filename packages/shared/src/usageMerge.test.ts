@@ -1,7 +1,10 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=8m; seat=codex; date=2026-10-17 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=60m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=26m; seat=codex; date=2026-10-01 */
 /* agent-watermark: model=grok-4.7; effort=default; duration=40m; seat=cursor; date=2026-09-30 */
 import {
   USAGE_CONTRACT_VERSION,
+  usageSourceFingerprintKey,
   USAGE_MERGE_COMPATIBLE_SINCE,
   type EnvironmentId,
   type UsageBucket,
@@ -10,6 +13,8 @@ import {
   type UsageSummary,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
+
+import { mergeUsageProjects } from "./usageProjects.ts";
 
 import {
   mergeUsage,
@@ -480,5 +485,117 @@ describe("model breakdown focus", () => {
       selectUsageModels(models, { metric: "cost", query: "fast", provider: "claude" }),
     ).toEqual([]);
     expect(selectUsageModels(models, { metric: "cost", query: "missing" })).toEqual([]);
+  });
+});
+
+describe("source-attributed usage", () => {
+  it("counts overlapping roots once while retaining each environment's unique roots", () => {
+    const roots = ["/shared", "/only-a", "/only-b"].map((homePath, index) => ({
+      hostId: "machine",
+      provider: "claude" as const,
+      homePath,
+      volumeId: `volume-${index}`,
+    }));
+    const a = summary([], roots.slice(0, 2));
+    const b = summary([], [roots[0]!, roots[2]!]);
+    const withBuckets = (value: UsageSummary) => ({
+      ...value,
+      buckets: value.sources.map((source) =>
+        bucket({ sourceId: usageSourceFingerprintKey(source.fingerprint), costUsd: 1 }),
+      ),
+    });
+    expect(
+      mergeUsage(
+        [environment("a", withBuckets(a)), environment("b", withBuckets(b))],
+        USAGE_CONTRACT_VERSION,
+      ).costUsd,
+    ).toBe(3);
+    const withProjects = (value: UsageSummary): UsageSummary => ({
+      ...value,
+      projects: value.sources.map((source) => ({
+        sourceId: usageSourceFingerprintKey(source.fingerprint),
+        provider: "claude",
+        projectPath: "/project",
+        name: "project",
+        totals: bucket().totals,
+        costUsd: 1,
+        records: 1,
+        sessions: 1,
+      })),
+    });
+    expect(
+      mergeUsageProjects([environment("a", withProjects(a)), environment("b", withProjects(b))])
+        .projects[0]?.costUsd,
+    ).toBe(3);
+  });
+
+  it("prefers a healthy snapshot over a failed environment that sorts first", () => {
+    const root = [{ hostId: "machine", provider: "claude" as const, homePath: "/shared" }];
+    const failed = summary([], root);
+    const failedSnapshot = {
+      ...failed,
+      sources: failed.sources.map((source) => ({ ...source, status: "failed" as const })),
+    };
+    const healthy = summary([bucket({ costUsd: 5 })], root);
+    expect(
+      mergeUsage(
+        [environment("a", failedSnapshot), environment("b", healthy)],
+        USAGE_CONTRACT_VERSION,
+      ).costUsd,
+    ).toBe(5);
+  });
+});
+
+describe("pricing-gap model inspection", () => {
+  it("keeps partial and fully unpriced models while preserving known totals and provider filters", () => {
+    const rows: ModelTotals[] = [
+      {
+        provider: "antigravity",
+        model: "trial",
+        costUsd: 0,
+        totalTokens: 1000,
+        records: 10,
+        unpricedRecords: 10,
+        costShare: 0,
+      },
+      {
+        provider: "antigravity",
+        model: "partial",
+        costUsd: 4,
+        totalTokens: 200,
+        records: 8,
+        unpricedRecords: 2,
+        costShare: 0.4,
+      },
+      {
+        provider: "claude",
+        model: "priced",
+        costUsd: 6,
+        totalTokens: 300,
+        records: 5,
+        costShare: 0.6,
+      },
+      {
+        provider: "codex",
+        model: "other",
+        costUsd: 0,
+        totalTokens: 20,
+        records: 1,
+        unpricedRecords: 1,
+        costShare: 0,
+      },
+    ];
+    const selected = selectUsageModels(rows, {
+      metric: "tokens",
+      needsPricing: true,
+      provider: "antigravity",
+    });
+    expect(selected).toEqual([rows[0], rows[1]]);
+    expect(selected[1]?.costShare).toBe(0.4);
+    expect(
+      selectUsageModels(rows, { metric: "cost", needsPricing: true, query: "partial" }),
+    ).toEqual([rows[1]]);
+    expect(selectUsageModels(rows, { metric: "cost", needsPricing: false })).toHaveLength(4);
+    expect(rows).toHaveLength(4);
   });
 });

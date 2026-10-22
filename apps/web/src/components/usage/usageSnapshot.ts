@@ -1,3 +1,4 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=12m; seat=codex; date=2026-10-15 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-12 */
 /**
  * Last-known usage totals for this browser.
@@ -8,15 +9,16 @@
  * the page. It is never treated as current.
  */
 import * as Schema from "effect/Schema";
-import { UsageProviderKind } from "@t3tools/contracts";
+import { USAGE_CONTRACT_VERSION, UsageProviderKind } from "@t3tools/contracts";
 
 import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalStorage";
 
-const STORAGE_PREFIX = "t3code:usage-snapshot:v1:";
+const STORAGE_PREFIX = `t3code:usage-snapshot:v2:contract-${USAGE_CONTRACT_VERSION}:`;
 
 const UsageSnapshotSchema = Schema.Struct({
   savedAt: Schema.Number,
   costUsd: Schema.Number,
+  unpricedShare: Schema.Number,
   totalTokens: Schema.Number,
   sessions: Schema.Number,
   cachedInputTokens: Schema.Number,

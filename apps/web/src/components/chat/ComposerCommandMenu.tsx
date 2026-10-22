@@ -1,3 +1,4 @@
+/* agent-watermark: model=gemini-3.8-flash; effort=high; duration=25m; seat=antigravity; date=2026-10-16 */
 import {
   formatProviderSkillDisplayName,
   resolveProviderSkillSourceKind,

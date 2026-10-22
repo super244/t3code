@@ -1,16 +1,11 @@
+/* agent-watermark: model=opus-5.5; effort=high; duration=8m; seat=claude-code; date=2026-10-19 */
+/* agent-watermark: model=opus-5.5; effort=high; duration=1m; seat=claude-code; date=2026-10-18 */
 /* agent-watermark: model=haiku-5.5; effort=high; duration=12m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=5m; seat=claude-code; date=2026-10-12 */
 /* agent-watermark: model=gemini-3.8-flash; effort=high; duration=10m; seat=antigravity; date=2026-10-10 */
 /* agent-watermark: model=opus-5.5; effort=high; duration=85m; seat=claude-code; date=2026-10-04 */
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import {
-  DEFAULT_PROVIDER_INTERACTION_MODE,
-  DEFAULT_RUNTIME_MODE,
-  type ModelSelection,
-  type ServerProvider,
-} from "@t3tools/contracts";
-import { buildRaceBranchName, createRaceId, RACE_MAX_ENTRANTS } from "@t3tools/shared/race";
-import { truncate } from "@t3tools/shared/String";
+import { createRaceId, RACE_MAX_ENTRANTS } from "@t3tools/shared/race";
 import { FlagIcon, PlusIcon, XIcon } from "lucide-react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
 
@@ -22,12 +17,13 @@ import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { vcsEnvironment } from "../../state/vcs";
 import { getTriggerDisplayModelLabel, PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
+import { raceProviderLabel } from "./raceLabels";
+import { buildRaceStartTurns } from "./startRace";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import {
-  buildRaceEntrantTitle,
   defaultRaceEntrants,
   groupRaces,
   nextRaceEntrant,
@@ -44,7 +40,7 @@ interface RaceSelectOption {
 }
 
 /** The app's own select (popup, keyboard, theming), in the shape the Race form needs. */
-function RaceSelect({
+export function RaceSelect({
   ariaLabel,
   value,
   options,
@@ -96,17 +92,6 @@ function rememberProject(key: string) {
   const environmentId = key.slice(0, key.indexOf("\0"));
   rememberedProjectKeyByEnvironment.set(environmentId, key);
   rememberedEnvironmentId = environmentId;
-}
-
-export function raceProviderLabel(
-  provider: Pick<ServerProvider, "displayName" | "instanceId">,
-): string {
-  return provider.displayName?.trim() || provider.instanceId;
-}
-
-export function raceModelLabel(provider: ServerProvider | undefined, slug: string): string {
-  const model = provider?.models.find((item) => item.slug === slug);
-  return model ? getTriggerDisplayModelLabel(model) : slug;
 }
 
 export function RaceComposer() {
@@ -223,55 +208,26 @@ export function RaceComposer() {
     const raceId = createRaceId();
     const count = entrants.length;
     const text = prompt.trim();
-    const titleSeed = truncate(text);
     const createdAt = new Date().toISOString();
     try {
       // One bootstrap turn per entrant, shaped like ChatView's first send in
       // worktree mode; the server creates each worktree on its race branch.
       const results = await Promise.all(
-        entrants.map((entrant, index) => {
-          const provider = providers.find((item) => item.instanceId === entrant.instanceId)!;
-          const modelSelection: ModelSelection = {
-            instanceId: provider.instanceId,
+        buildRaceStartTurns({
+          environmentId: project.environmentId,
+          projectId: project.id,
+          projectCwd: project.workspaceRoot,
+          baseBranch,
+          prompt: text,
+          raceId,
+          entrants: entrants.map((entrant) => ({
+            provider: providers.find((item) => item.instanceId === entrant.instanceId)!,
             model: entrant.model,
-          };
-          const title = buildRaceEntrantTitle(
-            titleSeed,
-            `${raceProviderLabel(provider)} ${raceModelLabel(provider, entrant.model)}`,
-          );
-          return startTurn({
-            environmentId: project.environmentId,
-            input: {
-              threadId: newThreadId(),
-              message: { messageId: newMessageId(), role: "user", text, attachments: [] },
-              modelSelection,
-              // The bare seed differs from the suffixed title, so the server
-              // keeps "<seed> · <entrant>" instead of generating a new title.
-              titleSeed,
-              runtimeMode: DEFAULT_RUNTIME_MODE,
-              interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-              bootstrap: {
-                createThread: {
-                  projectId: project.id,
-                  title,
-                  modelSelection,
-                  runtimeMode: DEFAULT_RUNTIME_MODE,
-                  interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-                  branch: baseBranch,
-                  worktreePath: null,
-                  createdAt,
-                },
-                prepareWorktree: {
-                  projectCwd: project.workspaceRoot,
-                  baseBranch,
-                  branch: buildRaceBranchName({ raceId, slot: index + 1, count }),
-                },
-                runSetupScript: true,
-              },
-              createdAt,
-            },
-          });
-        }),
+          })),
+          createdAt,
+          newThreadId,
+          newMessageId,
+        }).map((turn) => startTurn(turn)),
       );
       const failures = results.filter((result) => result._tag === "Failure");
       if (failures.length === 0) {

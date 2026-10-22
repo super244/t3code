@@ -1,3 +1,5 @@
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=1m; seat=codex; date=2026-10-18 */
+/* agent-watermark: model=gpt-6.1-sol; effort=high; duration=125m; seat=codex; date=2026-10-14 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=9m; seat=codex; date=2026-10-10 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=29m; seat=codex; date=2026-10-09 */
 /* agent-watermark: model=gpt-6.1-sol; effort=high; duration=30m; seat=codex; date=2026-10-08 */
@@ -11,6 +13,7 @@ import {
   type RoutineDefinition,
   type RoutineRunReceipt,
   type RoutineTurnOutcome,
+  type RoutineClientMutation,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
@@ -54,6 +57,56 @@ export const ROUTINE_RUN_LABELS = {
   failed: "Failed",
 } as const;
 
+/** One exact, reviewable batch. The server resolves every entry under its settings lock. */
+export function makeRoutineBulkAction(
+  entries: ReadonlyArray<readonly [string, RoutineDefinition]>,
+  action: "pause" | "resume",
+) {
+  const selected = entries.filter(([, routine]) => routine.enabled === (action === "pause"));
+  if (selected.length > 100) throw new Error("Narrow the filter to at most 100 routine schedules.");
+  const routines: Record<string, RoutineClientMutation> = {};
+  for (const [id, routine] of selected) {
+    const {
+      name,
+      enabled,
+      cron,
+      timeZone,
+      projectId,
+      prompt,
+      modelSelection,
+      runtimeMode,
+      interactionMode,
+      catchUp,
+      overlapPolicy,
+      dailyLaunchLimit,
+    } = routine;
+    routines[id] = {
+      _tag: "RoutineAction",
+      action,
+      expected: {
+        name,
+        enabled,
+        cron,
+        timeZone,
+        projectId,
+        prompt,
+        modelSelection,
+        runtimeMode,
+        interactionMode,
+        ...(catchUp === undefined ? {} : { catchUp }),
+        ...(overlapPolicy === undefined ? {} : { overlapPolicy }),
+        ...(dailyLaunchLimit === undefined ? {} : { dailyLaunchLimit }),
+      },
+    };
+  }
+  return {
+    action,
+    routines,
+    names: selected.map(([, routine]) => routine.name),
+    count: selected.length,
+  };
+}
+
 export const ROUTINE_HISTORY_LABELS = {
   running: "Starting",
   launched: "Launched",
@@ -87,12 +140,28 @@ export function selectRoutineRuns(
   routine: RoutineDefinition,
   filter: RoutineHistoryFilter,
   outcome: RoutineOutcomeFilter = "all",
+  query = "",
 ) {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   return (routine.runHistory ?? []).filter(
     (receipt) =>
       (filter === "all" || receipt.status === filter) &&
       (outcome === "all" ||
-        (outcome === "unrecorded" ? !receipt.outcome : receipt.outcome?.status === outcome)),
+        (outcome === "unrecorded" ? !receipt.outcome : receipt.outcome?.status === outcome)) &&
+      terms.every((term) =>
+        [
+          receipt.id,
+          receipt.scheduledAt,
+          receipt.threadId,
+          receipt.projectId,
+          receipt.modelSelection.instanceId,
+          receipt.modelSelection.model,
+          receipt.error,
+          receipt.skipReason ? ROUTINE_SKIP_LABELS[receipt.skipReason] : "",
+          routineOutcomeLabel(receipt),
+          receipt.outcome?.reason,
+        ].some((value) => value?.toLowerCase().includes(term)),
+      ),
   );
 }
 
@@ -101,7 +170,14 @@ export function makeRoutineHistoryReport(input: {
   readonly routineId: string;
   readonly environmentId: string;
   readonly exportedAt: string;
+  readonly filter?: RoutineHistoryFilter;
+  readonly outcome?: RoutineOutcomeFilter;
+  readonly query?: string;
 }) {
+  const filter = input.filter ?? "all";
+  const outcome = input.outcome ?? "all";
+  const query = input.query?.trim() ?? "";
+  const receipts = selectRoutineRuns(input.routine, filter, outcome, query);
   return {
     format: "t3.routine-history/1" as const,
     exportedAt: input.exportedAt,
@@ -109,9 +185,12 @@ export function makeRoutineHistoryReport(input: {
     routineId: input.routineId,
     routineName: input.routine.name,
     retainedLimit: MAX_ROUTINE_RUN_HISTORY,
+    retainedCount: input.routine.runHistory?.length ?? 0,
+    matchingCount: receipts.length,
+    selection: { launch: filter, outcome, query },
     scope:
       "Retained scheduler occurrence receipts, newest first. Launch acknowledgement and first-turn outcome are separate. Outcomes quote durable session events and do not verify the task's correctness. Older launch-only receipts are not reconstructed.",
-    receipts: input.routine.runHistory ?? [],
+    receipts,
   };
 }
 
